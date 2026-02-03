@@ -20,6 +20,8 @@ jobs:
   release-pr-guard:
     name: Release PR Guard
     if: github.event_name == 'pull_request' && startsWith(github.base_ref, 'release-')
+    permissions:
+      pull-requests: write
     uses: tetherto/qvac-devops/.github/workflows/release-pr-guard.yml@monorepo_update
     secrets:
       github-token: ${{ secrets.GITHUB_TOKEN }}
