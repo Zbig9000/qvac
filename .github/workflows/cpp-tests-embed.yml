@@ -138,10 +138,11 @@ jobs:
 
       - if: ${{ matrix.os == 'windows-2022' }}
         name: Install Vulkan SDK on Windows
+        shell: powershell
         working-directory:  ${{ env.WORKDIR }}
         run: |
           $ProgressPreference = 'SilentlyContinue'
-          Invoke-WebRequest https://sdk.lunarg.com/sdk/download/latest/windows/vulkan-sdk.exe -OutFile vulkan-sdk.exe -PassThru
+          Invoke-WebRequest -Uri https://sdk.lunarg.com/sdk/download/latest/windows/vulkan-sdk.exe -OutFile vulkan-sdk.exe -PassThru
           ./vulkan-sdk.exe --root C:\VulkanSDK --accept-licenses --default-answer --confirm-command install
           echo "VULKAN_SDK=C:\VulkanSDK" >> $Env:GITHUB_ENV
 
@@ -149,9 +150,8 @@ jobs:
         name: Install vcpkg on macOS
         shell: bash
         run: |
-          cd ..
-          git clone --branch 2025.12.12 --single-branch https://github.com/microsoft/vcpkg.git
-          cd vcpkg && ./bootstrap-vcpkg.sh -disableMetrics
+          git clone --branch 2025.12.12 --single-branch https://github.com/microsoft/vcpkg.git vcpkg_microsoft
+          cd vcpkg_microsoft && ./bootstrap-vcpkg.sh -disableMetrics
           VCPKG_ROOT=$(pwd)
           echo "VCPKG_ROOT=$VCPKG_ROOT" >> $GITHUB_ENV
           echo "$VCPKG_ROOT" >> $GITHUB_PATH
