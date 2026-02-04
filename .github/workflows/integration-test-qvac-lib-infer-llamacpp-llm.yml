@@ -120,7 +120,8 @@ jobs:
           repository: ${{ inputs.repository || github.repository }}
           token: ${{ secrets.PAT_TOKEN }}
 
-      - name: Validate workdir exists
+      - name: Validate workdir exists (Linux/macOS)
+        if: ${{ matrix.platform != 'win32' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -130,6 +131,19 @@ jobs:
             echo "❌ workdir not found: ${PKG_DIR}"
             echo "Repo root listing:"
             ls -la
+            exit 1
+          }
+
+      - name: Validate workdir exists (Windows)
+        if: ${{ matrix.platform == 'win32' }}
+        shell: powershell
+        run: |
+          echo "WORKDIR=$env:WORKDIR"
+          echo "PKG_DIR=$env:PKG_DIR"
+          if (-not (Test-Path "$env:PKG_DIR")) {
+            echo "❌ workdir not found: $env:PKG_DIR"
+            echo "Repo root listing:"
+            Get-ChildItem
             exit 1
           }
 
