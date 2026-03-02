@@ -114,4 +114,4 @@ jobs:
           ./vulkan-sdk.exe --root C:\VulkanSDK --accept-licenses --default-answer --confirm-command install
           echo "VULKAN_SDK=C:\VulkanSDK" >> $Env:GITHUB_ENV
           vulkaninfoSDK.exe --summary
-=        timeout-minutes: 40
+        timeout-minutes: 40
