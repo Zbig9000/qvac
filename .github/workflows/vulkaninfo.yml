@@ -37,7 +37,7 @@ jobs:
         shell: powershell
         run: |
           # Download the latest x64 redistributable
-          $vcredistUrl  = https://aka.ms/vc14/vc_redist.x64.exe
+          $vcredistUrl  = "https://aka.ms/vc14/vc_redist.x64.exe"
           $vcInstaller = "$env:TEMP\vc_redist.x64.exe"
           Invoke-WebRequest -Uri $vcredistUrl -OutFile $vcInstaller
           Write-Host "Running silent install ..."
