@@ -17,13 +17,7 @@ jobs:
           Write-Host "Architecture: $($os.OSArchitecture)"
 
       - name: Install WinGet
-        shell: powershell
-        run: |
-          $progressPreference = 'silentlyContinue'
-          Write-Host "Installing WinGet PowerShell module from PSGallery..."
-          Install-PackageProvider -Name NuGet -Force | Out-Null
-          Install-Module -Name Microsoft.WinGet.Client -Force -Repository PSGallery | Out-Null
-          Write-Host "Done."
+        uses: kkaminsk/install-winget@v1.2.0
 
       - name: Install git for windows with WinGet
         shell: powershell
