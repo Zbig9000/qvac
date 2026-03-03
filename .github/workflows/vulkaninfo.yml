@@ -21,7 +21,7 @@ jobs:
 
       - name: Install git for windows with WinGet
         shell: powershell
-        run: winget install --id Git.Git -e --source winget --disable-interactivity --accept-package-agreements
+        run: winget install --id Git.Git -e --source winget --disable-interactivity --accept-package-agreements --custom '/o:PathOption=CmdTools'
             
       - name: Verify the newly installed Git version
         shell: powershell
