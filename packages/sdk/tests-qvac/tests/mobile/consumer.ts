@@ -333,6 +333,10 @@ function skipTests(testIds: string[], reason: string) {
   return new SkipExecutor(new RegExp(`^(${testIds.join("|")})$`), reason);
 }
 
+export async function bootstrap() {
+  await resources.downloadAllOnce(console.log);
+};
+
 export const executor = createExecutor({
   handlers: [
     // Mobile platform skips (before real executors -- first match wins)
