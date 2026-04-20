@@ -116,7 +116,10 @@ Before building, ensure you have the following installed:
    ```
 
 2. **Build tools** for your platform:
-   - **Linux**: `sudo apt install build-essential autoconf automake libtool pkg-config`
+   - **Linux**:
+     ```bash
+     sudo apt install clang libc++-dev libc++abi-dev build-essential autoconf automake libtool pkg-config
+     ```
    - **macOS**: Xcode command line tools
    - **Windows**: Visual Studio with C++ build tools
 
@@ -131,8 +134,8 @@ Before building, ensure you have the following installed:
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/tetherto/qvac-lib-infer-onnx-tts.git
-   cd qvac-lib-infer-onnx-tts
+   git clone https://github.com/tetherto/qvac
+   cd qvac/packages/qvac-lib-infer-onnx-tts
    ```
 
 2. **Install dependencies**:
