@@ -76,6 +76,7 @@ getTTSConfigMap(js_env_t *env, js::Object configurationParams) {
   addBool("lazySessionLoading");
   addBool("supertonicMultilingual");
   addString("numThreads");
+  addBool("kvCacheChaining");
 
   // LavaSR enhancement config
   addBool("enhance");

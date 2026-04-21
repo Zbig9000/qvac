@@ -122,6 +122,11 @@ qvac::ttslib::chatterbox::ChatterboxConfig TTSModel::createChatterboxConfig(
     }
   }
 
+  auto chainIt = configMap.find("kvCacheChaining");
+  if (chainIt != configMap.end()) {
+    config.kvCacheChaining = chainIt->second == "true";
+  }
+
   std::stringstream ss;
   ss << "Chatterbox config values: language='" << config.language << "'"
      << "' referenceAudio.size()=" << config.referenceAudio.size()

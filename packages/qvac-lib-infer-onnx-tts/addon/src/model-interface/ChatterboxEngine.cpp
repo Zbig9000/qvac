@@ -408,6 +408,9 @@ void ChatterboxEngine::unload() {
   config_ = {};
   language_ = "";
   loaded_ = false;
+  if (languageModelSession_) {
+    languageModelSession_->clearChainedInputs();
+  }
   speechEncoderSession_.reset();
   embedTokensSession_.reset();
   conditionalDecoderSession_.reset();
@@ -574,10 +577,33 @@ void ChatterboxEngine::writeKvToTensors(
     const std::unordered_map<std::string, TensorData<float>> &pastKeyValues) {
   const auto &inputNames = languageModelSession_->getInputNames();
   for (size_t i = keyValueOffset_; i < inputNames.size(); i++) {
+    if (languageModelSession_->isInputChained(inputNames[i])) {
+      continue;
+    }
     OrtTensor tensor = languageModelSession_->getInput(inputNames[i]);
     const auto &kvData = pastKeyValues.at(inputNames[i]).data;
     writeFloatDataToTensor(tensor, kvData.data(), kvData.size());
   }
+}
+
+void ChatterboxEngine::enableKvCacheChaining() {
+  const auto &inputNames = languageModelSession_->getInputNames();
+  const auto &outputNames = languageModelSession_->getOutputNames();
+
+  std::vector<std::pair<std::string, std::string>> mapping;
+  mapping.reserve(inputNames.size() - keyValueOffset_);
+
+  for (size_t i = keyValueOffset_; i < inputNames.size(); i++) {
+    // Layout: inputs[keyValueOffset_..] map 1:1 onto outputs[1..] (outputs[0]
+    // is `logits`). That parallels `cachePastKeyValues`.
+    const size_t outIdx = i - keyValueOffset_ + 1;
+    if (outIdx >= outputNames.size()) {
+      break;
+    }
+    mapping.emplace_back(outputNames[outIdx], inputNames[i]);
+  }
+
+  languageModelSession_->setOutputToInputChain(mapping);
 }
 
 int64_t
@@ -607,11 +633,16 @@ void ChatterboxEngine::advancePositionIds(TensorData<int64_t> &positionIds,
 
 void ChatterboxEngine::cachePastKeyValues(
     std::unordered_map<std::string, TensorData<float>> &pastKeyValues) {
-  for (size_t i = keyValueOffset_;
-       i < languageModelSession_->getInputNames().size(); i++) {
-    const std::string inputName = languageModelSession_->getInputNames()[i];
-    const std::string outputName =
-        languageModelSession_->getOutputNames()[i - keyValueOffset_ + 1];
+  const auto &inputNames = languageModelSession_->getInputNames();
+  const auto &outputNames = languageModelSession_->getOutputNames();
+  for (size_t i = keyValueOffset_; i < inputNames.size(); i++) {
+    if (languageModelSession_->isInputChained(inputNames[i])) {
+      // Chaining already moved the `present.*` output into the matching
+      // `past_key_values.*` input for the next run(); no copy required.
+      continue;
+    }
+    const std::string &inputName = inputNames[i];
+    const std::string &outputName = outputNames[i - keyValueOffset_ + 1];
     OrtTensor outputTensor = languageModelSession_->getOutput(outputName);
 
     const int64_t numElements = getNumElements(outputTensor);
@@ -666,6 +697,10 @@ std::vector<int64_t> ChatterboxEngine::generateSpeechTokens(
     std::vector<int64_t> &inputIds, TensorData<int64_t> &positionIds,
     TensorData<float> &speakerEmbeddings, TensorData<float> &speakerFeatures) {
 
+  if (config_.kvCacheChaining) {
+    enableKvCacheChaining();
+  }
+
   TensorData<int64_t> promptToken;
   TensorData<int64_t> attentionMask;
   std::unordered_map<std::string, TensorData<float>> pastKeyValues;
@@ -674,6 +709,10 @@ std::vector<int64_t> ChatterboxEngine::generateSpeechTokens(
   runGenerationLoop(inputIds, positionIds, attentionMask, pastKeyValues,
                     promptToken, speakerEmbeddings, speakerFeatures,
                     generatedTokens);
+
+  if (config_.kvCacheChaining) {
+    languageModelSession_->clearChainedInputs();
+  }
 
   releaseSession(embedTokensSession_);
   releaseSession(languageModelSession_);
@@ -1201,6 +1240,10 @@ std::vector<int64_t> ChatterboxEngine::generateSpeechTokensWithCfg(
   attentionMask.data.resize(seqLen, 1);
   attentionMask.shape = {1, seqLen};
 
+  if (config_.kvCacheChaining) {
+    enableKvCacheChaining();
+  }
+
   std::unordered_map<std::string, TensorData<float>> batchedKv =
       initEmptyKvCache(2);
 
@@ -1213,6 +1256,10 @@ std::vector<int64_t> ChatterboxEngine::generateSpeechTokensWithCfg(
 
   QLOG(Priority::INFO,
        "CFG generated " + std::to_string(generatedTokens.size()) + " tokens");
+
+  if (config_.kvCacheChaining) {
+    languageModelSession_->clearChainedInputs();
+  }
 
   releaseSession(embedTokensSession_);
   releaseSession(languageModelSession_);

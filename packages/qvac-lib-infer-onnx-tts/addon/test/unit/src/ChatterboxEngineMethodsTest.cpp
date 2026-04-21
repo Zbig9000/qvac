@@ -1,7 +1,11 @@
+#include "mocks/OnnxInferSessionMock.hpp"
 #include "src/model-interface/ChatterboxEngine.hpp"
 #include "src/model-interface/Fp16Utils.hpp"
 #include <cmath>
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <memory>
+#include <utility>
 
 namespace qvac::ttslib::chatterbox::testing {
 
@@ -11,13 +15,22 @@ public:
 
   void setEnglish(bool value) { isEnglish_ = value; }
 
+  void setKeyValueOffset(int offset) { keyValueOffset_ = offset; }
+
+  void setLanguageModelSession(std::unique_ptr<IOnnxInferSession> session) {
+    languageModelSession_ = std::move(session);
+  }
+
   using ChatterboxEngine::advancePositionIds;
   using ChatterboxEngine::assembleSpeechTokenSequence;
   using ChatterboxEngine::buildInitialPositionIds;
+  using ChatterboxEngine::cachePastKeyValues;
   using ChatterboxEngine::clearSpeechEncoderCache;
   using ChatterboxEngine::convertToAudioResult;
+  using ChatterboxEngine::enableKvCacheChaining;
   using ChatterboxEngine::hasSpeechEncoderCache;
   using ChatterboxEngine::selectNextToken;
+  using ChatterboxEngine::writeKvToTensors;
 
   SpeechEncoderCache &getMutableCache() { return speechEncoderCache_; }
 };
@@ -370,6 +383,153 @@ TEST_F(TensorOpsDuplicateBatchTest, preservesEmptyPastSequence) {
 
   EXPECT_EQ(result.shape, (std::vector<int64_t>{2, 16, 0, 64}));
   EXPECT_TRUE(result.data.empty());
+}
+
+class KvCacheChainingTest : public ::testing::Test {
+protected:
+  // English layout: 3 non-KV inputs, then past_key_values.i pairs.
+  // Outputs: logits, then present.i pairs.
+  std::vector<std::string> englishInputNames_{
+      "inputs_embeds",
+      "attention_mask",
+      "position_ids",
+      "past_key_values.0.key",
+      "past_key_values.0.value",
+      "past_key_values.1.key",
+      "past_key_values.1.value",
+  };
+  std::vector<std::string> englishOutputNames_{
+      "logits",        "present.0.key",   "present.0.value",
+      "present.1.key", "present.1.value",
+  };
+
+  // Multilingual layout: 2 non-KV inputs.
+  std::vector<std::string> multilingualInputNames_{
+      "inputs_embeds",
+      "attention_mask",
+      "past_key_values.0.key",
+      "past_key_values.0.value",
+  };
+  std::vector<std::string> multilingualOutputNames_{
+      "logits",
+      "present.0.key",
+      "present.0.value",
+  };
+
+  TestableChatterboxEngine engine_;
+};
+
+TEST_F(KvCacheChainingTest, enableBuildsPresentToPastMappingForEnglish) {
+  auto mock = std::make_unique<::testing::NiceMock<OnnxInferSessionMock>>();
+  EXPECT_CALL(*mock, getInputNames())
+      .WillRepeatedly(::testing::Return(englishInputNames_));
+  EXPECT_CALL(*mock, getOutputNames())
+      .WillRepeatedly(::testing::Return(englishOutputNames_));
+
+  std::vector<std::pair<std::string, std::string>> expectedMapping = {
+      {"present.0.key", "past_key_values.0.key"},
+      {"present.0.value", "past_key_values.0.value"},
+      {"present.1.key", "past_key_values.1.key"},
+      {"present.1.value", "past_key_values.1.value"},
+  };
+  EXPECT_CALL(*mock, setOutputToInputChain(::testing::Eq(expectedMapping)))
+      .Times(1);
+
+  engine_.setKeyValueOffset(3);
+  engine_.setLanguageModelSession(std::move(mock));
+  engine_.enableKvCacheChaining();
+}
+
+TEST_F(KvCacheChainingTest, enableBuildsPresentToPastMappingForMultilingual) {
+  auto mock = std::make_unique<::testing::NiceMock<OnnxInferSessionMock>>();
+  EXPECT_CALL(*mock, getInputNames())
+      .WillRepeatedly(::testing::Return(multilingualInputNames_));
+  EXPECT_CALL(*mock, getOutputNames())
+      .WillRepeatedly(::testing::Return(multilingualOutputNames_));
+
+  std::vector<std::pair<std::string, std::string>> expectedMapping = {
+      {"present.0.key", "past_key_values.0.key"},
+      {"present.0.value", "past_key_values.0.value"},
+  };
+  EXPECT_CALL(*mock, setOutputToInputChain(::testing::Eq(expectedMapping)))
+      .Times(1);
+
+  engine_.setKeyValueOffset(2);
+  engine_.setLanguageModelSession(std::move(mock));
+  engine_.enableKvCacheChaining();
+}
+
+TEST_F(KvCacheChainingTest, enableStopsIfOutputsAreShorterThanKvInputs) {
+  // Pathological case: 4 KV inputs but the model only exposes 3 outputs
+  // (logits + 2 present tensors). The loop must break rather than read past
+  // the end of outputNames.
+  std::vector<std::string> truncatedOutputs{
+      "logits",
+      "present.0.key",
+      "present.0.value",
+  };
+
+  auto mock = std::make_unique<::testing::NiceMock<OnnxInferSessionMock>>();
+  EXPECT_CALL(*mock, getInputNames())
+      .WillRepeatedly(::testing::Return(englishInputNames_));
+  EXPECT_CALL(*mock, getOutputNames())
+      .WillRepeatedly(::testing::Return(truncatedOutputs));
+
+  std::vector<std::pair<std::string, std::string>> expectedMapping = {
+      {"present.0.key", "past_key_values.0.key"},
+      {"present.0.value", "past_key_values.0.value"},
+  };
+  EXPECT_CALL(*mock, setOutputToInputChain(::testing::Eq(expectedMapping)))
+      .Times(1);
+
+  engine_.setKeyValueOffset(3);
+  engine_.setLanguageModelSession(std::move(mock));
+  engine_.enableKvCacheChaining();
+}
+
+TEST_F(KvCacheChainingTest, writeKvToTensorsSkipsAllChainedInputs) {
+  auto mock = std::make_unique<::testing::NiceMock<OnnxInferSessionMock>>();
+  EXPECT_CALL(*mock, getInputNames())
+      .WillRepeatedly(::testing::Return(englishInputNames_));
+  EXPECT_CALL(*mock, isInputChained(::testing::_))
+      .WillRepeatedly(::testing::Return(true));
+
+  // When every KV input is chained, no input tensor is fetched and no
+  // float data is written.
+  EXPECT_CALL(*mock, getInput(::testing::_)).Times(0);
+
+  std::unordered_map<std::string, TensorData<float>> pastKeyValues;
+  pastKeyValues["past_key_values.0.key"].data = {1.0f};
+  pastKeyValues["past_key_values.0.value"].data = {1.0f};
+  pastKeyValues["past_key_values.1.key"].data = {1.0f};
+  pastKeyValues["past_key_values.1.value"].data = {1.0f};
+
+  engine_.setKeyValueOffset(3);
+  engine_.setLanguageModelSession(std::move(mock));
+  engine_.writeKvToTensors(pastKeyValues);
+}
+
+TEST_F(KvCacheChainingTest, cachePastKeyValuesSkipsAllChainedInputs) {
+  auto mock = std::make_unique<::testing::NiceMock<OnnxInferSessionMock>>();
+  EXPECT_CALL(*mock, getInputNames())
+      .WillRepeatedly(::testing::Return(englishInputNames_));
+  EXPECT_CALL(*mock, getOutputNames())
+      .WillRepeatedly(::testing::Return(englishOutputNames_));
+  EXPECT_CALL(*mock, isInputChained(::testing::_))
+      .WillRepeatedly(::testing::Return(true));
+
+  // When every KV input is chained, no output tensor is fetched (the chain
+  // already moved it into the next-step input slot) and the pastKeyValues
+  // map is left untouched.
+  EXPECT_CALL(*mock, getOutput(::testing::_)).Times(0);
+
+  std::unordered_map<std::string, TensorData<float>> pastKeyValues;
+
+  engine_.setKeyValueOffset(3);
+  engine_.setLanguageModelSession(std::move(mock));
+  engine_.cachePastKeyValues(pastKeyValues);
+
+  EXPECT_TRUE(pastKeyValues.empty());
 }
 
 } // namespace qvac::ttslib::chatterbox::testing
