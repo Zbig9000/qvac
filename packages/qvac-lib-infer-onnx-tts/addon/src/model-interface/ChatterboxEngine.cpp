@@ -382,6 +382,12 @@ void ChatterboxEngine::load(const ChatterboxConfig &cfg) {
   QLOG(Priority::INFO, "Language: " + language_);
 
   keyValueOffset_ = isEnglish_ ? OFFSET : OFFSET_MULTILINGUAL;
+
+  // Speech-encoder output only depends on the reference audio supplied to
+  // load(), so we pre-compute it here instead of on first synthesize(). This
+  // keeps every synthesize() call at the same cost (no one-off ~2.7s penalty
+  // on the first call) and means subsequent calls just reuse the cache.
+  runSpeechEncoderAndCache();
 }
 
 void ChatterboxEngine::ensureSession(
@@ -506,11 +512,7 @@ void ChatterboxEngine::processSpeechEncoderOutputs(
     TensorData<int64_t> &positionIds, TensorData<int64_t> &attentionMask,
     std::unordered_map<std::string, TensorData<float>> &pastKeyValues) {
 
-  if (!hasSpeechEncoderCache()) {
-    runSpeechEncoderAndCache();
-  } else {
-    QLOG(Priority::INFO, "Using cached speech encoder outputs");
-  }
+  QLOG(Priority::INFO, "Using cached speech encoder outputs");
 
   const auto &cache = speechEncoderCache_;
 
@@ -740,9 +742,6 @@ AudioResult ChatterboxEngine::synthesize(const std::string &text) {
   auto synthStart = std::chrono::high_resolution_clock::now();
 
   ensureSession(embedTokensSession_, config_.embedTokensPath);
-  if (!hasSpeechEncoderCache()) {
-    ensureSession(speechEncoderSession_, config_.speechEncoderPath);
-  }
   ensureSession(languageModelSession_, config_.languageModelPath);
 
   bool shouldBeEnglish = lang_mode::shouldUseEnglishMode(
@@ -1022,11 +1021,7 @@ void ChatterboxEngine::prepareCfgEmbeddings(
   condEmbs = extractEmbeddings(inputIds, positionIds);
   uncondEmbs = createUnconditionalEmbeddings(condEmbs, inputIds);
 
-  if (!hasSpeechEncoderCache()) {
-    runSpeechEncoderAndCache();
-  } else {
-    QLOG(Priority::INFO, "Using cached speech encoder outputs (CFG)");
-  }
+  QLOG(Priority::INFO, "Using cached speech encoder outputs (CFG)");
 
   const auto &cache = speechEncoderCache_;
 
