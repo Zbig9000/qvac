@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.8.5]
 
 Performance improvements for the Chatterbox TTS pipeline: reference-audio encoding is done once during `load()` and cached for every `synthesize()` call, the CFG multilingual path runs with a single batched KV cache instead of two separate sessions, and the ONNX Runtime intra-op thread count is now configurable at construction time. On a 4-core CPU the English q4 model drops from RTF ≈ 20.9 to ≈ 15.7 (~25% faster), and every `synthesize()` call sees the same per-call cost — no more first-call penalty.
 
