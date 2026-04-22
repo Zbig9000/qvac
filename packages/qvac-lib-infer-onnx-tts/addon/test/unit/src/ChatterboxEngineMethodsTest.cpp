@@ -532,4 +532,30 @@ TEST_F(KvCacheChainingTest, cachePastKeyValuesSkipsAllChainedInputs) {
   EXPECT_TRUE(pastKeyValues.empty());
 }
 
+TEST_F(KvCacheChainingTest, enableCalledTwiceResetsPreviousMapping) {
+  // Two back-to-back enableKvCacheChaining() calls (e.g. across two
+  // synthesize() calls on the same engine) must each produce a fresh mapping
+  // and never pile up on top of the previous one.
+  auto mock = std::make_unique<::testing::NiceMock<OnnxInferSessionMock>>();
+  EXPECT_CALL(*mock, getInputNames())
+      .WillRepeatedly(::testing::Return(englishInputNames_));
+  EXPECT_CALL(*mock, getOutputNames())
+      .WillRepeatedly(::testing::Return(englishOutputNames_));
+
+  std::vector<std::pair<std::string, std::string>> expectedMapping = {
+      {"present.0.key", "past_key_values.0.key"},
+      {"present.0.value", "past_key_values.0.value"},
+      {"present.1.key", "past_key_values.1.key"},
+      {"present.1.value", "past_key_values.1.value"},
+  };
+  // Expect the same mapping twice and nothing more.
+  EXPECT_CALL(*mock, setOutputToInputChain(::testing::Eq(expectedMapping)))
+      .Times(2);
+
+  engine_.setKeyValueOffset(3);
+  engine_.setLanguageModelSession(std::move(mock));
+  engine_.enableKvCacheChaining();
+  engine_.enableKvCacheChaining();
+}
+
 } // namespace qvac::ttslib::chatterbox::testing

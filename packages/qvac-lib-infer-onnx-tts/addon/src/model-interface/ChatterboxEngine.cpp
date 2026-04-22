@@ -710,9 +710,7 @@ std::vector<int64_t> ChatterboxEngine::generateSpeechTokens(
                     promptToken, speakerEmbeddings, speakerFeatures,
                     generatedTokens);
 
-  if (config_.kvCacheChaining) {
-    languageModelSession_->clearChainedInputs();
-  }
+  languageModelSession_->clearChainedInputs();
 
   releaseSession(embedTokensSession_);
   releaseSession(languageModelSession_);
@@ -1257,9 +1255,7 @@ std::vector<int64_t> ChatterboxEngine::generateSpeechTokensWithCfg(
   QLOG(Priority::INFO,
        "CFG generated " + std::to_string(generatedTokens.size()) + " tokens");
 
-  if (config_.kvCacheChaining) {
-    languageModelSession_->clearChainedInputs();
-  }
+  languageModelSession_->clearChainedInputs();
 
   releaseSession(embedTokensSession_);
   releaseSession(languageModelSession_);

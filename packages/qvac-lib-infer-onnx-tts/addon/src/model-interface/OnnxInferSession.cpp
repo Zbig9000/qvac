@@ -254,6 +254,19 @@ void OnnxInferSession::initInputTensors(
 
 void OnnxInferSession::setOutputToInputChain(
     const std::vector<std::pair<std::string, std::string>> &mapping) {
+  // Validate up front so a bad mapping is surfaced at configuration time
+  // instead of deep inside the autoregressive loop at run().
+  for (const auto &[outputName, inputName] : mapping) {
+    if (outputIndexByName_.find(outputName) == outputIndexByName_.end()) {
+      throw std::runtime_error(
+          "setOutputToInputChain: unknown output '" + outputName + "'");
+    }
+    if (inputIndexByName_.find(inputName) == inputIndexByName_.end()) {
+      throw std::runtime_error(
+          "setOutputToInputChain: unknown input '" + inputName + "'");
+    }
+  }
+
   // Full reset: preserve-names start empty and are only populated once an
   // actual output value has been moved into the input slot (see
   // moveChainedOutputsIntoInputs).

@@ -30,6 +30,8 @@ public:
   // copying its data. Matching inputs are preserved across initInputTensors()
   // calls (their shapes/data pointers follow the moved tensor). Call once per
   // generation; use clearChainedInputs() to release state between generations.
+  // Throws std::runtime_error if any name in `mapping` is not a known input
+  // or output of the session.
   virtual void setOutputToInputChain(
       const std::vector<std::pair<std::string, std::string>> &mapping) = 0;
 
