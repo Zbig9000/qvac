@@ -684,7 +684,7 @@ class ONNXTTS {
         useGPU: this._config?.useGPU || false,
         lazySessionLoading: this._lazySessionLoading,
         numThreads: String(this._numThreads || 0),
-        kvCacheChaining: this._kvCacheChaining !== false
+        kvCacheChaining: this._kvCacheChaining
       }
       if (this._referenceAudio != null) {
         ttsParams.referenceAudio = this._referenceAudio
@@ -955,7 +955,7 @@ class ONNXTTS {
         useGPU: this._config?.useGPU || false,
         lazySessionLoading: this._lazySessionLoading,
         numThreads: String(this._numThreads || 0),
-        kvCacheChaining: this._kvCacheChaining !== false
+        kvCacheChaining: this._kvCacheChaining
       }
       if (this._referenceAudio != null) {
         ttsParams.referenceAudio = this._referenceAudio

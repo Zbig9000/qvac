@@ -13,6 +13,7 @@
 #include <fstream>
 #include <numeric>
 #include <sstream>
+#include <unordered_set>
 
 using namespace qvac_lib_inference_addon_cpp::logger;
 
@@ -408,9 +409,9 @@ void ChatterboxEngine::unload() {
   config_ = {};
   language_ = "";
   loaded_ = false;
-  if (languageModelSession_) {
-    languageModelSession_->clearChainedInputs();
-  }
+  // No need to pre-clear chained inputs here: the Ort::Value destructors
+  // fired by `languageModelSession_.reset()` release the chained tensor
+  // storage along with everything else the session owns.
   speechEncoderSession_.reset();
   embedTokensSession_.reset();
   conditionalDecoderSession_.reset();
@@ -587,20 +588,33 @@ void ChatterboxEngine::writeKvToTensors(
 }
 
 void ChatterboxEngine::enableKvCacheChaining() {
+  // Match `past_key_values.<layer>.<key|value>` inputs to `present.<...>`
+  // outputs by NAME rather than position. An index-based pairing would
+  // silently mis-wire the chain if a future ONNX export reorders inputs or
+  // outputs; a name-based pairing fails closed (unmatched inputs are simply
+  // skipped, matched pairs are always semantically correct).
   const auto &inputNames = languageModelSession_->getInputNames();
   const auto &outputNames = languageModelSession_->getOutputNames();
+
+  std::unordered_set<std::string> outputSet(outputNames.begin(),
+                                            outputNames.end());
+
+  static const std::string kPastPrefix = "past_key_values.";
+  static const std::string kPresentPrefix = "present.";
 
   std::vector<std::pair<std::string, std::string>> mapping;
   mapping.reserve(inputNames.size() - keyValueOffset_);
 
   for (size_t i = keyValueOffset_; i < inputNames.size(); i++) {
-    // Layout: inputs[keyValueOffset_..] map 1:1 onto outputs[1..] (outputs[0]
-    // is `logits`). That parallels `cachePastKeyValues`.
-    const size_t outIdx = i - keyValueOffset_ + 1;
-    if (outIdx >= outputNames.size()) {
-      break;
+    const std::string &inName = inputNames[i];
+    if (inName.compare(0, kPastPrefix.size(), kPastPrefix) != 0) {
+      continue;
     }
-    mapping.emplace_back(outputNames[outIdx], inputNames[i]);
+    std::string outName = kPresentPrefix + inName.substr(kPastPrefix.size());
+    if (outputSet.count(outName) == 0) {
+      continue;
+    }
+    mapping.emplace_back(std::move(outName), inName);
   }
 
   languageModelSession_->setOutputToInputChain(mapping);

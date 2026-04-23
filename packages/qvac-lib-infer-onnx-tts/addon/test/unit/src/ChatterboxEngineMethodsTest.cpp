@@ -459,10 +459,11 @@ TEST_F(KvCacheChainingTest, enableBuildsPresentToPastMappingForMultilingual) {
   engine_.enableKvCacheChaining();
 }
 
-TEST_F(KvCacheChainingTest, enableStopsIfOutputsAreShorterThanKvInputs) {
-  // Pathological case: 4 KV inputs but the model only exposes 3 outputs
-  // (logits + 2 present tensors). The loop must break rather than read past
-  // the end of outputNames.
+TEST_F(KvCacheChainingTest, enableSkipsKvInputsWithoutMatchingPresentOutput) {
+  // Pathological case: 4 `past_key_values.*` inputs but the model only
+  // exposes `present.*` outputs for layer 0. Name-based matching must emit
+  // pairs only for inputs whose corresponding `present.*` output exists and
+  // silently drop the rest — never read past the end of the output list.
   std::vector<std::string> truncatedOutputs{
       "logits",
       "present.0.key",
@@ -474,6 +475,73 @@ TEST_F(KvCacheChainingTest, enableStopsIfOutputsAreShorterThanKvInputs) {
       .WillRepeatedly(::testing::Return(englishInputNames_));
   EXPECT_CALL(*mock, getOutputNames())
       .WillRepeatedly(::testing::Return(truncatedOutputs));
+
+  std::vector<std::pair<std::string, std::string>> expectedMapping = {
+      {"present.0.key", "past_key_values.0.key"},
+      {"present.0.value", "past_key_values.0.value"},
+  };
+  EXPECT_CALL(*mock, setOutputToInputChain(::testing::Eq(expectedMapping)))
+      .Times(1);
+
+  engine_.setKeyValueOffset(3);
+  engine_.setLanguageModelSession(std::move(mock));
+  engine_.enableKvCacheChaining();
+}
+
+TEST_F(KvCacheChainingTest, enablePairsByNameIndependentOfOutputOrder) {
+  // The ONNX export is not required to list `present.*` outputs in the same
+  // order as `past_key_values.*` inputs. Name-based pairing must survive a
+  // scrambled output list: `past_key_values.X.Y` always pairs with
+  // `present.X.Y`, regardless of where each sits in the metadata vectors.
+  std::vector<std::string> scrambledOutputs{
+      "logits",
+      "present.1.value",
+      "present.0.key",
+      "present.1.key",
+      "present.0.value",
+  };
+
+  auto mock = std::make_unique<::testing::NiceMock<OnnxInferSessionMock>>();
+  EXPECT_CALL(*mock, getInputNames())
+      .WillRepeatedly(::testing::Return(englishInputNames_));
+  EXPECT_CALL(*mock, getOutputNames())
+      .WillRepeatedly(::testing::Return(scrambledOutputs));
+
+  // The mapping is still keyed on input order (which is `past_key_values.0.*`
+  // then `past_key_values.1.*`) but each entry's output name is resolved by
+  // name substitution, NOT by position in `scrambledOutputs`.
+  std::vector<std::pair<std::string, std::string>> expectedMapping = {
+      {"present.0.key", "past_key_values.0.key"},
+      {"present.0.value", "past_key_values.0.value"},
+      {"present.1.key", "past_key_values.1.key"},
+      {"present.1.value", "past_key_values.1.value"},
+  };
+  EXPECT_CALL(*mock, setOutputToInputChain(::testing::Eq(expectedMapping)))
+      .Times(1);
+
+  engine_.setKeyValueOffset(3);
+  engine_.setLanguageModelSession(std::move(mock));
+  engine_.enableKvCacheChaining();
+}
+
+TEST_F(KvCacheChainingTest, enableSkipsInputsThatAreNotPastKeyValues) {
+  // Any extra KV-offset input that doesn't carry the `past_key_values.`
+  // prefix (e.g. a future auxiliary tensor) must be skipped, not mis-wired
+  // into `present.<whatever>`. Pair only real `past_key_values.*` entries.
+  std::vector<std::string> inputsWithExtra{
+      "inputs_embeds",
+      "attention_mask",
+      "position_ids",
+      "past_key_values.0.key",
+      "past_key_values.0.value",
+      "auxiliary_state", // non-KV but sits in the KV-offset region
+  };
+
+  auto mock = std::make_unique<::testing::NiceMock<OnnxInferSessionMock>>();
+  EXPECT_CALL(*mock, getInputNames())
+      .WillRepeatedly(::testing::Return(inputsWithExtra));
+  EXPECT_CALL(*mock, getOutputNames())
+      .WillRepeatedly(::testing::Return(englishOutputNames_));
 
   std::vector<std::pair<std::string, std::string>> expectedMapping = {
       {"present.0.key", "past_key_values.0.key"},

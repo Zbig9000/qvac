@@ -279,7 +279,15 @@ void OnnxInferSession::clearChainedInputs() {
     for (size_t i = 0; i < inputNames_.size() && i < inputTensorsValues_.size();
          i++) {
       if (chainedInputNames_.count(inputNames_[i])) {
+        // Release the backing Ort::Value AND null out the matching OrtTensor
+        // in lockstep so `getInput(name)` never hands out a pointer into the
+        // destructed allocation (inputTensors_[i].data became dangling the
+        // moment the Ort::Value was reset). Callers must `initInputTensors()`
+        // before re-using this slot.
         inputTensorsValues_[i] = Ort::Value(nullptr);
+        if (i < inputTensors_.size()) {
+          inputTensors_[i] = OrtTensor{};
+        }
       }
     }
   }
