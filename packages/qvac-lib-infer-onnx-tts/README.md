@@ -255,7 +255,6 @@ The `args` obj contains the following properties:
 * `languageModelPath`: Path to the language model ONNX model.
 * `referenceAudio`: Float32Array of reference audio samples for voice cloning. See [Reference Audio Guidelines](#reference-audio-guidelines) below.
 * `lazySessionLoading`: (optional) Boolean to defer ONNX session creation until first use. Defaults to `true` on iOS and Android, `false` on all other platforms.
-* `kvCacheChaining`: (optional) Boolean, default `true`. Chains `present.*` language-model outputs back into the matching `past_key_values.*` inputs after every `run()`, skipping the per-step KV copy. Set to `false` to opt out (e.g. for A/B benchmarking or an emergency disable).
 
 #### Reference Audio Guidelines
 

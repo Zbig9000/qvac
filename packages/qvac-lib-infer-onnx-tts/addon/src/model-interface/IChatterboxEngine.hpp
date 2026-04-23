@@ -19,11 +19,6 @@ struct ChatterboxConfig {
   bool lazySessionLoading = false;
   bool useGPU = false;
   int numThreads = 0;
-  // Chain `present.*` outputs back into the matching `past_key_values.*`
-  // inputs on the language-model session after every run(), skipping the
-  // per-step copy. Default ON; exposed mainly so benchmarks can toggle the
-  // optimization for A/B measurement.
-  bool kvCacheChaining = true;
 };
 
 class IChatterboxEngine {

@@ -115,13 +115,6 @@ declare interface ONNXTTSOptions {
    * (e.g. `4` yields ~25% lower RTF on a 4-core machine).
    */
   numThreads?: number
-  /**
-   * Chatterbox: chain `present.*` language-model outputs back into the
-   * matching `past_key_values.*` inputs after every `run()`, skipping the
-   * per-step KV copy. Default `true`. Set `false` to opt out (e.g. for
-   * benchmarking or an emergency disable).
-   */
-  kvCacheChaining?: boolean
   opts?: object
   exclusiveRun?: boolean
 }

@@ -711,9 +711,7 @@ std::vector<int64_t> ChatterboxEngine::generateSpeechTokens(
     std::vector<int64_t> &inputIds, TensorData<int64_t> &positionIds,
     TensorData<float> &speakerEmbeddings, TensorData<float> &speakerFeatures) {
 
-  if (config_.kvCacheChaining) {
-    enableKvCacheChaining();
-  }
+  enableKvCacheChaining();
 
   TensorData<int64_t> promptToken;
   TensorData<int64_t> attentionMask;
@@ -1252,9 +1250,7 @@ std::vector<int64_t> ChatterboxEngine::generateSpeechTokensWithCfg(
   attentionMask.data.resize(seqLen, 1);
   attentionMask.shape = {1, seqLen};
 
-  if (config_.kvCacheChaining) {
-    enableKvCacheChaining();
-  }
+  enableKvCacheChaining();
 
   std::unordered_map<std::string, TensorData<float>> batchedKv =
       initEmptyKvCache(2);

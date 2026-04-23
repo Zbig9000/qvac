@@ -143,7 +143,6 @@ class ONNXTTS {
       numInferenceSteps,
       supertonicMultilingual,
       numThreads,
-      kvCacheChaining,
       opts,
       exclusiveRun
     } = options
@@ -244,7 +243,6 @@ class ONNXTTS {
       }
       this._referenceAudio = referenceAudio
       this._numThreads = numThreads != null ? numThreads : 0
-      this._kvCacheChaining = kvCacheChaining !== false
     } else {
       this._modelDir = normalizedFiles.modelDir
       this._voiceName = voiceName ?? 'F1'
@@ -683,8 +681,7 @@ class ONNXTTS {
         language: this._config?.language || 'en',
         useGPU: this._config?.useGPU || false,
         lazySessionLoading: this._lazySessionLoading,
-        numThreads: String(this._numThreads || 0),
-        kvCacheChaining: this._kvCacheChaining
+        numThreads: String(this._numThreads || 0)
       }
       if (this._referenceAudio != null) {
         ttsParams.referenceAudio = this._referenceAudio
@@ -954,8 +951,7 @@ class ONNXTTS {
         language: this._config?.language || 'en',
         useGPU: this._config?.useGPU || false,
         lazySessionLoading: this._lazySessionLoading,
-        numThreads: String(this._numThreads || 0),
-        kvCacheChaining: this._kvCacheChaining
+        numThreads: String(this._numThreads || 0)
       }
       if (this._referenceAudio != null) {
         ttsParams.referenceAudio = this._referenceAudio
