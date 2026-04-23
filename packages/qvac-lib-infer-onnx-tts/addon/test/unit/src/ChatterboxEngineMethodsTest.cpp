@@ -494,11 +494,8 @@ TEST_F(KvCacheChainingTest, enablePairsByNameIndependentOfOutputOrder) {
   // scrambled output list: `past_key_values.X.Y` always pairs with
   // `present.X.Y`, regardless of where each sits in the metadata vectors.
   std::vector<std::string> scrambledOutputs{
-      "logits",
-      "present.1.value",
-      "present.0.key",
-      "present.1.key",
-      "present.0.value",
+      "logits",        "present.1.value", "present.0.key",
+      "present.1.key", "present.0.value",
   };
 
   auto mock = std::make_unique<::testing::NiceMock<OnnxInferSessionMock>>();
@@ -529,11 +526,8 @@ TEST_F(KvCacheChainingTest, enableSkipsInputsThatAreNotPastKeyValues) {
   // prefix (e.g. a future auxiliary tensor) must be skipped, not mis-wired
   // into `present.<whatever>`. Pair only real `past_key_values.*` entries.
   std::vector<std::string> inputsWithExtra{
-      "inputs_embeds",
-      "attention_mask",
-      "position_ids",
-      "past_key_values.0.key",
-      "past_key_values.0.value",
+      "inputs_embeds",         "attention_mask",          "position_ids",
+      "past_key_values.0.key", "past_key_values.0.value",
       "auxiliary_state", // non-KV but sits in the KV-offset region
   };
 

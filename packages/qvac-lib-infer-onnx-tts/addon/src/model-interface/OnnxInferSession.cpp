@@ -258,12 +258,12 @@ void OnnxInferSession::setOutputToInputChain(
   // instead of deep inside the autoregressive loop at run().
   for (const auto &[outputName, inputName] : mapping) {
     if (outputIndexByName_.find(outputName) == outputIndexByName_.end()) {
-      throw std::runtime_error(
-          "setOutputToInputChain: unknown output '" + outputName + "'");
+      throw std::runtime_error("setOutputToInputChain: unknown output '" +
+                               outputName + "'");
     }
     if (inputIndexByName_.find(inputName) == inputIndexByName_.end()) {
-      throw std::runtime_error(
-          "setOutputToInputChain: unknown input '" + inputName + "'");
+      throw std::runtime_error("setOutputToInputChain: unknown input '" +
+                               inputName + "'");
     }
   }
 
