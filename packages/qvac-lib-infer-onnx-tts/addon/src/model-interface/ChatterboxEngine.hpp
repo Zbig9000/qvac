@@ -9,6 +9,7 @@
 #include <functional>
 #include <memory>
 #include <random>
+#include <stdexcept>
 
 namespace qvac::ttslib::chatterbox {
 
@@ -20,10 +21,24 @@ template <typename T> struct TensorData {
 namespace tensor_ops {
 
 // Concatenate two tensors along the batch dimension (axis 0).
-// Requires a.shape[i] == b.shape[i] for i > 0.
+// Requires a.shape[i] == b.shape[i] for i > 0 and both shapes to be non-empty
+// with equal rank.
 // Result shape: [a.shape[0] + b.shape[0], ...rest].
 template <typename T>
 TensorData<T> concatBatch(const TensorData<T> &a, const TensorData<T> &b) {
+  if (a.shape.empty() || b.shape.empty()) {
+    throw std::invalid_argument("concatBatch: both tensors must have a shape");
+  }
+  if (a.shape.size() != b.shape.size()) {
+    throw std::invalid_argument("concatBatch: tensor ranks must match");
+  }
+  for (size_t i = 1; i < a.shape.size(); ++i) {
+    if (a.shape[i] != b.shape[i]) {
+      throw std::invalid_argument(
+          "concatBatch: non-batch dims must match (mismatch at dim " +
+          std::to_string(i) + ")");
+    }
+  }
   TensorData<T> out;
   out.shape = a.shape;
   out.shape[0] = a.shape[0] + b.shape[0];
@@ -37,6 +52,9 @@ TensorData<T> concatBatch(const TensorData<T> &a, const TensorData<T> &b) {
 // Input [N, ...] produces output [2N, ...] by concatenating the input with
 // itself.
 template <typename T> TensorData<T> duplicateBatch(const TensorData<T> &a) {
+  if (a.shape.empty()) {
+    throw std::invalid_argument("duplicateBatch: tensor must have a shape");
+  }
   TensorData<T> out;
   out.shape = a.shape;
   out.shape[0] = a.shape[0] * 2;
@@ -161,7 +179,7 @@ private:
                             TensorData<float> &speakerEmbeddings,
                             TensorData<float> &speakerFeatures);
 
-  int64_t runInitialCfgStep(
+  void runInitialCfgStep(
       const TensorData<float> &condEmbs, const TensorData<float> &uncondEmbs,
       TensorData<int64_t> &positionIds, TensorData<int64_t> &attentionMask,
       std::unordered_map<std::string, TensorData<float>> &batchedKv,

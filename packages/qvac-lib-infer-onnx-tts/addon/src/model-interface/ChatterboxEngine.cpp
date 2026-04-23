@@ -13,6 +13,7 @@
 #include <fstream>
 #include <numeric>
 #include <sstream>
+#include <stdexcept>
 #include <unordered_set>
 
 using namespace qvac_lib_inference_addon_cpp::logger;
@@ -89,8 +90,18 @@ void penalizeRepetitionLogits(std::vector<float> &logits,
 // shaped [batch, seq, vocab].
 std::vector<float> readLastStepLogitsForBatch(
     const qvac::ttslib::chatterbox::OrtTensor &logitsTensor, int64_t batchIdx) {
+  if (logitsTensor.shape.size() != 3) {
+    throw std::runtime_error(
+        "readLastStepLogitsForBatch expects a 3D tensor [batch, seq, vocab]");
+  }
+  const int64_t batchSize = logitsTensor.shape[0];
   const int64_t seqLen = logitsTensor.shape[1];
   const int64_t vocabSize = logitsTensor.shape[2];
+  if (batchIdx < 0 || batchIdx >= batchSize) {
+    throw std::out_of_range(
+        "readLastStepLogitsForBatch: batchIdx " + std::to_string(batchIdx) +
+        " out of range [0, " + std::to_string(batchSize) + ")");
+  }
   const int64_t perBatchElements = seqLen * vocabSize;
   const int64_t offset = batchIdx * perBatchElements + (seqLen - 1) * vocabSize;
   std::vector<float> logits(vocabSize);
@@ -482,7 +493,11 @@ void ChatterboxEngine::runSpeechEncoderAndCache() {
 
   speechEncoderCache_.valid = true;
 
-  releaseSession(speechEncoderSession_);
+  // The speech encoder is only used here during load(); every subsequent
+  // synthesize() call consumes the cache instead. Unconditionally reset the
+  // session (bypassing releaseSession(), which is a no-op in non-lazy mode)
+  // so we don't keep its weights resident for the life of the engine.
+  speechEncoderSession_.reset();
   QLOG(Priority::INFO, "Speech encoder outputs cached for reuse");
 }
 
@@ -515,6 +530,12 @@ void ChatterboxEngine::processSpeechEncoderOutputs(
     TensorData<float> &speakerEmbeddings, TensorData<float> &speakerFeatures,
     TensorData<int64_t> &positionIds, TensorData<int64_t> &attentionMask,
     std::unordered_map<std::string, TensorData<float>> &pastKeyValues) {
+
+  if (!speechEncoderCache_.valid) {
+    throw std::runtime_error("Chatterbox speech encoder cache is not "
+                             "populated; load() must run successfully before "
+                             "synthesize()");
+  }
 
   QLOG(Priority::INFO, "Using cached speech encoder outputs");
 
@@ -1070,6 +1091,12 @@ void ChatterboxEngine::prepareCfgEmbeddings(
   condEmbs = extractEmbeddings(inputIds, positionIds);
   uncondEmbs = createUnconditionalEmbeddings(condEmbs, inputIds);
 
+  if (!speechEncoderCache_.valid) {
+    throw std::runtime_error("Chatterbox speech encoder cache is not "
+                             "populated; load() must run successfully before "
+                             "synthesize()");
+  }
+
   QLOG(Priority::INFO, "Using cached speech encoder outputs (CFG)");
 
   const auto &cache = speechEncoderCache_;
@@ -1111,7 +1138,7 @@ void ChatterboxEngine::prepareCfgEmbeddings(
   uncondEmbs.shape[1] += audioFeatSeqLen;
 }
 
-int64_t ChatterboxEngine::runInitialCfgStep(
+void ChatterboxEngine::runInitialCfgStep(
     const TensorData<float> &condEmbs, const TensorData<float> &uncondEmbs,
     TensorData<int64_t> &positionIds, TensorData<int64_t> &attentionMask,
     std::unordered_map<std::string, TensorData<float>> &batchedKv,
@@ -1140,8 +1167,6 @@ int64_t ChatterboxEngine::runInitialCfgStep(
 
   positionIds.data = {1};
   positionIds.shape = {1, 1};
-
-  return firstToken;
 }
 
 bool ChatterboxEngine::shouldStopGeneration(const std::vector<int64_t> &tokens,
