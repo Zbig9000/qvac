@@ -15,8 +15,8 @@ public:
 
   virtual void run() = 0;
 
-  virtual std::vector<std::string> getInputNames() const = 0;
-  virtual std::vector<std::string> getOutputNames() const = 0;
+  virtual const std::vector<std::string> &getInputNames() const = 0;
+  virtual const std::vector<std::string> &getOutputNames() const = 0;
 
   virtual OrtTensor getInput(const std::string &inputName) = 0;
   virtual OrtTensor getOutput(const std::string &outputName) = 0;

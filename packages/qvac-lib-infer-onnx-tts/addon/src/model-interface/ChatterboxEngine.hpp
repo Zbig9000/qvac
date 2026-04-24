@@ -211,6 +211,12 @@ private:
   int64_t textEmbDim_ = 0;
   std::mt19937 rng_{std::random_device{}()};
 
+  // Reusable logits buffer for the autoregressive loop. Allocated once per
+  // generate call and resized to `vocabSize` to avoid re-allocating a
+  // vocab-sized vector on every token step.
+  std::vector<float> logitsBuffer_;
+  std::vector<float> logitsBufferUncond_;
+
 protected:
   bool isEnglish_ = true;
   std::unique_ptr<IOnnxInferSession> languageModelSession_;

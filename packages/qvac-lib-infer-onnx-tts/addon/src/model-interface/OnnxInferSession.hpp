@@ -17,8 +17,8 @@ public:
 
   void run() override;
 
-  std::vector<std::string> getInputNames() const override;
-  std::vector<std::string> getOutputNames() const override;
+  const std::vector<std::string> &getInputNames() const override;
+  const std::vector<std::string> &getOutputNames() const override;
 
   OrtTensor getInput(const std::string &inputName) override;
   OrtTensor getOutput(const std::string &outputName) override;
@@ -44,6 +44,21 @@ private:
 
   std::vector<std::string> inputNames_;
   std::vector<std::string> outputNames_;
+
+  // Cached `const char*` arrays pointing into the stable storage of
+  // `inputNames_` / `outputNames_`. Populated once in the constructor and
+  // fed directly to `Ort::Session::Run()` on every step, so the hot loop
+  // avoids rebuilding the vectors and calling c_str() ~120 times per token.
+  std::vector<const char *> inputNamesC_;
+  std::vector<const char *> outputNamesC_;
+
+  // ONNX element type per input index, captured once in the constructor.
+  // `initInputTensors` used to re-interrogate the session every step via
+  // `GetInputTypeInfo(i).GetTensorTypeAndShapeInfo().GetElementType()` — an
+  // FFI round-trip per input on every autoregressive step. The element
+  // type is a fixed property of the model graph, so we cache it and hand
+  // the cached value to `Ort::Value::CreateTensor` directly.
+  std::vector<ONNXTensorElementDataType> inputElementTypes_;
 
   std::unordered_map<std::string, size_t> inputIndexByName_;
   std::unordered_map<std::string, size_t> outputIndexByName_;

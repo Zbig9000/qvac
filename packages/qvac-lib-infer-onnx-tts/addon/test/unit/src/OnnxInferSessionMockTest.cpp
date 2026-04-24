@@ -15,8 +15,8 @@ TEST(OnnxInferSessionMockTest, runIsInvoked) {
 TEST(OnnxInferSessionMockTest, getInputNamesReturnsEmptyByDefault) {
   OnnxInferSessionMock mock;
   EXPECT_CALL(mock, getInputNames())
-      .WillOnce(::testing::Return(std::vector<std::string>{}));
-  std::vector<std::string> names = mock.getInputNames();
+      .WillOnce(::testing::ReturnRefOfCopy(std::vector<std::string>{}));
+  const std::vector<std::string> &names = mock.getInputNames();
   EXPECT_TRUE(names.empty());
 }
 

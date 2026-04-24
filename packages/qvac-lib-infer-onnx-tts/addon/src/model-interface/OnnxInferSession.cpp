@@ -101,65 +101,87 @@ OnnxInferSession::OnnxInferSession(const std::string &modelPath, bool useGPU,
     }
   }
 
-  // collect input names
-  for (size_t i = 0; i < session_->GetInputCount(); i++) {
+  const size_t inputCount = session_->GetInputCount();
+  const size_t outputCount = session_->GetOutputCount();
+
+  inputNames_.reserve(inputCount);
+  inputIndexByName_.reserve(inputCount);
+  inputElementTypes_.reserve(inputCount);
+  for (size_t i = 0; i < inputCount; i++) {
     const Ort::AllocatedStringPtr inputName =
         session_->GetInputNameAllocated(i, allocator_);
-    inputNames_.push_back(std::string(inputName.get()));
+    inputNames_.emplace_back(inputName.get());
     inputIndexByName_[inputNames_.back()] = i;
+
+    // Cache the element type per input so `initInputTensors` doesn't have
+    // to re-interrogate the session graph on every autoregressive step.
+    const Ort::TypeInfo typeInfo = session_->GetInputTypeInfo(i);
+    inputElementTypes_.push_back(
+        typeInfo.GetTensorTypeAndShapeInfo().GetElementType());
   }
 
-  // collect output names
-  for (size_t i = 0; i < session_->GetOutputCount(); i++) {
+  outputNames_.reserve(outputCount);
+  outputIndexByName_.reserve(outputCount);
+  for (size_t i = 0; i < outputCount; i++) {
     Ort::AllocatedStringPtr outputName =
         session_->GetOutputNameAllocated(i, allocator_);
-    outputNames_.push_back(std::string(outputName.get()));
+    outputNames_.emplace_back(outputName.get());
     outputIndexByName_[outputNames_.back()] = i;
+  }
+
+  // Pre-compute the raw `const char*` arrays handed to `Ort::Session::Run()`
+  // once, instead of reconstructing them on every step of the generation
+  // loop. `inputNames_` / `outputNames_` are never mutated after this point,
+  // so the pointers remain valid for the lifetime of the session.
+  inputNamesC_.reserve(inputCount);
+  for (const auto &name : inputNames_) {
+    inputNamesC_.push_back(name.c_str());
+  }
+  outputNamesC_.reserve(outputCount);
+  for (const auto &name : outputNames_) {
+    outputNamesC_.push_back(name.c_str());
   }
 }
 
 OrtTensor OnnxInferSession::getInput(const std::string &inputName) {
-  for (const auto &input : inputTensors_) {
-    if (input.name == inputName) {
-      return input;
-    }
+  // Hot-path lookup: was O(N) linear search over ~60+ input slots for every
+  // embedding/LM write. The hash index is populated in the constructor and
+  // gives us O(1) access without changing any observable behaviour.
+  const auto it = inputIndexByName_.find(inputName);
+  if (it == inputIndexByName_.end() || it->second >= inputTensors_.size()) {
+    throw std::runtime_error("Input not found");
   }
-  throw std::runtime_error("Input not found");
+  return inputTensors_[it->second];
 }
 
 OrtTensor OnnxInferSession::getOutput(const std::string &outputName) {
-  for (const auto &output : outputTensors_) {
-    if (output.name == outputName) {
-      return output;
-    }
+  // Same O(N) -> O(1) speedup as getInput; matters most for the `logits`
+  // lookup that happens on every autoregressive step.
+  const auto it = outputIndexByName_.find(outputName);
+  if (it == outputIndexByName_.end() || it->second >= outputTensors_.size()) {
+    throw std::runtime_error("Output not found");
   }
-  throw std::runtime_error("Output not found");
+  return outputTensors_[it->second];
 }
 
 void OnnxInferSession::run() {
-  std::vector<const char *> inputNames;
-  for (const auto &name : inputNames_) {
-    inputNames.push_back(name.c_str());
-  }
-
-  std::vector<const char *> outputNames;
-  for (const auto &name : outputNames_) {
-    outputNames.push_back(name.c_str());
-  }
-
+  // `inputNamesC_` / `outputNamesC_` are populated once in the constructor
+  // and point at the stable storage of `inputNames_` / `outputNames_`, so
+  // we can hand them directly to ORT instead of rebuilding the vectors on
+  // every step.
   outputsTensorsValues_ = session_->Run(
-      Ort::RunOptions{nullptr}, inputNames.data(), inputTensorsValues_.data(),
-      inputTensorsValues_.size(), outputNames.data(), outputNames.size());
+      Ort::RunOptions{nullptr}, inputNamesC_.data(), inputTensorsValues_.data(),
+      inputTensorsValues_.size(), outputNamesC_.data(), outputNamesC_.size());
 
   outputTensors_.clear();
+  outputTensors_.reserve(outputsTensorsValues_.size());
 
   for (size_t i = 0; i < outputsTensorsValues_.size(); i++) {
+    const auto shapeInfo =
+        outputsTensorsValues_[i].GetTensorTypeAndShapeInfo();
     outputTensors_.emplace_back(OrtTensor{
         outputsTensorsValues_[i].GetTensorMutableData<void>(), outputNames_[i],
-        outputsTensorsValues_[i].GetTensorTypeAndShapeInfo().GetShape(),
-        onnxTypeToOurType(outputsTensorsValues_[i]
-                              .GetTensorTypeAndShapeInfo()
-                              .GetElementType())});
+        shapeInfo.GetShape(), onnxTypeToOurType(shapeInfo.GetElementType())});
   }
 
   moveChainedOutputsIntoInputs();
@@ -198,11 +220,11 @@ void OnnxInferSession::moveChainedOutputsIntoInputs() {
   }
 }
 
-std::vector<std::string> OnnxInferSession::getInputNames() const {
+const std::vector<std::string> &OnnxInferSession::getInputNames() const {
   return inputNames_;
 }
 
-std::vector<std::string> OnnxInferSession::getOutputNames() const {
+const std::vector<std::string> &OnnxInferSession::getOutputNames() const {
   return outputNames_;
 }
 
@@ -228,19 +250,18 @@ void OnnxInferSession::initInputTensors(
   inputTensors_.clear();
   inputTensorsValues_.clear();
 
-  for (size_t i = 0; i < session_->GetInputCount(); i++) {
+  const size_t inputCount = inputNames_.size();
+  inputTensors_.reserve(inputCount);
+  inputTensorsValues_.reserve(inputCount);
+  for (size_t i = 0; i < inputCount; i++) {
     if (hasPreserved[i]) {
       inputTensorsValues_.push_back(std::move(preservedValues[i]));
       inputTensors_.push_back(std::move(preservedTensors[i]));
       continue;
     }
 
-    const Ort::TypeInfo inputTypeInfo = session_->GetInputTypeInfo(i);
-    const Ort::ConstTensorTypeAndShapeInfo inputShapeInfo =
-        inputTypeInfo.GetTensorTypeAndShapeInfo();
-
     std::vector<int64_t> inputShape = inputShapes[i];
-    ONNXTensorElementDataType onnxType = inputShapeInfo.GetElementType();
+    const ONNXTensorElementDataType onnxType = inputElementTypes_[i];
 
     Ort::Value inputValue = Ort::Value::CreateTensor(
         allocator_, inputShape.data(), inputShape.size(), onnxType);

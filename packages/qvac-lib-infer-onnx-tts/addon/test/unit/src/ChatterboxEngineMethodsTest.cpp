@@ -422,9 +422,9 @@ protected:
 TEST_F(KvCacheChainingTest, enableBuildsPresentToPastMappingForEnglish) {
   auto mock = std::make_unique<::testing::NiceMock<OnnxInferSessionMock>>();
   EXPECT_CALL(*mock, getInputNames())
-      .WillRepeatedly(::testing::Return(englishInputNames_));
+      .WillRepeatedly(::testing::ReturnRef(englishInputNames_));
   EXPECT_CALL(*mock, getOutputNames())
-      .WillRepeatedly(::testing::Return(englishOutputNames_));
+      .WillRepeatedly(::testing::ReturnRef(englishOutputNames_));
 
   std::vector<std::pair<std::string, std::string>> expectedMapping = {
       {"present.0.key", "past_key_values.0.key"},
@@ -443,9 +443,9 @@ TEST_F(KvCacheChainingTest, enableBuildsPresentToPastMappingForEnglish) {
 TEST_F(KvCacheChainingTest, enableBuildsPresentToPastMappingForMultilingual) {
   auto mock = std::make_unique<::testing::NiceMock<OnnxInferSessionMock>>();
   EXPECT_CALL(*mock, getInputNames())
-      .WillRepeatedly(::testing::Return(multilingualInputNames_));
+      .WillRepeatedly(::testing::ReturnRef(multilingualInputNames_));
   EXPECT_CALL(*mock, getOutputNames())
-      .WillRepeatedly(::testing::Return(multilingualOutputNames_));
+      .WillRepeatedly(::testing::ReturnRef(multilingualOutputNames_));
 
   std::vector<std::pair<std::string, std::string>> expectedMapping = {
       {"present.0.key", "past_key_values.0.key"},
@@ -472,9 +472,9 @@ TEST_F(KvCacheChainingTest, enableSkipsKvInputsWithoutMatchingPresentOutput) {
 
   auto mock = std::make_unique<::testing::NiceMock<OnnxInferSessionMock>>();
   EXPECT_CALL(*mock, getInputNames())
-      .WillRepeatedly(::testing::Return(englishInputNames_));
+      .WillRepeatedly(::testing::ReturnRef(englishInputNames_));
   EXPECT_CALL(*mock, getOutputNames())
-      .WillRepeatedly(::testing::Return(truncatedOutputs));
+      .WillRepeatedly(::testing::ReturnRef(truncatedOutputs));
 
   std::vector<std::pair<std::string, std::string>> expectedMapping = {
       {"present.0.key", "past_key_values.0.key"},
@@ -500,9 +500,9 @@ TEST_F(KvCacheChainingTest, enablePairsByNameIndependentOfOutputOrder) {
 
   auto mock = std::make_unique<::testing::NiceMock<OnnxInferSessionMock>>();
   EXPECT_CALL(*mock, getInputNames())
-      .WillRepeatedly(::testing::Return(englishInputNames_));
+      .WillRepeatedly(::testing::ReturnRef(englishInputNames_));
   EXPECT_CALL(*mock, getOutputNames())
-      .WillRepeatedly(::testing::Return(scrambledOutputs));
+      .WillRepeatedly(::testing::ReturnRef(scrambledOutputs));
 
   // The mapping is still keyed on input order (which is `past_key_values.0.*`
   // then `past_key_values.1.*`) but each entry's output name is resolved by
@@ -533,9 +533,9 @@ TEST_F(KvCacheChainingTest, enableSkipsInputsThatAreNotPastKeyValues) {
 
   auto mock = std::make_unique<::testing::NiceMock<OnnxInferSessionMock>>();
   EXPECT_CALL(*mock, getInputNames())
-      .WillRepeatedly(::testing::Return(inputsWithExtra));
+      .WillRepeatedly(::testing::ReturnRef(inputsWithExtra));
   EXPECT_CALL(*mock, getOutputNames())
-      .WillRepeatedly(::testing::Return(englishOutputNames_));
+      .WillRepeatedly(::testing::ReturnRef(englishOutputNames_));
 
   std::vector<std::pair<std::string, std::string>> expectedMapping = {
       {"present.0.key", "past_key_values.0.key"},
@@ -552,7 +552,7 @@ TEST_F(KvCacheChainingTest, enableSkipsInputsThatAreNotPastKeyValues) {
 TEST_F(KvCacheChainingTest, writeKvToTensorsSkipsAllChainedInputs) {
   auto mock = std::make_unique<::testing::NiceMock<OnnxInferSessionMock>>();
   EXPECT_CALL(*mock, getInputNames())
-      .WillRepeatedly(::testing::Return(englishInputNames_));
+      .WillRepeatedly(::testing::ReturnRef(englishInputNames_));
   EXPECT_CALL(*mock, isInputChained(::testing::_))
       .WillRepeatedly(::testing::Return(true));
 
@@ -574,9 +574,9 @@ TEST_F(KvCacheChainingTest, writeKvToTensorsSkipsAllChainedInputs) {
 TEST_F(KvCacheChainingTest, cachePastKeyValuesSkipsAllChainedInputs) {
   auto mock = std::make_unique<::testing::NiceMock<OnnxInferSessionMock>>();
   EXPECT_CALL(*mock, getInputNames())
-      .WillRepeatedly(::testing::Return(englishInputNames_));
+      .WillRepeatedly(::testing::ReturnRef(englishInputNames_));
   EXPECT_CALL(*mock, getOutputNames())
-      .WillRepeatedly(::testing::Return(englishOutputNames_));
+      .WillRepeatedly(::testing::ReturnRef(englishOutputNames_));
   EXPECT_CALL(*mock, isInputChained(::testing::_))
       .WillRepeatedly(::testing::Return(true));
 
@@ -600,9 +600,9 @@ TEST_F(KvCacheChainingTest, enableCalledTwiceResetsPreviousMapping) {
   // and never pile up on top of the previous one.
   auto mock = std::make_unique<::testing::NiceMock<OnnxInferSessionMock>>();
   EXPECT_CALL(*mock, getInputNames())
-      .WillRepeatedly(::testing::Return(englishInputNames_));
+      .WillRepeatedly(::testing::ReturnRef(englishInputNames_));
   EXPECT_CALL(*mock, getOutputNames())
-      .WillRepeatedly(::testing::Return(englishOutputNames_));
+      .WillRepeatedly(::testing::ReturnRef(englishOutputNames_));
 
   std::vector<std::pair<std::string, std::string>> expectedMapping = {
       {"present.0.key", "past_key_values.0.key"},

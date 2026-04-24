@@ -8,9 +8,12 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
+#include <iterator>
+#include <limits>
 #include <numeric>
 #include <sstream>
 #include <unordered_set>
@@ -86,16 +89,18 @@ void penalizeRepetitionLogits(std::vector<float> &logits,
 }
 
 // Reads last-step logits for a specific batch index from a logits tensor
-// shaped [batch, seq, vocab].
-std::vector<float> readLastStepLogitsForBatch(
-    const qvac::ttslib::chatterbox::OrtTensor &logitsTensor, int64_t batchIdx) {
+// shaped [batch, seq, vocab] into a caller-owned buffer. Using a
+// pre-sized buffer avoids the per-step vocab-sized allocation that
+// showed up in the CFG loop profile.
+void readLastStepLogitsForBatchInto(
+    const qvac::ttslib::chatterbox::OrtTensor &logitsTensor, int64_t batchIdx,
+    std::vector<float> &dest) {
   const int64_t seqLen = logitsTensor.shape[1];
   const int64_t vocabSize = logitsTensor.shape[2];
   const int64_t perBatchElements = seqLen * vocabSize;
   const int64_t offset = batchIdx * perBatchElements + (seqLen - 1) * vocabSize;
-  std::vector<float> logits(vocabSize);
-  readTensorToFloatBuffer(logitsTensor, logits.data(), offset, vocabSize);
-  return logits;
+  dest.resize(static_cast<size_t>(vocabSize));
+  readTensorToFloatBuffer(logitsTensor, dest.data(), offset, vocabSize);
 }
 
 bool detectTokenRepetition(const std::vector<int64_t> &tokens, int threshold) {
@@ -170,61 +175,68 @@ void applyCfgCombine(std::vector<float> &condLogits,
   }
 }
 
-void scaleByTemperature(std::vector<float> &logits, float temperature) {
-  for (auto &l : logits) {
-    l /= temperature;
+// Fused temperature-scale + softmax. Computes
+//   logits[i] = exp((logits[i] / temperature) - max)
+// in a single pass after a single `max_element` scan, then normalises in a
+// second pass. The previous implementation did the same work in four
+// passes (scaleByTemperature, max, exp+sum, normalize).
+float applyTemperatureAndSoftmax(std::vector<float> &logits,
+                                 float temperature) {
+  const float invT = 1.0f / temperature;
+  float maxLogit = -std::numeric_limits<float>::infinity();
+  for (float l : logits) {
+    const float scaled = l * invT;
+    if (scaled > maxLogit) {
+      maxLogit = scaled;
+    }
   }
-}
-
-float computeExpAndSum(std::vector<float> &logits) {
-  float maxLogit = *std::max_element(logits.begin(), logits.end());
   float sum = 0.0f;
   for (auto &l : logits) {
-    l = std::exp(l - maxLogit);
+    l = std::exp(l * invT - maxLogit);
     sum += l;
   }
   return sum;
 }
 
-void normalizeVector(std::vector<float> &values, float sum) {
-  for (auto &v : values) {
-    v /= sum;
+// Filters probabilities using min-P (keeping everything at least
+// `maxProb * minP`). Returns the sum of the remaining (unnormalised)
+// probabilities. Scans the input once to find the max, then zeroes and sums
+// in a second fused pass.
+float applyMinPFilterWithSum(std::vector<float> &probs, float minP,
+                             float currentSum) {
+  if (minP <= 0.0f) {
+    return currentSum;
   }
-}
-
-void applySoftmax(std::vector<float> &logits, float temperature) {
-  scaleByTemperature(logits, temperature);
-  float sum = computeExpAndSum(logits);
-  normalizeVector(logits, sum);
-}
-
-float thresholdProbs(std::vector<float> &probs, float threshold) {
-  float sum = 0.0f;
+  float maxProb = 0.0f;
+  for (float p : probs) {
+    if (p > maxProb) {
+      maxProb = p;
+    }
+  }
+  const float threshold = maxProb * minP;
+  float filteredSum = 0.0f;
   for (auto &p : probs) {
     if (p < threshold) {
       p = 0.0f;
+    } else {
+      filteredSum += p;
     }
-    sum += p;
   }
-  return sum;
-}
-
-void applyMinPFilter(std::vector<float> &probs, float minP) {
-  if (minP <= 0.0f) {
-    return;
-  }
-
-  float maxProb = *std::max_element(probs.begin(), probs.end());
-  float sum = thresholdProbs(probs, maxProb * minP);
-  if (sum > 0.0f) {
-    normalizeVector(probs, sum);
-  }
+  return filteredSum;
 }
 
 int64_t sampleWithTemperature(std::vector<float> &logits, float temperature,
                               float minP, std::mt19937 &rng) {
-  applySoftmax(logits, temperature);
-  applyMinPFilter(logits, minP);
+  // Fused max+softmax, then min-P filter reusing the running sum. We hand
+  // the un-normalised weights directly to `discrete_distribution`, which
+  // normalises internally — skipping an extra divide pass.
+  float sum = applyTemperatureAndSoftmax(logits, temperature);
+  sum = applyMinPFilterWithSum(logits, minP, sum);
+  if (sum <= 0.0f) {
+    return static_cast<int64_t>(
+        std::distance(logits.begin(),
+                      std::max_element(logits.begin(), logits.end())));
+  }
 
   std::discrete_distribution<int> dist(logits.begin(), logits.end());
   return static_cast<int64_t>(dist(rng));
@@ -415,6 +427,10 @@ void ChatterboxEngine::unload() {
   speechEncoderSession_.reset();
   embedTokensSession_.reset();
   conditionalDecoderSession_.reset();
+  logitsBuffer_.clear();
+  logitsBuffer_.shrink_to_fit();
+  logitsBufferUncond_.clear();
+  logitsBufferUncond_.shrink_to_fit();
   languageModelSession_.reset();
   textEmbWeight_.clear();
   textEmbRows_ = 0;
@@ -623,15 +639,16 @@ void ChatterboxEngine::enableKvCacheChaining() {
 int64_t
 ChatterboxEngine::selectNextToken(const OrtTensor &logitsTensor,
                                   std::vector<int64_t> &generatedTokens) {
-  std::vector<float> logits;
-  logits.resize(logitsTensor.shape[2]);
-  const int64_t logitsOffset =
-      (logitsTensor.shape[1] - 1) * logitsTensor.shape[2];
-  readTensorToFloatBuffer(logitsTensor, logits.data(), logitsOffset,
-                          logitsTensor.shape[2]);
+  // Reuse a member buffer instead of allocating a vocab-sized vector
+  // (~6563 floats = ~26 KB) on every autoregressive step.
+  const int64_t vocabSize = logitsTensor.shape[2];
+  logitsBuffer_.resize(static_cast<size_t>(vocabSize));
+  const int64_t logitsOffset = (logitsTensor.shape[1] - 1) * vocabSize;
+  readTensorToFloatBuffer(logitsTensor, logitsBuffer_.data(), logitsOffset,
+                          vocabSize);
 
-  penalizeRepetitionLogits(logits, generatedTokens, REPETITION_PENALTY);
-  return static_cast<int64_t>(argmax(logits));
+  penalizeRepetitionLogits(logitsBuffer_, generatedTokens, REPETITION_PENALTY);
+  return static_cast<int64_t>(argmax(logitsBuffer_));
 }
 
 void ChatterboxEngine::advancePositionIds(TensorData<int64_t> &positionIds,
@@ -733,17 +750,26 @@ std::vector<int64_t> ChatterboxEngine::generateSpeechTokens(
 std::vector<int64_t> ChatterboxEngine::assembleSpeechTokenSequence(
     const TensorData<int64_t> &promptToken,
     const std::vector<int64_t> &generatedTokens) {
-  std::vector<int64_t> speechTokens(promptToken.data.begin(),
-                                    promptToken.data.end());
-  speechTokens.insert(speechTokens.end(), generatedTokens.begin() + 1,
-                      generatedTokens.end() - 1);
-
-  if (isEnglish_) {
-    const std::vector<int64_t> silenceTokens(3, SILENCE_TOKEN);
-    speechTokens.insert(speechTokens.end(), silenceTokens.begin(),
-                        silenceTokens.end());
+  // `generatedTokens` always starts with START_SPEECH_TOKEN and ends with
+  // STOP_SPEECH_TOKEN, so we slice [1, end-1). Guard against short inputs
+  // so the slice bounds stay well-defined. English mode appends three
+  // silence tokens as trailing padding.
+  const size_t generatedSlice =
+      generatedTokens.size() >= 2 ? generatedTokens.size() - 2 : 0;
+  const size_t trailingSilence = isEnglish_ ? 3u : 0u;
+  std::vector<int64_t> speechTokens;
+  speechTokens.reserve(promptToken.data.size() + generatedSlice +
+                       trailingSilence);
+  speechTokens.insert(speechTokens.end(), promptToken.data.begin(),
+                      promptToken.data.end());
+  if (generatedSlice > 0) {
+    speechTokens.insert(speechTokens.end(), generatedTokens.begin() + 1,
+                        generatedTokens.begin() + 1 + generatedSlice);
   }
-
+  if (trailingSilence > 0) {
+    // `insert(end, count, value)` fills in-place without a temporary vector.
+    speechTokens.insert(speechTokens.end(), trailingSilence, SILENCE_TOKEN);
+  }
   return speechTokens;
 }
 
@@ -1123,16 +1149,16 @@ int64_t ChatterboxEngine::runInitialCfgStep(
   runLanguageModelInfer(batchedEmbs, positionIds, batchedMask, batchedKv);
 
   OrtTensor logitsTensor = languageModelSession_->getOutput("logits");
-  std::vector<float> condLogits = readLastStepLogitsForBatch(logitsTensor, 0);
-  std::vector<float> uncondLogits = readLastStepLogitsForBatch(logitsTensor, 1);
+  readLastStepLogitsForBatchInto(logitsTensor, 0, logitsBuffer_);
+  readLastStepLogitsForBatchInto(logitsTensor, 1, logitsBufferUncond_);
   cachePastKeyValues(batchedKv);
 
-  applyCfgCombine(condLogits, uncondLogits, CFG_WEIGHT);
-  penalizeRepetitionLogits(condLogits, generatedTokens,
+  applyCfgCombine(logitsBuffer_, logitsBufferUncond_, CFG_WEIGHT);
+  penalizeRepetitionLogits(logitsBuffer_, generatedTokens,
                            MULTILINGUAL_REPETITION_PENALTY);
 
   int64_t firstToken =
-      sampleWithTemperature(condLogits, TEMPERATURE, MIN_P, rng_);
+      sampleWithTemperature(logitsBuffer_, TEMPERATURE, MIN_P, rng_);
   generatedTokens.push_back(firstToken);
 
   QLOG(Priority::INFO,
@@ -1202,17 +1228,16 @@ void ChatterboxEngine::runCfgGenerationLoop(
     runLanguageModelInfer(batchedEmbs, positionIds, batchedMask, batchedKv);
 
     OrtTensor logitsTensor = languageModelSession_->getOutput("logits");
-    std::vector<float> condLogits = readLastStepLogitsForBatch(logitsTensor, 0);
-    std::vector<float> uncondLogits =
-        readLastStepLogitsForBatch(logitsTensor, 1);
+    readLastStepLogitsForBatchInto(logitsTensor, 0, logitsBuffer_);
+    readLastStepLogitsForBatchInto(logitsTensor, 1, logitsBufferUncond_);
     cachePastKeyValues(batchedKv);
 
-    applyCfgCombine(condLogits, uncondLogits, CFG_WEIGHT);
-    penalizeRepetitionLogits(condLogits, generatedTokens,
+    applyCfgCombine(logitsBuffer_, logitsBufferUncond_, CFG_WEIGHT);
+    penalizeRepetitionLogits(logitsBuffer_, generatedTokens,
                              MULTILINGUAL_REPETITION_PENALTY);
 
     int64_t nextToken =
-        sampleWithTemperature(condLogits, TEMPERATURE, MIN_P, rng_);
+        sampleWithTemperature(logitsBuffer_, TEMPERATURE, MIN_P, rng_);
     generatedTokens.push_back(nextToken);
 
     positionIds.data = {static_cast<int64_t>(step + 2)};
