@@ -119,6 +119,10 @@ qvac::ttslib::chatterbox::ChatterboxConfig TTSModel::createChatterboxConfig(
     try {
       config.numThreads = std::stoi(threadsIt->second);
     } catch (const std::exception &e) {
+      // Reset to the default so OnnxInferSession picks 1 intra-op thread
+      // regardless of any previously parsed value carried over via
+      // chatterboxConfig_ (relevant on reload / per-request config updates).
+      config.numThreads = 0;
       QLOG(Priority::WARNING,
            "Chatterbox numThreads value '" + threadsIt->second +
                "' could not be parsed as an integer (" + e.what() +

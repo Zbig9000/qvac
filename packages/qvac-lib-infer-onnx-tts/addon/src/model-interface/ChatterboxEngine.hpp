@@ -6,10 +6,12 @@
 #include "OrtTypes.hpp"
 #include "tokenizers_c.h"
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <random>
 #include <stdexcept>
+#include <vector>
 
 namespace qvac::ttslib::chatterbox {
 
@@ -64,6 +66,13 @@ template <typename T> TensorData<T> duplicateBatch(const TensorData<T> &a) {
   return out;
 }
 
+// Reads the last-step logits for a specific batch index from a logits tensor
+// shaped [batch, seq, vocab]. The returned vector has length `vocab`.
+// Throws std::runtime_error if the tensor is not 3D, and std::out_of_range
+// if `batchIdx` is not in [0, batch).
+std::vector<float> readLastStepLogitsForBatch(const OrtTensor &logitsTensor,
+                                              int64_t batchIdx);
+
 } // namespace tensor_ops
 
 struct SpeechEncoderCache {
@@ -112,6 +121,13 @@ protected:
 
   bool hasSpeechEncoderCache() const;
   void clearSpeechEncoderCache();
+  void runSpeechEncoderAndCache();
+
+  void processSpeechEncoderOutputs(
+      TensorData<float> &inputsEmbs, TensorData<int64_t> &promptToken,
+      TensorData<float> &speakerEmbeddings, TensorData<float> &speakerFeatures,
+      TensorData<int64_t> &positionIds, TensorData<int64_t> &attentionMask,
+      std::unordered_map<std::string, TensorData<float>> &pastKeyValues);
 
   void cachePastKeyValues(
       std::unordered_map<std::string, TensorData<float>> &pastKeyValues);
@@ -130,12 +146,6 @@ private:
 
   TensorData<float> extractEmbeddings(const std::vector<int64_t> &inputIds,
                                       const std::vector<int64_t> &positionIds);
-
-  void processSpeechEncoderOutputs(
-      TensorData<float> &inputsEmbs, TensorData<int64_t> &promptToken,
-      TensorData<float> &speakerEmbeddings, TensorData<float> &speakerFeatures,
-      TensorData<int64_t> &positionIds, TensorData<int64_t> &attentionMask,
-      std::unordered_map<std::string, TensorData<float>> &pastKeyValues);
 
   std::vector<int64_t> generateSpeechTokens(
       std::vector<int64_t> &inputIds, TensorData<int64_t> &positionIds,
@@ -162,7 +172,6 @@ private:
   void ensureSession(std::unique_ptr<IOnnxInferSession> &session,
                      const std::string &modelPath);
   void releaseSession(std::unique_ptr<IOnnxInferSession> &session);
-  void runSpeechEncoderAndCache();
 
   void loadCangjieTableIfNeeded(const std::string &tokenizerPath);
   void loadTextEmbWeight(const std::string &embedTokensPath);
@@ -214,7 +223,6 @@ private:
 
   TokenizerHandle tokenizerHandle_;
   SessionFactory sessionFactory_;
-  std::unique_ptr<IOnnxInferSession> speechEncoderSession_;
   std::unique_ptr<IOnnxInferSession> embedTokensSession_;
   std::unique_ptr<IOnnxInferSession> conditionalDecoderSession_;
 
@@ -231,6 +239,7 @@ private:
 
 protected:
   bool isEnglish_ = true;
+  std::unique_ptr<IOnnxInferSession> speechEncoderSession_;
   std::unique_ptr<IOnnxInferSession> languageModelSession_;
   int keyValueOffset_ = 0;
   SpeechEncoderCache speechEncoderCache_;

@@ -86,29 +86,6 @@ void penalizeRepetitionLogits(std::vector<float> &logits,
   }
 }
 
-// Reads last-step logits for a specific batch index from a logits tensor
-// shaped [batch, seq, vocab].
-std::vector<float> readLastStepLogitsForBatch(
-    const qvac::ttslib::chatterbox::OrtTensor &logitsTensor, int64_t batchIdx) {
-  if (logitsTensor.shape.size() != 3) {
-    throw std::runtime_error(
-        "readLastStepLogitsForBatch expects a 3D tensor [batch, seq, vocab]");
-  }
-  const int64_t batchSize = logitsTensor.shape[0];
-  const int64_t seqLen = logitsTensor.shape[1];
-  const int64_t vocabSize = logitsTensor.shape[2];
-  if (batchIdx < 0 || batchIdx >= batchSize) {
-    throw std::out_of_range(
-        "readLastStepLogitsForBatch: batchIdx " + std::to_string(batchIdx) +
-        " out of range [0, " + std::to_string(batchSize) + ")");
-  }
-  const int64_t perBatchElements = seqLen * vocabSize;
-  const int64_t offset = batchIdx * perBatchElements + (seqLen - 1) * vocabSize;
-  std::vector<float> logits(vocabSize);
-  readTensorToFloatBuffer(logitsTensor, logits.data(), offset, vocabSize);
-  return logits;
-}
-
 bool detectTokenRepetition(const std::vector<int64_t> &tokens, int threshold) {
   if (static_cast<int>(tokens.size()) < threshold) {
     return false;
@@ -337,6 +314,31 @@ template <typename T> void printVector(const std::vector<T> &vector) {
 
 namespace qvac::ttslib::chatterbox {
 
+namespace tensor_ops {
+
+std::vector<float> readLastStepLogitsForBatch(const OrtTensor &logitsTensor,
+                                              int64_t batchIdx) {
+  if (logitsTensor.shape.size() != 3) {
+    throw std::runtime_error(
+        "readLastStepLogitsForBatch expects a 3D tensor [batch, seq, vocab]");
+  }
+  const int64_t batchSize = logitsTensor.shape[0];
+  const int64_t seqLen = logitsTensor.shape[1];
+  const int64_t vocabSize = logitsTensor.shape[2];
+  if (batchIdx < 0 || batchIdx >= batchSize) {
+    throw std::out_of_range(
+        "readLastStepLogitsForBatch: batchIdx " + std::to_string(batchIdx) +
+        " out of range [0, " + std::to_string(batchSize) + ")");
+  }
+  const int64_t perBatchElements = seqLen * vocabSize;
+  const int64_t offset = batchIdx * perBatchElements + (seqLen - 1) * vocabSize;
+  std::vector<float> logits(vocabSize);
+  readTensorToFloatBuffer(logitsTensor, logits.data(), offset, vocabSize);
+  return logits;
+}
+
+} // namespace tensor_ops
+
 namespace {
 
 ChatterboxEngine::SessionFactory makeDefaultSessionFactory(bool useGPU,
@@ -448,6 +450,15 @@ void ChatterboxEngine::clearSpeechEncoderCache() {
 }
 
 void ChatterboxEngine::runSpeechEncoderAndCache() {
+  // Invalidate any existing cache up front so a partial/failed re-run cannot
+  // leave the engine pointing at stale features from a prior successful
+  // load(). Without this, anything that throws between here and the
+  // `valid = true` assignment below would leave the previous reference
+  // audio's outputs marked valid, which silently bypasses the
+  // processSpeechEncoderOutputs() / prepareCfgEmbeddings() guards on the next
+  // synthesize() call.
+  speechEncoderCache_ = {};
+
   ensureSession(speechEncoderSession_, config_.speechEncoderPath);
 
   auto start = std::chrono::high_resolution_clock::now();
@@ -1150,8 +1161,10 @@ void ChatterboxEngine::runInitialCfgStep(
   runLanguageModelInfer(batchedEmbs, positionIds, batchedMask, batchedKv);
 
   OrtTensor logitsTensor = languageModelSession_->getOutput("logits");
-  std::vector<float> condLogits = readLastStepLogitsForBatch(logitsTensor, 0);
-  std::vector<float> uncondLogits = readLastStepLogitsForBatch(logitsTensor, 1);
+  std::vector<float> condLogits =
+      tensor_ops::readLastStepLogitsForBatch(logitsTensor, 0);
+  std::vector<float> uncondLogits =
+      tensor_ops::readLastStepLogitsForBatch(logitsTensor, 1);
   cachePastKeyValues(batchedKv);
 
   applyCfgCombine(condLogits, uncondLogits, CFG_WEIGHT);
@@ -1227,9 +1240,10 @@ void ChatterboxEngine::runCfgGenerationLoop(
     runLanguageModelInfer(batchedEmbs, positionIds, batchedMask, batchedKv);
 
     OrtTensor logitsTensor = languageModelSession_->getOutput("logits");
-    std::vector<float> condLogits = readLastStepLogitsForBatch(logitsTensor, 0);
+    std::vector<float> condLogits =
+        tensor_ops::readLastStepLogitsForBatch(logitsTensor, 0);
     std::vector<float> uncondLogits =
-        readLastStepLogitsForBatch(logitsTensor, 1);
+        tensor_ops::readLastStepLogitsForBatch(logitsTensor, 1);
     cachePastKeyValues(batchedKv);
 
     applyCfgCombine(condLogits, uncondLogits, CFG_WEIGHT);
