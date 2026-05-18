@@ -12,6 +12,18 @@
     "gtest"
   ],
   "features": {
+    "opencl": {
+      "description": "Enable OpenCL GPU acceleration (Android-only; targets Adreno via the ggml-opencl backend).",
+      "dependencies": [
+        {
+          "name": "whisper-cpp",
+          "features": [
+            "opencl"
+          ],
+          "platform": "android"
+        }
+      ]
+    },
     "vulkan": {
       "description": "Enable Vulkan GPU acceleration",
       "dependencies": [
@@ -27,7 +39,8 @@
   "overrides": [
     {
       "name": "whisper-cpp",
-      "version": "1.8.4.2#1"
+      "version": "1.8.4.3",
+      "port-version": 1
     }
   ]
 }

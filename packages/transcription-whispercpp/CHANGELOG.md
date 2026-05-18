@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1]
+
+### Changed
+- Bumped `whisper-cpp` to `1.8.4.3#1`, which:
+  - Syncs the upstream `ggml-org/whisper.cpp` master series up to v1.8.4.3, including the bundled-ggml bump to v0.10.2 and the upstream PR #3677 VAD streaming API (`whisper_vad_detect_speech_no_reset`, `whisper_vad_reset_state`). [QVAC-18991]
+  - Enables the `[opencl]` feature on Android, exposing the Adreno OpenCL backend (auto-selected at runtime when the device reports an Adreno 700+ GPU). [QVAC-18300]
+  - Switches the Android build to full dynamic-backend mode (`GGML_BACKEND_DL=ON` + `GGML_CPU_ALL_VARIANTS=ON`): the addon `.bare` prebuild now ships one `libggml-cpu-android_armv*_*.so` per microarchitecture plus dynamically-loaded `libggml-vulkan.so` / `libggml-opencl.so`, and ggml's loader picks the best CPU variant + GPU backend per device at runtime. [QVAC-18993]
+- Picks up the new `ggml-speech 2026-05-18#1` from the registry baseline (no direct dependency in this package, but consumed transitively by `qvac-lib-infer-parakeet` / `tts-cpp` consumers that share the same Android process). [QVAC-18992]
+
 ## [0.7.0]
 
 ### Fixed
