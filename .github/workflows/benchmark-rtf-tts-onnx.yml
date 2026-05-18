@@ -6,8 +6,12 @@ name: Benchmark RTF (ONNX TTS)
 # manually (or weekly via cron) and is the only place that runs the
 # benchmarks.
 #
-# Mobile RTF benchmarks (Android / iOS via AWS Device Farm) are tracked
-# separately under QVAC-18544 and are intentionally NOT wired here yet.
+# Desktop matrix (linux x64/arm64, win32 x64 GitHub-hosted; ai-run-ubuntu-22.04
+# CPU baseline + ai-run-linux-gpu CUDA self-hosted) runs by default. Mobile RTF
+# benchmarks (Android / iOS via AWS Device Farm, tracked under QVAC-18544) are
+# opt-in via the `include_mobile` dispatch input so we don't burn Device Farm
+# capacity on every nightly schedule. The `summarize` job ingests whichever
+# legs ran and produces a single consolidated findings table.
 
 on:
   workflow_dispatch:
@@ -20,12 +24,23 @@ on:
         description: "Git ref (branch/tag/SHA) to benchmark"
         required: false
         type: string
+      include_desktop:
+        description: "Run desktop benchmark matrix (GitHub-hosted + self-hosted)"
+        required: false
+        type: boolean
+        default: true
+      include_mobile:
+        description: "Run mobile benchmark matrix (Android / iOS via AWS Device Farm)"
+        required: false
+        type: boolean
+        default: false
       benchmark_matrix_json:
         description: "Optional JSON array overriding the per-runner benchmark matrix for all runners"
         required: false
         type: string
   # Weekly baseline run (Monday 06:00 UTC). Picks up main, produces fresh
   # cross-platform findings so regressions show up without a manual trigger.
+  # Mobile is intentionally NOT enabled on schedule — only via manual dispatch.
   schedule:
     - cron: '0 6 * * 1'
 
@@ -43,19 +58,37 @@ jobs:
     outputs:
       repository: ${{ steps.ctx.outputs.repository }}
       ref: ${{ steps.ctx.outputs.ref }}
+      include_desktop: ${{ steps.ctx.outputs.include_desktop }}
+      include_mobile: ${{ steps.ctx.outputs.include_mobile }}
     steps:
       - id: ctx
         shell: bash
         env:
           INPUT_REPO: ${{ inputs.repository }}
           INPUT_REF: ${{ inputs.ref }}
+          INPUT_INCLUDE_DESKTOP: ${{ inputs.include_desktop }}
+          INPUT_INCLUDE_MOBILE: ${{ inputs.include_mobile }}
           REPO: ${{ github.repository }}
           REF_NAME: ${{ github.ref_name }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           repo="${INPUT_REPO:-$REPO}"
           ref="${INPUT_REF:-$REF_NAME}"
+
+          # Defaults: desktop on, mobile off. On schedule (weekly cron) keep
+          # mobile off regardless of any stale input so we don't burn Device
+          # Farm capacity unattended.
+          include_desktop="${INPUT_INCLUDE_DESKTOP:-true}"
+          include_mobile="${INPUT_INCLUDE_MOBILE:-false}"
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            include_desktop="true"
+            include_mobile="false"
+          fi
+
           echo "repository=$repo" >> "$GITHUB_OUTPUT"
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "include_desktop=$include_desktop" >> "$GITHUB_OUTPUT"
+          echo "include_mobile=$include_mobile" >> "$GITHUB_OUTPUT"
 
   prebuild:
     needs: context
@@ -76,6 +109,7 @@ jobs:
   # chatterbox-en q4 cpu hang on darwin runners is fixed.
   benchmarks-github-hosted:
     needs: [context, prebuild]
+    if: needs.context.outputs.include_desktop != 'false'
     continue-on-error: true
     runs-on: ${{ matrix.os }}
     environment: release
@@ -272,6 +306,7 @@ jobs:
   # effects.
   benchmarks-self-hosted:
     needs: [context, prebuild]
+    if: needs.context.outputs.include_desktop != 'false'
     continue-on-error: true
     runs-on: ${{ matrix.os }}
     environment: release
@@ -461,8 +496,31 @@ jobs:
             console.log(lines.join('\n'));
           " >> $GITHUB_STEP_SUMMARY
 
+  # QVAC-18544: Mobile RTF + streaming benchmark matrix on AWS Device Farm.
+  # Reuses the `Mobile Integration Tests (TTS)` reusable workflow, which
+  # bundles the addon, kicks off Device Farm runs, extracts the canonical
+  # `[PERF_REPORT_START]` markers from the Device Farm logs into
+  # `performance-report.json`, and uploads each device's report as a
+  # `perf-report-onnx-tts-*` artifact. Gated behind `include_mobile` so the
+  # weekly schedule and "desktop-only" dispatches don't consume Device Farm
+  # capacity. The `summarize` job below picks up whichever leg(s) ran.
+  mobile-benchmarks:
+    needs: [context, prebuild]
+    if: needs.context.outputs.include_mobile != 'false'
+    permissions:
+      contents: read
+      packages: read
+      pull-requests: write
+      id-token: write
+    uses: ./.github/workflows/integration-mobile-test-tts-onnx.yml
+    secrets: inherit
+    with:
+      repository: ${{ needs.context.outputs.repository }}
+      ref: ${{ needs.context.outputs.ref }}
+      run_rtf_benchmarks: true
+
   summarize:
-    needs: [context, benchmarks-github-hosted, benchmarks-self-hosted]
+    needs: [context, benchmarks-github-hosted, benchmarks-self-hosted, mobile-benchmarks]
     if: always()
     runs-on: ubuntu-latest
     permissions:
@@ -475,11 +533,29 @@ jobs:
           ref: ${{ needs.context.outputs.ref }}
           token: ${{ secrets.PAT_TOKEN }}
 
-      - name: Download benchmark artifacts
+      - name: Download desktop benchmark artifacts
+        if: needs.context.outputs.include_desktop != 'false'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # 8.0.1
         with:
           pattern: rtf-results-tts-*
           path: benchmark-artifacts/desktop
+          merge-multiple: true
+        continue-on-error: true
+
+      - name: Download mobile benchmark artifacts
+        if: needs.context.outputs.include_mobile != 'false'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # 8.0.1
+        with:
+          # Match what the mobile workflow uploads: a per-leg
+          # `perf-report-onnx-tts-${platform}-${variant}-${run_number}`
+          # artifact containing one or more
+          # `<device>/performance-report.json` files in the canonical
+          # wrapper shape produced by `scripts/perf-report/extract-from-log.js`.
+          # The aggregator's `isCanonicalReport` / `expandCanonicalReport`
+          # helpers detect this shape and expand it into the same RTF /
+          # streaming rows as the desktop matrix output.
+          pattern: perf-report-onnx-tts-*
+          path: benchmark-artifacts/mobile
           merge-multiple: true
         continue-on-error: true
 
@@ -510,6 +586,7 @@ jobs:
           echo "| cuda | linux x64 | self-hosted ai-run-linux-gpu |" >> "$GITHUB_STEP_SUMMARY"
           echo "| directml | win32 x64 | windows-2022 |" >> "$GITHUB_STEP_SUMMARY"
           echo "| coreml | not on CI (darwin runner hang) | drop JSON into packages/tts-onnx/benchmarks/manual-results/ |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| mobile (Android NNAPI / iOS CoreML) | Android q4/q4f16, iOS q4/q4f16 | AWS Device Farm via integration-mobile-test-tts-onnx.yml (opt-in via include_mobile=true) |" >> "$GITHUB_STEP_SUMMARY"
           echo "| rocm | not on CI | drop JSON into packages/tts-onnx/benchmarks/manual-results/ |" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload consolidated benchmark report

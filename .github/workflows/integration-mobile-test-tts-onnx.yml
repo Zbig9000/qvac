@@ -16,13 +16,25 @@ on:
         type: string
         required: false
         default: "packages/tts-onnx"
+      run_rtf_benchmarks:
+        description: "Run on-device RTF benchmark (extracts metrics from logs post-run)"
+        type: boolean
+        required: false
+        default: false
   workflow_dispatch:
     inputs:
       ref:
-        description: "Git ref (branch/tag/SHA) to test"
+        # Empty default so `${{ inputs.ref || github.ref }}` falls back to
+        # the dispatched branch. `default: main` here is a footgun: `gh
+        # workflow run --ref=<branch>` only selects which branch's workflow
+        # YAML to run — it does NOT populate `inputs.ref`. So a developer
+        # dispatching against a feature branch silently gets `inputs.ref="main"`,
+        # the addon checkout pulls main, and the test bundle on the device
+        # runs main's source code instead of their branch.
+        description: "Git ref (branch/tag/SHA) to test (defaults to dispatched branch)"
         type: string
         required: false
-        default: main
+        default: ""
       package_spec:
         description: "Package to test (name@version). Use @qvac/tts-onnx@... for npm, @tetherto/tts-onnx@... for GPR"
         type: string
@@ -33,6 +45,11 @@ on:
         type: string
         required: false
         default: "packages/tts-onnx"
+      run_rtf_benchmarks:
+        description: "Run on-device RTF benchmark (extracts metrics from logs post-run)"
+        type: boolean
+        required: false
+        default: false
 
 env:
   NODE_VERSION: "lts/*"
@@ -298,19 +315,44 @@ jobs:
       - name: Inject Variant for Mobile Tests
         working-directory: ${{ env.ADDON_DIR }}
         run: |
+          RUN_BENCH="${{ inputs.run_rtf_benchmarks }}"
+          if [ "$RUN_BENCH" = "true" ]; then
+            BENCH_FLAG=1
+          else
+            BENCH_FLAG=
+          fi
           echo "Injecting CHATTERBOX_VARIANT=${{ matrix.variant }} into mobile runtime"
-          
-          # Create a patch to mock os.getEnv for our specific variable
+          echo "Injecting QVAC_ONNX_TTS_RUN_BENCHMARK_ON_MOBILE=${BENCH_FLAG:-<unset>} into mobile runtime"
+          echo "Injecting QVAC_ONNX_TTS_BENCHMARK_VARIANT=${{ matrix.variant }} into mobile runtime"
+          echo "Injecting QVAC_ONNX_TTS_BENCHMARK_DEVICE=${{ matrix.platform }}-device-farm into mobile runtime"
+          echo "Injecting QVAC_ONNX_TTS_BENCHMARK_RUNNER=aws-device-farm-${{ matrix.platform }} into mobile runtime"
+          echo "Injecting QVAC_ONNX_TTS_BENCHMARK_LABEL=${{ matrix.platform }}-${{ matrix.variant }} into mobile runtime"
+
+          # Mirror the desktop benchmark env-var contract for mobile so the
+          # report row is fully labelled. The benchmark file's defaults
+          # (chatterbox-en, q4, useGPU=false, numWarmup=1, numRuns=3 mobile)
+          # are deliberately conservative so a single Device Farm leg fits
+          # inside the wdio 20-minute per-test timeout. See
+          # packages/qvac-lib-infer-onnx-tts/test/benchmark/rtf-benchmark.test.js
+          # header for the full env-var menu if the matrix needs to expand
+          # beyond chatterbox-en in the future.
+          #
+          # Create a patch to mock os.getEnv for our specific variables
           echo "
           const os = require('bare-os');
           const originalGetEnv = os.getEnv;
           os.getEnv = function(key) {
             if (key === 'CHATTERBOX_VARIANT') return '${{ matrix.variant }}';
             if (key === 'TTS_INTEGRATION_PROFILE') return 'short';
+            if (key === 'QVAC_ONNX_TTS_RUN_BENCHMARK_ON_MOBILE') return '${BENCH_FLAG}';
+            if (key === 'QVAC_ONNX_TTS_BENCHMARK_VARIANT') return '${{ matrix.variant }}';
+            if (key === 'QVAC_ONNX_TTS_BENCHMARK_DEVICE') return '${{ matrix.platform }}-device-farm';
+            if (key === 'QVAC_ONNX_TTS_BENCHMARK_RUNNER') return 'aws-device-farm-${{ matrix.platform }}';
+            if (key === 'QVAC_ONNX_TTS_BENCHMARK_LABEL') return '${{ matrix.platform }}-${{ matrix.variant }}';
             return originalGetEnv ? originalGetEnv.call(this, key) : undefined;
           };
           " > test/mobile/inject-env.cjs
-          
+
           # Prepend this patch to the integration runtime wrapper
           cat test/mobile/integration-runtime.cjs >> test/mobile/inject-env.cjs
           mv test/mobile/inject-env.cjs test/mobile/integration-runtime.cjs
@@ -391,6 +433,65 @@ jobs:
           fi
           echo ""
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      # ──────────────────────────────────────────────────────────────────────
+      # QVAC-18544 debug artifacts.
+      #
+      # The mobile RTF / streaming benchmark shims in
+      # packages/qvac-lib-infer-onnx-tts/test/mobile/rtf-benchmark.cjs are
+      # extracted by qvac-test-addon-mobile/scripts/build-test-app.js into a
+      # generated test-framework/backend/backend.cjs and exposed via wdio
+      # mocha tests in test-framework/e2e/tests/app.test.js. Every Device Farm
+      # red so far on these two entries has been because either the extractor
+      # silently dropped helpers (run #25388005569), the resulting shim threw
+      # ReferenceError (run #25433617831 commit 6e48b67c), or the return shape
+      # did not match handleRunTest's `const { summary } = result` contract
+      # (run #25433617831 commit 2288defe). To stop guessing at what the
+      # framework emitted, this step uploads the small text artifacts that
+      # determine how the device-side shim runs:
+      #
+      #   - test-framework/backend/backend.cjs           ← the RPC handler that
+      #                                                    actually executes
+      #                                                    runRtfBenchmark
+      #   - test-framework/backend/test/mobile/*.cjs     ← our shims as the
+      #                                                    framework copied
+      #                                                    them, after the
+      #                                                    Inject Variant step
+      #                                                    prepended the
+      #                                                    bare-os monkey patch
+      #   - test-framework/app/testConfig.js             ← the registered list
+      #                                                    of testFunctionMap
+      #                                                    entries
+      #   - test-framework/app/assetManifest.js          ← assets that did get
+      #                                                    bundled
+      #   - test-framework/e2e/tests/app.test.js         ← the wdio mocha file
+      #                                                    that does the
+      #                                                    `expect(...).toBe(true)`
+      #                                                    against the screen
+      #   - test-framework/.git/HEAD + ORIG_HEAD         ← the exact
+      #                                                    qvac-test-addon-mobile
+      #                                                    SHA the build used
+      #                                                    (TEST_FRAMEWORK_REF
+      #                                                    is `main`, so this
+      #                                                    pins which `main`)
+      #
+      # Total payload is small (~200 KB), runs `if: always()` so it works
+      # even when later Device Farm steps fail. Drop after QVAC-18544 lands.
+      - name: Upload generated backend / test-config / app.test.js (QVAC-18544 debug)
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # 7.0.0
+        with:
+          name: qvac-18544-debug-${{ matrix.platform }}-${{ matrix.variant }}
+          path: |
+            test-framework/backend/backend.cjs
+            test-framework/backend/test/mobile/*.cjs
+            test-framework/app/testConfig.js
+            test-framework/app/assetManifest.js
+            test-framework/e2e/tests/app.test.js
+            test-framework/.git/HEAD
+            test-framework/.git/ORIG_HEAD
+          retention-days: 14
+          if-no-files-found: warn
 
       # Android-specific steps
       - name: Set up JDK 17
@@ -1539,12 +1640,26 @@ jobs:
           retention-days: 30
           if-no-files-found: ignore
 
-      # Mobile performance report for Supertonic TTS. The integration tests
-      # emit [PERF_REPORT_START]/[PERF_CHUNK] markers into Device Farm logs;
-      # this step extracts them into the same performance-report.json shape
-      # used by the shared perf-report aggregation scripts.
+      - name: Upload Full Device Farm Logs
+        if: always() && steps.schedule_run.outputs.run_arn_1
+        uses: actions/upload-artifact@v4
+        with:
+          name: devicefarm-logs-tts-${{ matrix.platform }}-${{ matrix.variant }}
+          path: devicefarm-logs/
+          retention-days: 30
+          if-no-files-found: ignore
+
+      # ─── Mobile performance report (canonical shared pipeline) ───
+      # Scrapes [PERF_REPORT_START]...[PERF_REPORT_END] markers (or chunked
+      # [PERF_CHUNK] sequences) from the downloaded Device Farm logs into a
+      # canonical perf-report.json that scripts/perf-report/aggregate.js
+      # already understands. Same shape as the parakeet/NMT/OCR mobile
+      # pipelines so the weekly Performance Report workflow can auto-pick up
+      # ONNX TTS RTF + streaming benchmarks alongside the others.
       - name: Extract performance report from mobile logs
         if: always() && steps.schedule_run.outputs.run_arn_1
+        id: extract_rtf
+        shell: bash
         run: |
           ARTIFACT_DIR="${GITHUB_WORKSPACE}/devicefarm-logs/${{ matrix.platform }}-${{ matrix.variant }}"
           CONSOLE_DIR="${GITHUB_WORKSPACE}/console-logs/${{ matrix.platform }}-${{ matrix.variant }}"
@@ -1559,18 +1674,25 @@ jobs:
           fi
 
           if [ -z "$SEARCH_DIR" ]; then
-            echo "No console-logs/ or devicefarm-logs/ available; skipping perf extraction"
+            echo "No console-logs/ or devicefarm-logs/ available — skipping perf extraction"
+            echo "extracted=0" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           echo "Scanning $SEARCH_DIR for [PERF_REPORT_START] / [PERF_CHUNK] markers..."
+          # --merge: the RTF + streaming benchmarks each emit their own
+          # [PERF_REPORT_START] block in the same Device Farm log. Without
+          # merging, the legacy "single best report" path keeps only the
+          # last one and silently drops the other suite's rows in the
+          # consolidated findings table (QVAC-18544).
           node "${GITHUB_WORKSPACE}/addon/scripts/perf-report/extract-from-log.js" \
             "$SEARCH_DIR" \
             "$OUTPUT_DIR/performance-report.json" \
             --run-number "${{ github.run_number }}" \
-            --filter "supertonic" || true
+            --merge || true
 
           if find "$OUTPUT_DIR" -name "performance-report.json" -type f -size +0 | head -1 | grep -q .; then
+            echo "extracted=1" >> "$GITHUB_OUTPUT"
             echo "Perf report extracted; rendering markdown + HTML..."
             node "${GITHUB_WORKSPACE}/addon/scripts/perf-report/aggregate.js" \
               --dir "$OUTPUT_DIR" \
@@ -1578,11 +1700,19 @@ jobs:
               --output-html "$OUTPUT_DIR/performance-report.html" \
               --output-json "$OUTPUT_DIR/performance-summary.json" || true
           else
-            echo "No perf-report.json produced; Supertonic markers were not present in this run's logs."
+            echo "extracted=0" >> "$GITHUB_OUTPUT"
+            echo "No perf-report.json produced — markers were not present in this run's logs."
+            echo "(Expected when QVAC_ONNX_TTS_RUN_BENCHMARK_ON_MOBILE is not set,"
+            echo " or when the benchmark test failed before producing markers."
+            echo " Failing soft so the job stays green.)"
           fi
 
+      # Render the rich Step Summary table using render-step-summary.js, which
+      # honors METRIC_COLUMNS['onnx-tts'] from scripts/test-utils/performance-reporter.js.
+      # Matches the parakeet / NMT / OCR mobile pattern.
       - name: Append performance summary to job step summary
-        if: always() && steps.schedule_run.outputs.run_arn_1
+        if: always() && steps.extract_rtf.outputs.extracted == '1'
+        shell: bash
         run: |
           OUTPUT_DIR="${GITHUB_WORKSPACE}/perf-results/${{ matrix.platform }}-${{ matrix.variant }}"
           RENDERER="${GITHUB_WORKSPACE}/addon/scripts/perf-report/render-step-summary.js"
@@ -1591,23 +1721,27 @@ jobs:
             echo "::warning::$RENDERER not found; falling back to aggregator markdown"
             REPORT_MD="$OUTPUT_DIR/performance-report.md"
             if [ -s "$REPORT_MD" ]; then
-              echo "## Mobile Performance - Supertonic TTS (${{ matrix.platform }} / ${{ matrix.variant }})" >> "$GITHUB_STEP_SUMMARY"
+              echo "## Mobile Performance — ONNX TTS (${{ matrix.platform }} ${{ matrix.variant }})" >> "$GITHUB_STEP_SUMMARY"
               echo "" >> "$GITHUB_STEP_SUMMARY"
               cat "$REPORT_MD" >> "$GITHUB_STEP_SUMMARY"
             else
-              echo "No mobile Supertonic performance report rendered for ${{ matrix.platform }} / ${{ matrix.variant }}." >> "$GITHUB_STEP_SUMMARY"
+              echo "No mobile performance report rendered for ONNX TTS on ${{ matrix.platform }} ${{ matrix.variant }}." >> "$GITHUB_STEP_SUMMARY"
             fi
             exit 0
           fi
 
+          # Single-device layout: extract-from-log.js writes the JSON at the
+          # platform root when there's one device in the matrix.
           if [ -f "$OUTPUT_DIR/performance-report.json" ]; then
             node "$RENDERER" \
               "$OUTPUT_DIR/performance-report.json" \
               "$GITHUB_STEP_SUMMARY" \
-              --title "Mobile Performance: Supertonic TTS (${{ matrix.platform }} / ${{ matrix.variant }})"
+              --title "Mobile Performance: onnx-tts (${{ matrix.platform }} ${{ matrix.variant }})"
             exit 0
           fi
 
+          # Multi-device layout: per-device subdirectories. Render one block
+          # per device so each device's CPU vs GPU rows show up cleanly.
           RENDERED=0
           for DEV_DIR in "$OUTPUT_DIR"/*/; do
             DEV_REPORT="$DEV_DIR/performance-report.json"
@@ -1616,17 +1750,17 @@ jobs:
             node "$RENDERER" \
               "$DEV_REPORT" \
               "$GITHUB_STEP_SUMMARY" \
-              --title "Mobile Performance: Supertonic TTS (${{ matrix.platform }} / ${{ matrix.variant }} / ${DEV_NAME})"
+              --title "Mobile Performance: onnx-tts (${{ matrix.platform }} ${{ matrix.variant }} · ${DEV_NAME})"
             RENDERED=$((RENDERED + 1))
           done
 
           if [ "$RENDERED" = "0" ]; then
-            echo "No mobile Supertonic performance report rendered for ${{ matrix.platform }} / ${{ matrix.variant }}." >> "$GITHUB_STEP_SUMMARY"
+            echo "No mobile performance report rendered for ONNX TTS on ${{ matrix.platform }} ${{ matrix.variant }}." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Upload mobile performance report
-        if: always() && steps.schedule_run.outputs.run_arn_1
-        uses: actions/upload-artifact@v4
+        if: always() && steps.extract_rtf.outputs.extracted == '1'
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # 7.0.0
         with:
           name: perf-report-onnx-tts-${{ matrix.platform }}-${{ matrix.variant }}-${{ github.run_number }}
           path: |
@@ -1635,14 +1769,5 @@ jobs:
             perf-results/${{ matrix.platform }}-${{ matrix.variant }}/performance-report.md
             perf-results/${{ matrix.platform }}-${{ matrix.variant }}/performance-summary.json
           retention-days: 90
-          if-no-files-found: ignore
-
-      - name: Upload Full Device Farm Logs
-        if: always() && steps.schedule_run.outputs.run_arn_1
-        uses: actions/upload-artifact@v4
-        with:
-          name: devicefarm-logs-tts-${{ matrix.platform }}-${{ matrix.variant }}
-          path: devicefarm-logs/
-          retention-days: 30
           if-no-files-found: ignore
 

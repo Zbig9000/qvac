@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Internal RTF + streaming benchmark suite for Chatterbox and Supertonic, runnable via the `Benchmark RTF (ONNX TTS)` GitHub Actions workflow. CI-only; not shipped with the npm package.
+- **QVAC-18544: Mobile RTF + streaming benchmark leg on AWS Device Farm.** The `Benchmark RTF (ONNX TTS)` orchestrator now exposes `include_desktop` / `include_mobile` dispatch inputs and wires a `mobile-benchmarks` job that reuses `integration-mobile-test-tts-onnx.yml` with `run_rtf_benchmarks: true`. Mobile is opt-in (off on the weekly cron schedule) so Device Farm capacity is only consumed for explicit dispatches. Mobile entry points live in `test/integration/{rtf,streaming}-benchmark.test.js` as thin wrappers that delegate to `test/benchmark/*` when `QVAC_ONNX_TTS_RUN_BENCHMARK_ON_MOBILE=1` and soft-skip otherwise; they are registered in `test/mobile/integration.auto.cjs` so `bare-pack` bundles them into the Device Farm runtime.
+
+### Fixed
+
+- **QVAC-18544: Consolidated findings now include mobile rows.** The mobile workflow now invokes `scripts/perf-report/extract-from-log.js` with `--merge` so the RTF + streaming benchmarks (each emitting their own `[PERF_REPORT_START]` block in the same Device Farm log) are both captured instead of the previous last-write-wins behaviour. `scripts/perf-report/aggregate-onnx-tts-rtf.js` now recognises the canonical wrapper shape produced by the mobile extractor (`isCanonicalReport` / `expandCanonicalReport`) and matches both `rtf-benchmark-*.json` (desktop) and `performance-report.json` (mobile) in the artifact filter, so the `summarize` job produces one unified Step Summary covering both legs.
 
 ## [0.9.0]
 
