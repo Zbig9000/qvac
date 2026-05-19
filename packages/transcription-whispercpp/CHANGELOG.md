@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.3]
+
+### Changed
+- Bumped `whisper-cpp` to `1.8.4.3#3`: the two Android dynamic-backend ggml fixes (`GGML_BACKEND_DL` + static-core CMake guards; per-arch CPU dlopen fallback) and the tts-cpp `<atomic>` include fix are now upstreamed as commits on the whisper.cpp fork (`tetherto/qvac-ext-lib-whisper.cpp` PR #26) instead of as port-level patches. Build output is bit-identical to `1.8.4.3#2`, but the registry no longer maintains the patch tree.
+- Re-pinned the `Zbig9000/qvac-registry-vcpkg` default-registry baseline to `965f5e5aee66df46cd851210ab0b0e6fbe71b7cc` so `whisper-cpp 1.8.4.3#3` is reachable.
+
 ## [0.7.2]
 
 ### Fixed
