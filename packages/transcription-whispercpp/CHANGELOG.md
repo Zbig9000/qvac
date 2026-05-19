@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2]
+
+### Fixed
+- Android APK consumers silently lost CPU init when the addon was packaged with `useLegacyPackaging=false` (the AGP ≥ 3.6 default). ggml's `ggml_backend_load_best()` directory iterator finds nothing inside compressed APK libs, and its on-disk filename fallback never composes the per-arch `libggml-cpu-android_armv*_*.so` names that `GGML_CPU_ALL_VARIANTS=ON` produces — so the CPU backend never registered and `init_cpu_backend()` returned null. Bumped `whisper-cpp` to `1.8.4.3#2`, which carries a port-level patch (`0002-ggml-android-cpu-variant-dlopen-fallback.patch`) mirroring [`qvac-ext-ggml@speech 9562ed04`](https://github.com/tetherto/qvac-ext-ggml/commit/9562ed04) to the bundled-ggml tree: on `__ANDROID__` the loader now tries the bare backend name as well as all seven known `cpu-android_armv*_*` variants, then picks the highest-scoring one the device's HWCAP supports. [QVAC-18993]
+
+### Changed
+- Re-pinned the `Zbig9000/qvac-registry-vcpkg` default-registry baseline to `86257dc376ca043c67cc4805ab8d1e74a94b7eda` so the `whisper-cpp 1.8.4.3#2` port-version + the matching `ggml-speech 2026-05-19#0` port-version are reachable.
+
 ## [0.7.1]
 
 ### Changed
