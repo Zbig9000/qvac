@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1-validate-upstream-sync]
+
+### Changed
+- **Validation-only release.** Bumps `whisper-cpp` `1.8.4.2#1` → `1.8.4.3#0` to give the [QVAC-18991 upstream-sync PR](https://github.com/tetherto/qvac-ext-lib-whisper.cpp/pull/25) (whisper.cpp v1.8.4.3 + tetherto/master post-divergence merge + VAD-streaming regression test) a dedicated `transcription-whispercpp` on-PR workflow run — no other functional changes. The matching vcpkg port lives at [`qvac-registry-vcpkg` PR #154](https://github.com/tetherto/qvac-registry-vcpkg/pull/154) (also validation-only). Default-registry repository temporarily flipped to `Zbig9000/qvac-registry-vcpkg` so the new port-version is resolvable; revert to `tetherto/qvac-registry-vcpkg` once PR #25 + PR #154 land. **This package version is not intended to publish; the on-PR CI run is the deliverable.**
+
 ## [0.7.0]
 
 ### Fixed
