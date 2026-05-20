@@ -14,17 +14,21 @@ else()
   option(ENABLE_VULKAN "Enable Vulkan GPU acceleration" OFF)
 endif()
 
-# QVAC-18300: Adreno OpenCL backend. ON by default for Android only --- the
-# whisper-cpp port's `opencl` feature is `platform: android` gated, so on
-# other targets the feature is a no-op anyway. Without this option the
-# `opencl` feature declared in vcpkg.json is never activated and the
-# prebuild's android-arm64 output ships only CPU + Vulkan .so backends
-# (no libggml-opencl.so), defeating the purpose of QVAC-18300.
-if(_qvac_whispercpp_target_os STREQUAL "Android")
-  option(ENABLE_OPENCL "Enable OpenCL GPU acceleration (Android-only; Adreno)" ON)
-else()
-  option(ENABLE_OPENCL "Enable OpenCL GPU acceleration (Android-only; Adreno)" OFF)
-endif()
+# QVAC-18300: Adreno OpenCL backend. Default ON unconditionally. The
+# `opencl` feature in vcpkg.json declares its `whisper-cpp[opencl]` dep
+# as `platform: android`-gated, and the `whisper-cpp` portfile only emits
+# `-DGGML_OPENCL=ON` when `VCPKG_TARGET_IS_ANDROID`, so adding `"opencl"`
+# to `VCPKG_MANIFEST_FEATURES` on non-Android is a no-op.
+#
+# Why not gate on `_qvac_whispercpp_target_os STREQUAL "Android"` like
+# ENABLE_VULKAN does: at top-level CMakeLists.txt time `CMAKE_SYSTEM_NAME`
+# is not set yet --- the bare-make toolchain file is loaded by `project()`,
+# which runs after this block --- so the check would always fall through
+# to the Linux host default. ENABLE_VULKAN coincidentally works because
+# Vulkan is also default-ON on Linux. The right pattern for an
+# Android-only feature is therefore an unconditional default + the
+# vcpkg.json platform gate as the source of truth.
+option(ENABLE_OPENCL "Enable OpenCL GPU acceleration (Android-only; Adreno)" ON)
 
 if(BUILD_TESTING)
   list(APPEND VCPKG_MANIFEST_FEATURES "tests")
