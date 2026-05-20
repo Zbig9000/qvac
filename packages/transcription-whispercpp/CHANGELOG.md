@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Bumped `whisper-cpp` to `1.8.4.3#3`: the two Android dynamic-backend ggml fixes (`GGML_BACKEND_DL` + static-core CMake guards; per-arch CPU dlopen fallback) and the tts-cpp `<atomic>` include fix are now upstreamed as commits on the whisper.cpp fork (`tetherto/qvac-ext-lib-whisper.cpp` PRs #25 + #27 + #28) instead of as port-level patches. Build output is bit-identical to `1.8.4.3#2`, but the registry no longer maintains the patch tree.
 - Added `spirv-headers` to the `microsoft/vcpkg` registry routing in `vcpkg-configuration.json` — required because upstream whisper.cpp v1.8.4.3 unconditionally `#include`s `spirv/unified1/spirv.hpp` in `ggml-vulkan.cpp` (no `find_package(SpirvHeaders)` call in ggml's CMake, so the standalone `SPIRV-Headers` tree is needed on the include path).
-- Re-pinned the `Zbig9000/qvac-registry-vcpkg` default-registry baseline to `dffaaf6034c8706eeabb267c864a24ff222f5466` ([qvac-registry-vcpkg PR #152](https://github.com/tetherto/qvac-registry-vcpkg/pull/152) HEAD) so `whisper-cpp 1.8.4.3#3` is reachable with the corrected source `SHA512`.
+- Re-pinned the `Zbig9000/qvac-registry-vcpkg` default-registry baseline to `8c6ca188a36b99ff7968d42c96d810c73113d2a6` ([qvac-registry-vcpkg PR #152](https://github.com/tetherto/qvac-registry-vcpkg/pull/152) HEAD, rebased on top of `tetherto/main` 0e75457 — picks up `ggml-speech 2026-05-19#3` and `whisper-cpp 1.8.4.3#3`).
 
 ## [0.7.2]
 
