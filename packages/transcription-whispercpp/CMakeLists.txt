@@ -69,6 +69,23 @@ endif()
 set(BACKEND_DL_LIBS "")
 if((ANDROID OR UNIX) AND NOT APPLE)
   foreach(_backend ${GGML_AVAILABLE_BACKENDS})
+    if(NOT TARGET ggml::${_backend})
+      # With GGML_BACKEND_DL=ON (Android dynamic-backend build), ggml builds
+      # the per-arch CPU + GPU backends as standalone MODULE libraries that
+      # are dlopen'd at runtime. Upstream ggml's install(TARGETS … EXPORT)
+      # deliberately skips them, so the imported target doesn't exist —
+      # materialise it locally from the .so installed under vcpkg's bin/.
+      # Mirrors the pattern used by packages/diffusion-cpp.
+      find_library(_${_backend}_LIB
+        NAMES "${_backend}"
+        PATHS "${VCPKG_INSTALLED_PATH}/bin" "${VCPKG_INSTALLED_PATH}/lib"
+        NO_DEFAULT_PATH
+        REQUIRED)
+      add_library(ggml::${_backend} SHARED IMPORTED)
+      set_target_properties(ggml::${_backend} PROPERTIES
+        IMPORTED_LOCATION "${_${_backend}_LIB}"
+        IMPORTED_NO_SONAME TRUE)
+    endif()
     list(APPEND BACKEND_DL_LIBS INSTALL TARGET ggml::${_backend})
   endforeach()
 endif()
