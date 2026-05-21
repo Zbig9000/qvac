@@ -53,8 +53,7 @@ auto JSAdapter::loadFromJSObject(Object jsObject, js_env_t* env)
   // `WHISPER_CONTEXT_HANDLERS.at(key)` and would throw on an unrecognised
   // key. Only consumed on Android by `WhisperModel::load`; missing /
   // empty everywhere else.
-  auto backendsDirJs =
-      jsObject.getOptionalProperty<String>(env, "backendsDir");
+  auto backendsDirJs = jsObject.getOptionalProperty<String>(env, "backendsDir");
   if (backendsDirJs.has_value()) {
     config.backendsDir = backendsDirJs.value().as<std::string>(env);
   }
