@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.8.0]
+## [0.9.0]
 
 ### Added
 - `whisperConfig.backendsDir` config option: absolute path to the root of the
@@ -76,6 +76,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `CMAKE_CXX_FLAGS`, which MSVC's `cl.exe` treats as a positional source
   argument. The port now emits `/I<path>` on MSVC and keeps `-isystem
   <path>` on GCC/Clang.
+
+## [0.8.0]
+
+### Removed
+- Reverted the whisper-local `WhisperOutputCallBackJs` workaround introduced in `0.7.0`:
+- Deleted `addon/src/addon/WhisperOutputCallbackJs.hpp` and its `#include` from `addon/src/addon/AddonJs.hpp`.
+- `createInstance` in `addon/src/addon/AddonJs.hpp` now constructs the upstream `qvac_lib_inference_addon_cpp::OutputCallBackJs` directly.
+- Removed the two `setImmediate` defense-in-depth yields (and their explanatory comment) from `WhisperInterface.destroyInstance()` in `whisper.js`.
 
 ## [0.7.0]
 
