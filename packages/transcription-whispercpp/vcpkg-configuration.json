@@ -1,7 +1,7 @@
 {
   "default-registry": {
     "kind": "git",
-      "baseline": "f2870372965e899ae1f8a221154d2b243a6c3d30",
+      "baseline": "ee71ecb5b286224377313e5a50558d11adbef3ac",
     "repository": "https://github.com/Zbig9000/qvac-registry-vcpkg.git"
   },
   "registries": [
