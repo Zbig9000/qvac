@@ -5,39 +5,77 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.7.3]
+## [0.8.0]
 
-### Note
-- Closes [QVAC-19071](https://tetherapp.atlassian.net/browse/QVAC-19071) ("[Whisper] Update qvac-registry-vcpkg and addon with new port versions"): this release is the consumer-side half of that meta task — it picks up the `whisper-cpp 1.8.4.3#4` port version from `qvac-registry-vcpkg` PR #152 (the registry-side half), and bumps the `transcription-whispercpp` addon itself. The QVAC-18992 `ggml-speech` migration (PR #13 + the `ggml-speech` port bump) stays deferred for this release; it will land as a follow-up port bump under the same QVAC-19071 umbrella.
+### Added
+- `whisperConfig.backendsDir` config option: absolute path to the root of the
+  per-arch ggml backend `.so` modules (defaults to the package's `prebuilds/`
+  folder). The native addon appends `<bare-target>/<module-name>` and feeds
+  the result to `ggml_backend_load_all_from_path()`. Consumed only on Android;
+  no-op everywhere else. Mirrors `transcription-parakeet`'s
+  `parakeetConfig.backendsDir`.
+
+### Changed
+- Bumped `whisper-cpp` to `1.8.4.3#0`:
+  - Syncs upstream `ggml-org/whisper.cpp` master up to v1.8.4.3, including
+    the bundled-ggml bump to v0.10.2 and the upstream PR #3677 VAD streaming
+    API (`whisper_vad_detect_speech_no_reset`, `whisper_vad_reset_state`).
+  - Adds the `opencl` feature (Adreno OpenCL backend on Android).
+  - Switches the Android build to full dynamic-backend mode
+    (`GGML_BACKEND_DL=ON` + `GGML_CPU_ALL_VARIANTS=ON`): the addon `.bare`
+    prebuild now ships one `libggml-cpu-android_armv*_*.so` per microarch
+    plus dynamically-loaded `libggml-vulkan.so` / `libggml-opencl.so`, and
+    ggml's loader picks the best CPU variant + GPU backend per device at
+    runtime.
+- Re-pinned the default-registry baseline to
+  `a9d7e924de8cb7133c54c5b1d446e4d9c0508ec8`
+  ([qvac-registry-vcpkg PR #152](https://github.com/tetherto/qvac-registry-vcpkg/pull/152)).
+- Added `spirv-headers` to the `microsoft/vcpkg` registry routing — required
+  because upstream whisper.cpp v1.8.4.3 unconditionally `#include`s
+  `spirv/unified1/spirv.hpp` in `ggml-vulkan.cpp` and ggml's CMake does not
+  `find_package(SpirvHeaders)`, so the standalone tree must be on the include
+  path.
+- GPU features (`opencl`, `vulkan`) are now selected entirely through
+  `vcpkg.json` platform-gated `whisper-cpp` deps (matches
+  `transcription-parakeet`'s pattern); the `ENABLE_VULKAN` / `ENABLE_OPENCL`
+  CMake option indirection in `CMakeLists.txt` was removed. Override the
+  feature set via `VCPKG_MANIFEST_FEATURES` if you need a non-default mix.
 
 ### Fixed
-- Android E2E tests crashed inside `whisper_init_from_file_with_params` with `SIGABRT` (`ggml_abort` → `ggml_backend_dev_backend_reg+48` → `whisper_init_with_params_no_state+480`). The integration-mobile-test workflow always failed at `runAccuracyMultilangTest` on both AWS Device Farm devices (Samsung Galaxy S25 Ultra + Pixel 9 Pro), with the app exiting state `4`→`1` 132 ms after `Downloaded model: ggml-tiny.bin`. Root cause: the addon never called `ggml_backend_load_all*()`. With `GGML_BACKEND_DL=ON`, the bundled ggml-base no longer defines `GGML_USE_CPU`, so the static `ggml_backend_registry` ctor registers zero backends — the per-arch `libggml-cpu-android_armv*_*.so` plus `libggml-vulkan.so` / `libggml-opencl.so` must be explicitly loaded before `whisper_init`, otherwise whisper's `ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_CPU, nullptr)` returns NULL → passes NULL to `ggml_backend_dev_backend_reg()` → trips `GGML_ASSERT(device)` → abort. Mirrored the pattern used by every other ggml-based addon in the monorepo (`packages/{diffusion-cpp,llm-llamacpp,classification-ggml,…}`): JS `index.js` passes `path.join(__dirname, 'prebuilds')` as `configurationParams.backendsDir`; the C++ side combines it with the compile-time `BACKENDS_SUBDIR` (`<bare_target>/<module_name>`) and calls `ggml_backend_load_all_from_path()` exactly once per process (`std::once_flag`) on `__ANDROID__` only — desktop platforms still rely on ggml's static-ctor registration. [QVAC-18993]
-- `bare-make generate` failed on `android-arm64` (CMake error: `get_target_property() called with non-existent target "ggml::ggml-cpu-android_armv8.0_1"` etc.) after enabling `GGML_BACKEND_DL=ON` on the `whisper-cpp` port. With dynamic-backend mode, ggml builds the per-arch CPU and GPU backends as standalone `MODULE` libraries that `dlopen` at runtime; upstream ggml's `install(TARGETS … EXPORT)` deliberately skips them, so the consumer's `BACKEND_DL_LIBS` loop in `CMakeLists.txt` referenced targets that don't exist. Materialise an imported `SHARED IMPORTED` target locally from each `.so` installed under vcpkg's `bin/` directory, then bundle via the existing `INSTALL TARGET` path — mirrors the pattern used by `packages/diffusion-cpp`. [QVAC-18993]
-- `whisper-cpp[vulkan]` failed to build on `x64-windows` with `c1xx: fatal error C1083: Cannot open source file: '.../x64-windows/include'`. Root cause was the new spirv-headers include-shim in the `whisper-cpp` port (and the parallel `ggml-speech` port) emitting `-isystem <path>` into `CMAKE_CXX_FLAGS` — MSVC's `cl.exe` does not understand `-isystem`, treats the flag as a positional source file argument, and then tries to open the path as a `.cpp`. Fixed in `whisper-cpp 1.8.4.3#4` + `ggml-speech 2026-05-19#4` by emitting `/I<path>` on MSVC and keeping `-isystem <path>` on GCC/Clang. [QVAC-18992]
-- Android prebuild shipped only CPU + Vulkan `.so` backends — `libggml-opencl.so` was missing despite the `whisper-cpp[opencl]` recipe being green and the `opencl` feature being declared in `vcpkg.json`. Two layered root causes: (1) `CMakeLists.txt` never appended `"opencl"` to `VCPKG_MANIFEST_FEATURES` (only `"tests"` and `"vulkan"` were wired through), so vcpkg resolved the addon without the `opencl` feature; (2) the obvious "gate on `CMAKE_SYSTEM_NAME STREQUAL "Android"`" detection used by `ENABLE_VULKAN` doesn't work at top-level CMakeLists.txt time because the bare-make toolchain file is loaded by `project()` (which runs *after* the option block), so the check always falls through to the Linux host default. The existing `ENABLE_VULKAN` block coincidentally works because Vulkan is also default-ON on Linux. Added an `ENABLE_OPENCL` option defaulted ON unconditionally that appends `"opencl"` to `VCPKG_MANIFEST_FEATURES`; the actual platform gating is delegated to the `platform: android` clause on the `whisper-cpp[opencl]` dep in `vcpkg.json` + the `VCPKG_TARGET_IS_ANDROID` check in the `whisper-cpp` portfile (mirrors the layered platform-gate pattern that `whisper-cpp[vulkan]` already uses with `!osx & !ios`). [QVAC-18300]
-
-### Changed
-- Bumped `whisper-cpp` to `1.8.4.3#4`: the two Android dynamic-backend ggml fixes (`GGML_BACKEND_DL` + static-core CMake guards; per-arch CPU dlopen fallback) and the tts-cpp `<atomic>` include fix are now upstreamed as commits on the whisper.cpp fork (`tetherto/qvac-ext-lib-whisper.cpp` PRs #25 + #27 + #28) instead of as port-level patches. Build output is bit-identical to `1.8.4.3#2` (modulo the MSVC `/I` fix above), but the registry no longer maintains the patch tree.
-- Added `spirv-headers` to the `microsoft/vcpkg` registry routing in `vcpkg-configuration.json` — required because upstream whisper.cpp v1.8.4.3 unconditionally `#include`s `spirv/unified1/spirv.hpp` in `ggml-vulkan.cpp` (no `find_package(SpirvHeaders)` call in ggml's CMake, so the standalone `SPIRV-Headers` tree is needed on the include path).
-- Re-pinned the `Zbig9000/qvac-registry-vcpkg` default-registry baseline to `ee71ecb5b286224377313e5a50558d11adbef3ac` ([qvac-registry-vcpkg PR #152](https://github.com/tetherto/qvac-registry-vcpkg/pull/152) HEAD). Picks up `whisper-cpp 1.8.4.3#0` — port REPO + REF flipped from the temporary `Zbig9000/qvac-ext-lib-whisper.cpp@14620c8857` branch pin to `tetherto/qvac-ext-lib-whisper.cpp@f3102199`, the merge commit for [whisper-cpp PR #28](https://github.com/tetherto/qvac-ext-lib-whisper.cpp/pull/28) (QVAC-18993 bundled-ggml Android dynamic backend) which closes the Group-1/2 merge chain on `tetherto/master` (PR #25 QVAC-18991 upstream-sync + PR #27 QVAC-18966 tts-cpp atomic + PR #28 QVAC-18993 ggml-backend). Port-version was reset to `#0` (per PR #152 review) and the historical `1.8.4.3#3..#5` entries were collapsed into a single canonical `#0` against the new upstream. Source tarball is byte-identical to the previous `1.8.4.3#4` build outside the `parakeet-cpp/` and `tts-cpp/` subdirs (separate vcpkg ports), so the bump is REF-only — no recipe change, no patch change, no build-output change.
-- Earlier in this release the same `vcpkg-configuration.json` baseline was rolled through `9f4e8e2…` (MSVC `/I` shim fix) and `f287037…` (initial tetherto REF repoint at `1.8.4.3#5`); the bump above supersedes both.
-
-## [0.7.2]
-
-### Fixed
-- Android APK consumers silently lost CPU init when the addon was packaged with `useLegacyPackaging=false` (the AGP ≥ 3.6 default). ggml's `ggml_backend_load_best()` directory iterator finds nothing inside compressed APK libs, and its on-disk filename fallback never composes the per-arch `libggml-cpu-android_armv*_*.so` names that `GGML_CPU_ALL_VARIANTS=ON` produces — so the CPU backend never registered and `init_cpu_backend()` returned null. Bumped `whisper-cpp` to `1.8.4.3#2`, which carries a port-level patch (`0002-ggml-android-cpu-variant-dlopen-fallback.patch`) mirroring [`qvac-ext-ggml@speech 9562ed04`](https://github.com/tetherto/qvac-ext-ggml/commit/9562ed04) to the bundled-ggml tree: on `__ANDROID__` the loader now tries the bare backend name as well as all seven known `cpu-android_armv*_*` variants, then picks the highest-scoring one the device's HWCAP supports. [QVAC-18993]
-
-### Changed
-- Re-pinned the `Zbig9000/qvac-registry-vcpkg` default-registry baseline to `86257dc376ca043c67cc4805ab8d1e74a94b7eda` so the `whisper-cpp 1.8.4.3#2` port-version + the matching `ggml-speech 2026-05-19#0` port-version are reachable.
-
-## [0.7.1]
-
-### Changed
-- Bumped `whisper-cpp` to `1.8.4.3#1`, which:
-  - Syncs the upstream `ggml-org/whisper.cpp` master series up to v1.8.4.3, including the bundled-ggml bump to v0.10.2 and the upstream PR #3677 VAD streaming API (`whisper_vad_detect_speech_no_reset`, `whisper_vad_reset_state`). [QVAC-18991]
-  - Enables the `[opencl]` feature on Android, exposing the Adreno OpenCL backend (auto-selected at runtime when the device reports an Adreno 700+ GPU). [QVAC-18300]
-  - Switches the Android build to full dynamic-backend mode (`GGML_BACKEND_DL=ON` + `GGML_CPU_ALL_VARIANTS=ON`): the addon `.bare` prebuild now ships one `libggml-cpu-android_armv*_*.so` per microarchitecture plus dynamically-loaded `libggml-vulkan.so` / `libggml-opencl.so`, and ggml's loader picks the best CPU variant + GPU backend per device at runtime. [QVAC-18993]
-- Picks up the new `ggml-speech 2026-05-18#1` from the registry baseline (no direct dependency in this package, but consumed transitively by `qvac-lib-infer-parakeet` / `tts-cpp` consumers that share the same Android process). [QVAC-18992]
+- Android E2E `SIGABRT` inside `whisper_init_from_file_with_params`
+  (`ggml_abort` → `ggml_backend_dev_backend_reg+48` →
+  `whisper_init_with_params_no_state+480`). With `GGML_BACKEND_DL=ON` the
+  bundled ggml-base no longer defines `GGML_USE_CPU`, so the static
+  `ggml_backend_registry` constructor registers zero backends and whisper's
+  `ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_CPU, nullptr)` returns
+  NULL → trips `GGML_ASSERT(device)`. The addon now hands
+  `path.join(__dirname, 'prebuilds')` to the native side as
+  `configurationParams.backendsDir`; on Android `WhisperModel::load` joins it
+  with the compile-time `BACKENDS_SUBDIR` (`<bare_target>/<module_name>`)
+  and calls `ggml_backend_load_all_from_path()` exactly once per process
+  (`std::once_flag`). Mirrors
+  `packages/{diffusion-cpp,llm-llamacpp,classification-ggml,…}`.
+- `bare-make generate` on `android-arm64` failed with
+  `get_target_property() called with non-existent target
+  "ggml::ggml-cpu-android_armv8.0_1"`. With dynamic-backend mode the per-arch
+  CPU + GPU backends are MODULE libraries that upstream ggml's
+  `install(TARGETS … EXPORT)` skips; materialise a `SHARED IMPORTED` target
+  locally from each `.so` under vcpkg's `bin/` before adding it to
+  `BACKEND_DL_LIBS`. Mirrors `packages/diffusion-cpp`.
+- Android APK consumers silently lost CPU init when the addon was packaged
+  with `useLegacyPackaging=false` (the AGP ≥ 3.6 default). ggml's
+  `ggml_backend_load_best()` directory iterator finds nothing inside
+  compressed APK libs, and its on-disk filename fallback did not compose the
+  per-arch `libggml-cpu-android_armv*_*.so` names that
+  `GGML_CPU_ALL_VARIANTS=ON` produces. The upstream `whisper-cpp` bump now
+  tries the bare backend name and all seven known `cpu-android_armv*_*`
+  variants, then picks the highest-scoring one the device's HWCAP supports.
+- `whisper-cpp[vulkan]` failed to build on `x64-windows` with `c1xx: fatal
+  error C1083: Cannot open source file: '.../x64-windows/include'`. The
+  spirv-headers include shim was emitting `-isystem <path>` into
+  `CMAKE_CXX_FLAGS`, which MSVC's `cl.exe` treats as a positional source
+  argument. The port now emits `/I<path>` on MSVC and keeps `-isystem
+  <path>` on GCC/Clang.
 
 ## [0.7.0]
 

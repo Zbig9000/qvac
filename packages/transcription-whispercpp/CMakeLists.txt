@@ -2,44 +2,8 @@ cmake_minimum_required(VERSION 3.25)
 
 option(BUILD_TESTING "Build tests" OFF)
 
-if(DEFINED CMAKE_SYSTEM_NAME)
-  set(_qvac_whispercpp_target_os "${CMAKE_SYSTEM_NAME}")
-else()
-  set(_qvac_whispercpp_target_os "${CMAKE_HOST_SYSTEM_NAME}")
-endif()
-
-if(_qvac_whispercpp_target_os STREQUAL "Linux" OR _qvac_whispercpp_target_os STREQUAL "Android" OR _qvac_whispercpp_target_os STREQUAL "Windows")
-  option(ENABLE_VULKAN "Enable Vulkan GPU acceleration" ON)
-else()
-  option(ENABLE_VULKAN "Enable Vulkan GPU acceleration" OFF)
-endif()
-
-# QVAC-18300: Adreno OpenCL backend. Default ON unconditionally. The
-# `opencl` feature in vcpkg.json declares its `whisper-cpp[opencl]` dep
-# as `platform: android`-gated, and the `whisper-cpp` portfile only emits
-# `-DGGML_OPENCL=ON` when `VCPKG_TARGET_IS_ANDROID`, so adding `"opencl"`
-# to `VCPKG_MANIFEST_FEATURES` on non-Android is a no-op.
-#
-# Why not gate on `_qvac_whispercpp_target_os STREQUAL "Android"` like
-# ENABLE_VULKAN does: at top-level CMakeLists.txt time `CMAKE_SYSTEM_NAME`
-# is not set yet --- the bare-make toolchain file is loaded by `project()`,
-# which runs after this block --- so the check would always fall through
-# to the Linux host default. ENABLE_VULKAN coincidentally works because
-# Vulkan is also default-ON on Linux. The right pattern for an
-# Android-only feature is therefore an unconditional default + the
-# vcpkg.json platform gate as the source of truth.
-option(ENABLE_OPENCL "Enable OpenCL GPU acceleration (Android-only; Adreno)" ON)
-
 if(BUILD_TESTING)
   list(APPEND VCPKG_MANIFEST_FEATURES "tests")
-endif()
-
-if(ENABLE_VULKAN)
-  list(APPEND VCPKG_MANIFEST_FEATURES "vulkan")
-endif()
-
-if(ENABLE_OPENCL)
-  list(APPEND VCPKG_MANIFEST_FEATURES "opencl")
 endif()
 
 find_package(cmake-bare REQUIRED PATHS node_modules/cmake-bare)
@@ -90,12 +54,10 @@ set(BACKEND_DL_LIBS "")
 if((ANDROID OR UNIX) AND NOT APPLE)
   foreach(_backend ${GGML_AVAILABLE_BACKENDS})
     if(NOT TARGET ggml::${_backend})
-      # With GGML_BACKEND_DL=ON (Android dynamic-backend build), ggml builds
-      # the per-arch CPU + GPU backends as standalone MODULE libraries that
-      # are dlopen'd at runtime. Upstream ggml's install(TARGETS … EXPORT)
-      # deliberately skips them, so the imported target doesn't exist —
-      # materialise it locally from the .so installed under vcpkg's bin/.
-      # Mirrors the pattern used by packages/diffusion-cpp.
+      # GGML_BACKEND_DL=ON ships the per-arch CPU + GPU backends as
+      # standalone MODULE libraries that are dlopen'd at runtime; upstream
+      # ggml's install(TARGETS … EXPORT) skips them, so materialise an
+      # imported target from the .so under vcpkg's bin/.
       find_library(_${_backend}_LIB
         NAMES "${_backend}"
         PATHS "${VCPKG_INSTALLED_PATH}/bin" "${VCPKG_INSTALLED_PATH}/lib"
@@ -110,17 +72,13 @@ if((ANDROID OR UNIX) AND NOT APPLE)
   endforeach()
 endif()
 
-# QVAC-18993: emit BACKENDS_SUBDIR compile def so the addon can locate the
-# per-arch ggml-backend .so files at runtime. The bare runtime installs the
-# backend modules at `<addon>/prebuilds/<bare_target>/<module_name>/`; the JS
-# layer (`index.js`) passes `<addon>/prebuilds` as `contextParams.backendsDir`
-# and the C++ side appends `BACKENDS_SUBDIR` (`<bare_target>/<module_name>`)
-# before calling `ggml_backend_load_all_from_path()`. Mirrors the pattern in
-# packages/{diffusion-cpp,llm-llamacpp,classification-ggml,…}.
+# Subdir bare's runtime installs the dlopenable backend modules into
+# (<addon>/prebuilds/<bare_target>/<module_name>/); WhisperModel joins it
+# with the runtime-supplied backendsDir before
+# ggml_backend_load_all_from_path().
 bare_target(bare_target_value)
 bare_module_target("." _unused_target NAME module_name VERSION _unused_version)
 set(BACKENDS_SUBDIR_VALUE "${bare_target_value}/${module_name}")
-message(STATUS "Building transcription-whispercpp with BACKENDS_SUBDIR='${BACKENDS_SUBDIR_VALUE}'")
 
 add_bare_module(transcription-whispercpp EXPORTS ${BACKEND_DL_LIBS})
 

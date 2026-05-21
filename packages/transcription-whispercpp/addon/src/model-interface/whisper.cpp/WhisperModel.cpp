@@ -71,37 +71,17 @@ auto WhisperModel::formatCaptionOutput(Transcript& transcript) -> void {
 
 #if defined(__ANDROID__)
 namespace {
-// QVAC-18993: on Android the addon is linked against a ggml built with
-// `GGML_BACKEND_DL=ON` (plus `GGML_CPU_ALL_VARIANTS=ON`), which means no
-// backend is registered by ggml's static `ggml_backend_registry` ctor ---
-// `GGML_USE_CPU` is not defined inside ggml-base, every CPU variant lives
-// in its own `libggml-cpu-android_armv*_*.so`, and Vulkan/OpenCL ship as
-// separate `.so` files too. Without an explicit
-// `ggml_backend_load_all_from_path()` call the first
-// `whisper_init_from_file_with_params()` triggers
-// `ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_CPU, nullptr)` →
-// returns NULL → whisper passes a NULL device to
-// `ggml_backend_dev_backend_reg()` → `GGML_ASSERT(device)` → SIGABRT, which
-// is the crash flagged by the qvac integration mobile tests on PR #2124.
-//
-// Mirrors the pattern used by every other ggml-based addon in this monorepo
-// (`packages/{diffusion-cpp,llm-llamacpp,classification-ggml,…}`): take
-// `backendsDir` from JS (`path.join(__dirname, 'prebuilds')`), append the
-// compile-time `BACKENDS_SUBDIR` (`<bare_target>/<module_name>`) to land on
-// `<addon>/prebuilds/<bare_target>/<module_name>/`, and dlopen every
-// `libggml-*.so` there exactly once per process.
-//
-// `std::once_flag` keeps subsequent `WhisperModel::load()` / `reload()`
-// calls (and parallel `WhisperModel` instances inside the same process)
-// from re-walking the directory or thrashing the ggml registry, which is
-// global state.
+// Android ships ggml with `GGML_BACKEND_DL=ON`, so no backend is
+// statically registered. dlopen the per-arch CPU + GPU `.so` modules
+// once per process; otherwise whisper_init aborts on a NULL CPU device.
+// Mirrors packages/{diffusion-cpp,llm-llamacpp,classification-ggml,…}.
 void ensureBackendsLoadedAndroid(const std::string& backendsDir) {
   static std::once_flag flag;
   std::call_once(flag, [&]() {
     if (backendsDir.empty()) {
       QLOG(
           qvac_lib_inference_addon_cpp::logger::Priority::WARNING,
-          "Android: contextParams.backendsDir not set; falling back to "
+          "Android: configurationParams.backendsDir not set; falling back to "
           "ggml_backend_load_all() (default search path). CPU/Vulkan/OpenCL "
           "registration may fail inside an APK.");
       ggml_backend_load_all();

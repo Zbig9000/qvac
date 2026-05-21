@@ -37,17 +37,10 @@ struct WhisperConfig {
   std::map<std::string, JSValueVariant> vadCfg;
   std::map<std::string, JSValueVariant> whisperContextCfg;
 
-  // QVAC-18993: absolute path to the addon's prebuilds folder (set from JS
-  // as `configurationParams.backendsDir`, typically `path.join(__dirname,
-  // 'prebuilds')`). Combined with the compile-time `BACKENDS_SUBDIR`
-  // (`<bare_target>/<module_name>`) at load time to locate the per-arch
-  // ggml-backend `.so` modules for `ggml_backend_load_all_from_path()`.
-  // Only consulted on Android (`__ANDROID__`) where ggml is built with
-  // `GGML_BACKEND_DL=ON` and no backend is statically registered. Empty on
-  // every other platform (where ggml's static constructors register the CPU
-  // backend before `whisper_init`). Kept as a sibling of the existing
-  // handler-driven maps so it doesn't have to be dispatched through
-  // `WHISPER_CONTEXT_HANDLERS.at(...)`.
+  // Addon prebuilds folder (`configurationParams.backendsDir` from JS).
+  // Combined with the compile-time `BACKENDS_SUBDIR` to locate the
+  // per-arch ggml `.so` modules for `ggml_backend_load_all_from_path()`.
+  // Android-only; empty elsewhere.
   std::string backendsDir;
 };
 
