@@ -1,5 +1,6 @@
 'use strict'
 
+const path = require('bare-path')
 const fs = require('bare-fs')
 const QvacLogger = require('@qvac/logging')
 const { createJobHandler, exclusiveRunQueue } = require('@qvac/infer-base')
@@ -7,6 +8,17 @@ const { createJobHandler, exclusiveRunQueue } = require('@qvac/infer-base')
 const { WhisperInterface } = require('./whisper')
 const { checkConfig } = require('./configChecker')
 const { QvacErrorAddonWhisper, ERR_CODES } = require('./lib/error')
+
+// QVAC-18993: absolute path to the addon's prebuilds folder. Mirrors the
+// pattern used by other ggml-based addons in this monorepo
+// (`packages/{diffusion-cpp,llm-llamacpp,classification-ggml,…}`); consumed
+// by the C++ side on Android only --- `WhisperModel::load` joins it with
+// the compile-time `BACKENDS_SUBDIR` (`<bare_target>/<module_name>`) and
+// hands the result to `ggml_backend_load_all_from_path()` so the per-arch
+// ggml-cpu, ggml-vulkan and ggml-opencl `.so` files actually get
+// registered before `whisper_init`. Unused on every other platform (ggml's
+// static ctor registers CPU there).
+const PREBUILDS_DIR = path.join(__dirname, 'prebuilds')
 
 const END_OF_INPUT = 'end of job'
 
@@ -175,7 +187,8 @@ class TranscriptionWhispercpp {
         caption_enabled: false,
         ...(this._config.miscConfig || {})
       },
-      audio_format: this._config.audio_format || this.params.audio_format || 's16le'
+      audio_format: this._config.audio_format || this.params.audio_format || 's16le',
+      backendsDir: this._config.backendsDir || PREBUILDS_DIR
     }
 
     // this entrypoint serves as the model configuration.
@@ -405,7 +418,8 @@ class TranscriptionWhispercpp {
         miscConfig: newConfig.miscConfig || {
           caption_enabled: false
         },
-        audio_format: newConfig.audio_format || this.params.audio_format || 's16le'
+        audio_format: newConfig.audio_format || this.params.audio_format || 's16le',
+        backendsDir: this._config.backendsDir || PREBUILDS_DIR
       }
 
       _checkParamsExists(configurationParams)

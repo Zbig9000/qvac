@@ -110,6 +110,18 @@ if((ANDROID OR UNIX) AND NOT APPLE)
   endforeach()
 endif()
 
+# QVAC-18993: emit BACKENDS_SUBDIR compile def so the addon can locate the
+# per-arch ggml-backend .so files at runtime. The bare runtime installs the
+# backend modules at `<addon>/prebuilds/<bare_target>/<module_name>/`; the JS
+# layer (`index.js`) passes `<addon>/prebuilds` as `contextParams.backendsDir`
+# and the C++ side appends `BACKENDS_SUBDIR` (`<bare_target>/<module_name>`)
+# before calling `ggml_backend_load_all_from_path()`. Mirrors the pattern in
+# packages/{diffusion-cpp,llm-llamacpp,classification-ggml,…}.
+bare_target(bare_target_value)
+bare_module_target("." _unused_target NAME module_name VERSION _unused_version)
+set(BACKENDS_SUBDIR_VALUE "${bare_target_value}/${module_name}")
+message(STATUS "Building transcription-whispercpp with BACKENDS_SUBDIR='${BACKENDS_SUBDIR_VALUE}'")
+
 add_bare_module(transcription-whispercpp EXPORTS ${BACKEND_DL_LIBS})
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -144,6 +156,7 @@ target_link_libraries(
 )
 
 target_compile_definitions(${transcription-whispercpp} PUBLIC JS_LOGGER)
+target_compile_definitions(${transcription-whispercpp} PRIVATE BACKENDS_SUBDIR="${BACKENDS_SUBDIR_VALUE}")
 
 if(WIN32)
   target_link_libraries(
