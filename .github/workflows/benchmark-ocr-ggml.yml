@@ -267,6 +267,16 @@ jobs:
         shell: bash
         run: |
           SKIP_FLAG=""
+          # Validate workflow inputs before building the eval argv. Restricts the
+          # surface for shell injection through the (quoted) step outputs below.
+          case "${{ inputs.pipeline }}" in
+            easyocr|doctr|both) ;;
+            *) echo "ERROR: invalid pipeline: ${{ inputs.pipeline }}" >&2; exit 1 ;;
+          esac
+          if ! [[ "${{ inputs.limit }}" =~ ^[0-9]+$ ]]; then
+            echo "ERROR: limit must be a non-negative integer" >&2; exit 1
+          fi
+
           if [ "${{ inputs.skip_existing }}" = "true" ]; then
             SKIP_FLAG="--skip-existing"
           else
