@@ -18,9 +18,9 @@
 #include "WhisperConfig.hpp"
 #include "WhisperHandlers.hpp"
 #include "addon/WhisperErrors.hpp"
-#include "model-interface/WhisperTypes.hpp"
 #include "inference-addon-cpp/Errors.hpp"
 #include "inference-addon-cpp/Logger.hpp"
+#include "model-interface/WhisperTypes.hpp"
 
 namespace qvac_lib_inference_addon_whisper {
 
@@ -205,10 +205,18 @@ namespace {
 // registry produced a GPU device whose name we don't recognize so callers
 // can still tell GPU vs CPU apart.
 int64_t gpuBackendIdFromName(const std::string& nameLower) {
-  if (nameLower.find("metal")  != std::string::npos) { return 1; }
-  if (nameLower.find("vulkan") != std::string::npos) { return 2; }
-  if (nameLower.find("opencl") != std::string::npos) { return 3; }
-  if (nameLower.find("cuda")   != std::string::npos) { return 4; }
+  if (nameLower.find("metal") != std::string::npos) {
+    return 1;
+  }
+  if (nameLower.find("vulkan") != std::string::npos) {
+    return 2;
+  }
+  if (nameLower.find("opencl") != std::string::npos) {
+    return 3;
+  }
+  if (nameLower.find("cuda") != std::string::npos) {
+    return 4;
+  }
   return 99;
 }
 } // namespace
@@ -225,7 +233,9 @@ void WhisperModel::captureActiveBackendInfo() {
   const size_t devCount = ggml_backend_dev_count();
   for (size_t i = 0; i < devCount; ++i) {
     ggml_backend_dev_t dev = ggml_backend_dev_get(i);
-    if (dev == nullptr) { continue; }
+    if (dev == nullptr) {
+      continue;
+    }
     const enum ggml_backend_dev_type devType = ggml_backend_dev_type(dev);
     // Match the ggml-backend `load_best` GPU preference: any GPU/IGPU
     // device wins over CPU. ACCEL backends (e.g. RPC) are skipped on
@@ -242,33 +252,32 @@ void WhisperModel::captureActiveBackendInfo() {
 
     std::string regNameLower = (regName != nullptr) ? regName : "";
     std::transform(
-        regNameLower.begin(), regNameLower.end(), regNameLower.begin(),
+        regNameLower.begin(),
+        regNameLower.end(),
+        regNameLower.begin(),
         [](unsigned char c) { return std::tolower(c); });
 
     gpu_backend_id_ = gpuBackendIdFromName(regNameLower);
     gpu_backend_name_ = (regName != nullptr) ? regName : "";
-    gpu_device_description_ = (devDesc != nullptr)
-                                  ? devDesc
-                                  : (devName != nullptr ? devName : "");
+    gpu_device_description_ =
+        (devDesc != nullptr) ? devDesc : (devName != nullptr ? devName : "");
 
     size_t freeBytes = 0;
     size_t totalBytes = 0;
     ggml_backend_dev_memory(dev, &freeBytes, &totalBytes);
-    constexpr size_t K_BYTES_PER_MB = 1024U * 1024U;
-    gpu_mem_total_mb_ = totalBytes > 0
-                            ? static_cast<int64_t>(totalBytes / K_BYTES_PER_MB)
-                            : -1;
-    gpu_mem_free_mb_ = freeBytes > 0
-                           ? static_cast<int64_t>(freeBytes / K_BYTES_PER_MB)
-                           : -1;
+    constexpr size_t kBytesPerMb = 1024U * 1024U;
+    gpu_mem_total_mb_ =
+        totalBytes > 0 ? static_cast<int64_t>(totalBytes / kBytesPerMb) : -1;
+    gpu_mem_free_mb_ =
+        freeBytes > 0 ? static_cast<int64_t>(freeBytes / kBytesPerMb) : -1;
     break;
   }
 
   QLOG(
       qvac_lib_inference_addon_cpp::logger::Priority::INFO,
-      std::string("Active GPU backend: id=") +
-          std::to_string(gpu_backend_id_) + " name='" + gpu_backend_name_ +
-          "' device='" + gpu_device_description_ +
+      std::string("Active GPU backend: id=") + std::to_string(gpu_backend_id_) +
+          " name='" + gpu_backend_name_ + "' device='" +
+          gpu_device_description_ +
           "' mem_total_mb=" + std::to_string(gpu_mem_total_mb_) +
           " mem_free_mb=" + std::to_string(gpu_mem_free_mb_));
 }
