@@ -160,6 +160,30 @@ declare namespace TranscriptionWhispercpp {
     whisperBatchdMs: number
     whisperPromptMs: number
     totalWallMs: number
+    /**
+     * Numeric identifier of the GPU backend ggml picked as the preferred
+     * compute device at model load time. Populated once per load() — does
+     * not change across run() calls on the same instance.
+     *
+     * Values: `0` = CPU (no GPU device available / GPU support not
+     * compiled in), `1` = Metal, `2` = Vulkan, `3` = OpenCL, `4` = CUDA,
+     * `99` = other / unrecognized GPU backend. Used by the Android
+     * device-farm integration tests to assert that S25 picks OpenCL and
+     * Pixel 9 picks Vulkan (QVAC-18993).
+     */
+    gpuBackendId: number
+    /**
+     * Total memory of the active GPU device in MiB at model load time,
+     * or `-1` if the backend does not expose memory accounting (e.g.
+     * some Vulkan ICDs on Apple silicon). Snapshot only — not a live
+     * counter.
+     */
+    gpuMemTotalMb: number
+    /**
+     * Free memory of the active GPU device in MiB at model load time,
+     * or `-1` if the backend does not expose memory accounting.
+     */
+    gpuMemFreeMb: number
   }
 
   /**

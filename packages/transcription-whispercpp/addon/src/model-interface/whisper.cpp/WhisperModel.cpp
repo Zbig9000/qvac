@@ -13,9 +13,7 @@
 #include <thread>
 #include <utility>
 
-#if defined(__ANDROID__)
 #include <ggml-backend.h>
-#endif
 
 #include "WhisperConfig.hpp"
 #include "WhisperHandlers.hpp"
@@ -141,6 +139,8 @@ void WhisperModel::load() {
         qvac_lib_inference_addon_cpp::logger::Priority::INFO,
         "Whisper model loaded successfully");
 
+    captureActiveBackendInfo();
+
     // Warm up the model on first load to avoid first-segment delay
     if (!is_warmed_up_) {
       QLOG(
@@ -199,6 +199,80 @@ void WhisperModel::endOfStream() {
   stream_ended_ = true;
 }
 
+namespace {
+// Map a ggml backend reg name (lowercased) onto the stable numeric enum
+// declared in WhisperModel.hpp. Returns 99 ("other GPU backend") if the
+// registry produced a GPU device whose name we don't recognize so callers
+// can still tell GPU vs CPU apart.
+int64_t gpuBackendIdFromName(const std::string& nameLower) {
+  if (nameLower.find("metal")  != std::string::npos) { return 1; }
+  if (nameLower.find("vulkan") != std::string::npos) { return 2; }
+  if (nameLower.find("opencl") != std::string::npos) { return 3; }
+  if (nameLower.find("cuda")   != std::string::npos) { return 4; }
+  return 99;
+}
+} // namespace
+
+void WhisperModel::captureActiveBackendInfo() {
+  // Reset to "CPU" so we report a sensible default on every load even if
+  // the enumeration below finds no GPU device.
+  gpu_backend_id_ = 0;
+  gpu_mem_total_mb_ = -1;
+  gpu_mem_free_mb_ = -1;
+  gpu_backend_name_ = "CPU";
+  gpu_device_description_.clear();
+
+  const size_t devCount = ggml_backend_dev_count();
+  for (size_t i = 0; i < devCount; ++i) {
+    ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+    if (dev == nullptr) { continue; }
+    const enum ggml_backend_dev_type devType = ggml_backend_dev_type(dev);
+    // Match the ggml-backend `load_best` GPU preference: any GPU/IGPU
+    // device wins over CPU. ACCEL backends (e.g. RPC) are skipped on
+    // purpose; ggml's own scheduler prefers GPU > IGPU > ACCEL > CPU.
+    if (devType != GGML_BACKEND_DEVICE_TYPE_GPU &&
+        devType != GGML_BACKEND_DEVICE_TYPE_IGPU) {
+      continue;
+    }
+
+    ggml_backend_reg_t reg = ggml_backend_dev_backend_reg(dev);
+    const char* regName = (reg != nullptr) ? ggml_backend_reg_name(reg) : "";
+    const char* devName = ggml_backend_dev_name(dev);
+    const char* devDesc = ggml_backend_dev_description(dev);
+
+    std::string regNameLower = (regName != nullptr) ? regName : "";
+    std::transform(
+        regNameLower.begin(), regNameLower.end(), regNameLower.begin(),
+        [](unsigned char c) { return std::tolower(c); });
+
+    gpu_backend_id_ = gpuBackendIdFromName(regNameLower);
+    gpu_backend_name_ = (regName != nullptr) ? regName : "";
+    gpu_device_description_ = (devDesc != nullptr)
+                                  ? devDesc
+                                  : (devName != nullptr ? devName : "");
+
+    size_t freeBytes = 0;
+    size_t totalBytes = 0;
+    ggml_backend_dev_memory(dev, &freeBytes, &totalBytes);
+    constexpr size_t K_BYTES_PER_MB = 1024U * 1024U;
+    gpu_mem_total_mb_ = totalBytes > 0
+                            ? static_cast<int64_t>(totalBytes / K_BYTES_PER_MB)
+                            : -1;
+    gpu_mem_free_mb_ = freeBytes > 0
+                           ? static_cast<int64_t>(freeBytes / K_BYTES_PER_MB)
+                           : -1;
+    break;
+  }
+
+  QLOG(
+      qvac_lib_inference_addon_cpp::logger::Priority::INFO,
+      std::string("Active GPU backend: id=") +
+          std::to_string(gpu_backend_id_) + " name='" + gpu_backend_name_ +
+          "' device='" + gpu_device_description_ +
+          "' mem_total_mb=" + std::to_string(gpu_mem_total_mb_) +
+          " mem_free_mb=" + std::to_string(gpu_mem_free_mb_));
+}
+
 qvac_lib_inference_addon_cpp::RuntimeStats WhisperModel::runtimeStats() const {
   qvac_lib_inference_addon_cpp::RuntimeStats stats;
 
@@ -234,6 +308,14 @@ qvac_lib_inference_addon_cpp::RuntimeStats WhisperModel::runtimeStats() const {
   stats.emplace_back("whisperBatchdMs", whisperBatchdMs_);
   stats.emplace_back("whisperPromptMs", whisperPromptMs_);
   stats.emplace_back("totalWallMs", totalWallMs_);
+
+  // Active GPU backend identity + device memory (QVAC-18993). gpuBackendId
+  // values: 0=CPU, 1=Metal, 2=Vulkan, 3=OpenCL, 4=CUDA, 99=other GPU.
+  // gpuMemTotalMb / gpuMemFreeMb report -1 when the device does not
+  // expose memory accounting (e.g. some Vulkan ICDs on Apple silicon).
+  stats.emplace_back("gpuBackendId", gpu_backend_id_);
+  stats.emplace_back("gpuMemTotalMb", gpu_mem_total_mb_);
+  stats.emplace_back("gpuMemFreeMb", gpu_mem_free_mb_);
   return stats;
 }
 

@@ -118,6 +118,7 @@ async function runMobilePerfCase (t, opts) {
 
     const timings = []
     let statsCount = 0
+    let lastStats = null
     for (let run = 1; run <= NUM_TRANSCRIPTIONS; run++) {
       console.log('=== Transcription ' + run + '/' + NUM_TRANSCRIPTIONS + ' ===')
       const runStartTime = getTimeMs()
@@ -139,6 +140,7 @@ async function runMobilePerfCase (t, opts) {
 
       if (jobStats) {
         statsCount++
+        lastStats = jobStats
         recordWhisperStats(modelLabel + ' ' + epLabel + ' mobile-perf run ' + run, jobStats, {
           wallMs: runTime,
           output: runText
@@ -152,6 +154,41 @@ async function runMobilePerfCase (t, opts) {
 
     t.ok(statsCount >= NUM_TRANSCRIPTIONS, modelLabel + ' ' + epLabel + ' should receive stats for every run (got ' + statsCount + ')')
     t.ok(timings.length === NUM_TRANSCRIPTIONS, modelLabel + ' ' + epLabel + ' should complete ' + NUM_TRANSCRIPTIONS + ' transcriptions (got ' + timings.length + ')')
+
+    // Backend identity assertions (QVAC-18993). gpuBackendId is populated
+    // once per load() by `WhisperModel::captureActiveBackendInfo()`
+    // and reported in every stats snapshot — see index.d.ts
+    // `TranscriptionWhispercpp.RuntimeStats` for the enum.
+    //   0 = CPU, 1 = Metal, 2 = Vulkan, 3 = OpenCL, 4 = CUDA, 99 = other.
+    // gpuMemTotalMb / gpuMemFreeMb report -1 when the device does not
+    // expose memory accounting (some Vulkan ICDs on Apple silicon).
+    const probe = lastStats || {}
+    const gpuBackendId = typeof probe.gpuBackendId === 'number' ? probe.gpuBackendId : null
+    const gpuMemTotalMb = typeof probe.gpuMemTotalMb === 'number' ? probe.gpuMemTotalMb : -1
+    const gpuMemFreeMb = typeof probe.gpuMemFreeMb === 'number' ? probe.gpuMemFreeMb : -1
+    console.log('   Backend stats: gpuBackendId=' + gpuBackendId +
+                ' gpuMemTotalMb=' + gpuMemTotalMb +
+                ' gpuMemFreeMb=' + gpuMemFreeMb)
+
+    t.ok(gpuBackendId !== null,
+      modelLabel + ' ' + epLabel + ' should report gpuBackendId in runtimeStats (QVAC-18993)')
+
+    if (useGPU && platform.startsWith('android')) {
+      // On Android with use_gpu=true we expect ggml to have registered
+      // Vulkan and/or OpenCL via the dynamic-backend `.so` files staged
+      // next to the .bare module (BACKEND_DL_LOOSE_SOS in CMakeLists).
+      // Device farm matrix: Pixel 9 (Mali) -> Vulkan (2),
+      //                     Samsung S25 (Adreno) -> OpenCL (3).
+      // Both backends register a GPU device, so asserting the union
+      // (2 or 3) covers both device families without needing a per-
+      // device-id branch from the bare-side test (the device farm
+      // capability that distinguishes Pixel from Samsung lives in the
+      // wdio config, not in the spec body). Per-device QLOG output
+      // is in the device-farm logcat capture for review.
+      t.ok(gpuBackendId === 2 || gpuBackendId === 3,
+        modelLabel + ' ' + epLabel + ' Android with use_gpu=true should select a GPU backend (Vulkan=2 or OpenCL=3); got ' + gpuBackendId)
+    }
+
     console.log('Mobile perf case ' + modelLabel + ' ' + epLabel + ' completed successfully!\n')
   } finally {
     console.log('=== Cleanup ===')
