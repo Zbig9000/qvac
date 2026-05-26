@@ -1,8 +1,8 @@
 {
   "default-registry": {
     "kind": "git",
-    "baseline": "e871270ef85110a0c76fc7e54533dc2f0fa2a48d",
-    "repository": "https://github.com/Zbig9000/qvac-registry-vcpkg"
+    "baseline": "6df36b4f1dc8545f93bd5435d016beff86a1d865",
+    "repository": "https://github.com/tetherto/qvac-registry-vcpkg.git"
   },
   "registries": [
     {
@@ -17,5 +17,8 @@
         "spirv-headers"
       ]
     }
+  ],
+  "overlay-ports": [
+    "vcpkg-overlays/whisper-cpp"
   ]
 }

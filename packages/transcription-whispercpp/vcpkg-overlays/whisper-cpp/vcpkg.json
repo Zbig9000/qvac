@@ -1,0 +1,61 @@
+{
+  "name": "whisper-cpp",
+  "version": "1.8.5",
+  "port-version": 0,
+  "description": "High-performance inference of OpenAI's Whisper automatic speech recognition (ASR) model",
+  "homepage": "https://github.com/tetherto/qvac-ext-lib-whisper.cpp",
+  "license": "MIT",
+  "dependencies": [
+    {
+      "name": "ggml-speech",
+      "default-features": false,
+      "version>=": "2026-04-09#4"
+    },
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    },
+    {
+      "name": "vcpkg-cmake-config",
+      "host": true
+    }
+  ],
+  "features": {
+    "metal": {
+      "description": "Enable Metal GPU acceleration (Apple-only; targets macOS and iOS via the ggml-metal backend in ggml-speech). No extra package dependencies — Metal.framework is provided by the platform SDK.",
+      "supports": "osx | ios",
+      "dependencies": [
+        {
+          "name": "ggml-speech",
+          "default-features": false,
+          "features": [ "metal" ],
+          "platform": "osx | ios"
+        }
+      ]
+    },
+    "opencl": {
+      "description": "Enable OpenCL GPU acceleration (Android-only; targets Adreno via the ggml-opencl backend in ggml-speech).",
+      "supports": "android",
+      "dependencies": [
+        {
+          "name": "ggml-speech",
+          "default-features": false,
+          "features": [ "opencl" ],
+          "platform": "android"
+        }
+      ]
+    },
+    "vulkan": {
+      "description": "Enable Vulkan GPU acceleration (Linux/Windows/Android; macOS/iOS use the metal feature instead).",
+      "supports": "!osx & !ios",
+      "dependencies": [
+        {
+          "name": "ggml-speech",
+          "default-features": false,
+          "features": [ "vulkan" ],
+          "platform": "!osx & !ios"
+        }
+      ]
+    }
+  }
+}
