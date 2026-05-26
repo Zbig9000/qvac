@@ -1,5 +1,5 @@
 # ggml-speech: PINNED FOR LOCAL TESTING TO qvac-ext-ggml PR #13 HEAD
-# (Zbig9000/qvac-ext-ggml@QVAC-18992-merge-ggml-from-whisper-cpp@d39c0d29).
+# (Zbig9000/qvac-ext-ggml@QVAC-18992-merge-ggml-from-whisper-cpp@e31785e4).
 #
 # This overlay validates the addon against PR #13 BEFORE that PR is
 # merged into tetherto/qvac-ext-ggml@speech. PR #13 = "QVAC-18992: merge
@@ -8,6 +8,10 @@
 # (#11), and the Mac M2 PAD test fix from d39c0d29.
 #
 # The diff vs port-version 4 (ref 08d39f0c on tetherto/speech) is:
+#   e31785e4  fix(metal): restore lost 'typedef struct {' before
+#             ggml_metal_kargs_supertonic_depthwise_1d (caught by qvac
+#             CI Apple prebuild matrix via this overlay; the ggml-org
+#             v0.10.2 merge in 166c4e12 dropped the typedef header)
 #   d39c0d29  metal: stride-aware src indexing in kernel_pad_f32 / pad_reflect_1d_f32
 #   45dbdecd  Merge upstream/speech to pick up GustavoA1604 9562ed04
 #   166c4e12  Merge ggml-org @ 19eac6f0 into speech (sync to v0.10.2)
@@ -19,8 +23,8 @@
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO Zbig9000/qvac-ext-ggml
-    REF d39c0d29c3afb0132d72059348c57aef41cab8c6
-    SHA512 8bd0d603c818c647340c6b1ea14ba75e7c405843c64ae470bf6eff6ef458d2bb72410e4ff4bd3164b38cee9b1435c953b6ed906714a3b285eb4815d2ea7df503
+    REF e31785e4cc85319a33dab2bae52686e805a8203e
+    SHA512 14811103d98628cad790cb37cee77531459c8bf1737291e7a1530cdb7dd26abce6df583ef1cc91f3c0356333f176f7c00816d61fa39a1d84ae28f467584fd550
     HEAD_REF QVAC-18992-merge-ggml-from-whisper-cpp
 )
 
