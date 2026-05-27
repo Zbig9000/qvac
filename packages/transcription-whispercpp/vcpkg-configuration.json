@@ -1,7 +1,7 @@
 {
   "default-registry": {
     "kind": "git",
-    "baseline": "6df36b4f1dc8545f93bd5435d016beff86a1d865",
+    "baseline": "b54eb179c93f859865a2f986c42f476b0e47e0cd",
     "repository": "https://github.com/tetherto/qvac-registry-vcpkg.git"
   },
   "registries": [
@@ -17,9 +17,5 @@
         "spirv-headers"
       ]
     }
-  ],
-  "overlay-ports": [
-    "vcpkg-overlays/ggml-speech",
-    "vcpkg-overlays/whisper-cpp"
   ]
 }
