@@ -1,8 +1,8 @@
 {
   "name": "ggml-speech",
-  "version-date": "2026-05-26",
+  "version-date": "2026-05-27",
   "port-version": 0,
-  "description": "Speech-stack flavour of ggml from tetherto/qvac-ext-ggml@speech. LOCAL OVERLAY pinned to qvac-ext-ggml PR #13 HEAD (d39c0d29) so the addon can be validated against the v0.10.2 sync + Mac PAD fix BEFORE PR #13 lands. Library filenames are prefixed libqvac-speech-ggml-* so they coexist with libqvac-ggml-* (fabric/llm) and libqvac-diffusion-ggml-* on the same Android device. Mutually exclusive with the regular ggml port in the same triplet -- pick one per build.",
+  "description": "Speech-stack flavour of ggml from tetherto/qvac-ext-ggml@speech, including the ggml-org v0.10.2 sync (PR #13), the iOS Metal NULL-safety hardening from PR #10, GustavoA1604's Android per-arch CPU dlopen fallback (PR #11), and the Mac M2 PAD test fix. Library filenames are prefixed libqvac-speech-ggml-* so they coexist with libqvac-ggml-* (fabric/llm) and libqvac-diffusion-ggml-* on the same Android device. Mutually exclusive with the regular ggml port in the same triplet -- pick one per build.",
   "homepage": "https://github.com/tetherto/qvac-ext-ggml/tree/speech",
   "license": "MIT",
   "dependencies": [

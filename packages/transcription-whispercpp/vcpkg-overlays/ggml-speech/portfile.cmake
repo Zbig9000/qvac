@@ -1,31 +1,26 @@
-# ggml-speech: PINNED FOR LOCAL TESTING TO qvac-ext-ggml PR #13 HEAD
-# (Zbig9000/qvac-ext-ggml@QVAC-18992-merge-ggml-from-whisper-cpp@e31785e4).
+# ggml-speech: tetherto/qvac-ext-ggml@speech HEAD c9126afc, the merge
+# commit of PR #13 ("QVAC-18992: merge ggml-org @ 19eac6f0 (v0.10.2)
+# into speech"). The merge brings in:
 #
-# This overlay validates the addon against PR #13 BEFORE that PR is
-# merged into tetherto/qvac-ext-ggml@speech. PR #13 = "QVAC-18992: merge
-# ggml-org @ 19eac6f0 (v0.10.2) into speech" — picks up the v0.10.2
-# upstream sync, GustavoA1604's android per-arch CPU dlopen fallback
-# (#11), and the Mac M2 PAD test fix from d39c0d29.
-#
-# The diff vs port-version 4 (ref 08d39f0c on tetherto/speech) is:
+#   c9126afc  Merge pull request #13 from Zbig9000/QVAC-18992-merge-ggml-from-whisper-cpp
 #   e31785e4  fix(metal): restore lost 'typedef struct {' before
-#             ggml_metal_kargs_supertonic_depthwise_1d (caught by qvac
-#             CI Apple prebuild matrix via this overlay; the ggml-org
-#             v0.10.2 merge in 166c4e12 dropped the typedef header)
-#   d39c0d29  metal: stride-aware src indexing in kernel_pad_f32 / pad_reflect_1d_f32
-#   45dbdecd  Merge upstream/speech to pick up GustavoA1604 9562ed04
+#             ggml_metal_kargs_supertonic_depthwise_1d (the ggml-org
+#             v0.10.2 sync in 166c4e12 dropped the typedef header;
+#             caught by qvac CI Apple prebuild matrix via an overlay
+#             on tetherto/qvac#2270)
+#   d39c0d29  metal: stride-aware src indexing in kernel_pad_f32 /
+#             kernel_pad_reflect_1d_f32 (fixes Mac M2 PAD test failure)
 #   166c4e12  Merge ggml-org @ 19eac6f0 into speech (sync to v0.10.2)
 #
-# Once PR #13 lands on tetherto/qvac-ext-ggml@speech, the registry's
-# ggml-speech port-version will be bumped to point at the new merge SHA
-# and this overlay will be deleted from the addon.
+# The Android CPU dlopen fallback (GustavoA1604 #11) carried over from
+# port-version 4 (08d39f0c) is unchanged.
 
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
-    REPO Zbig9000/qvac-ext-ggml
-    REF e31785e4cc85319a33dab2bae52686e805a8203e
-    SHA512 14811103d98628cad790cb37cee77531459c8bf1737291e7a1530cdb7dd26abce6df583ef1cc91f3c0356333f176f7c00816d61fa39a1d84ae28f467584fd550
-    HEAD_REF QVAC-18992-merge-ggml-from-whisper-cpp
+    REPO tetherto/qvac-ext-ggml
+    REF c9126afc96145cc93892029b953f7de5abc09728
+    SHA512 e24b4bfb48a2be01d4703badee0aecb8772c5e35e76348e9de2ea693288bd23d84d1fb7c626dd63736f76bfcc442433522621998977661cf602ec90289f596a0
+    HEAD_REF speech
 )
 
 set(GGML_METAL  OFF)

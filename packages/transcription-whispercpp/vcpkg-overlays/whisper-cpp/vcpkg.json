@@ -9,7 +9,7 @@
     {
       "name": "ggml-speech",
       "default-features": false,
-      "version>=": "2026-04-09#4"
+      "version>=": "2026-05-27"
     },
     {
       "name": "vcpkg-cmake",
