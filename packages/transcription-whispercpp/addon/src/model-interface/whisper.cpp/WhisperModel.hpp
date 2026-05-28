@@ -154,20 +154,23 @@ private:
 
   // Active backend identity + device-memory snapshot, populated once at
   // load() time (after backends are registered) and reported back via
-  // runtimeStats(). gpu_backend_id_ is a stable numeric enum so it can
-  // live in the variant<double,int64_t> RuntimeStats payload (QVAC-18993):
-  //   0 = CPU (no GPU device found / no GPU compiled in)
-  //   1 = Metal
-  //   2 = Vulkan
-  //   3 = OpenCL
-  //   4 = CUDA
-  //   99 = other / unknown GPU backend name
+  // runtimeStats(). Numeric ids kept in lock-step with transcription-
+  // parakeet's BackendId so the same integer means the same backend
+  // across speech-stack addons (cross-addon device-farm comparability).
+  //   backend_device_:  0 = CPU, 1 = GPU
+  //   backend_id_:      0 = CPU
+  //                     1 = Metal
+  //                     2 = CUDA
+  //                     3 = Vulkan
+  //                     4 = OpenCL
+  //                     99 = other / unknown
   // gpu_mem_total_mb_ / gpu_mem_free_mb_ are device-reported memory in
   // megabytes (MiB) at load() time; -1 means "device does not report".
-  int64_t gpu_backend_id_ = 0;
+  int64_t backend_device_ = 0;
+  int64_t backend_id_ = 0;
   int64_t gpu_mem_total_mb_ = -1;
   int64_t gpu_mem_free_mb_ = -1;
-  std::string gpu_backend_name_;
+  std::string backend_name_ = "CPU";
   std::string gpu_device_description_;
   void captureActiveBackendInfo();
 

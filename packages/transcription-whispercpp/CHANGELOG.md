@@ -8,22 +8,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.9.0]
 
 ### Added
-- New runtime stat keys for the active GPU backend, populated once per
+- New runtime stat keys for the active backend, populated once per
   `load()` and reported in every `runtimeStats()` snapshot (used by
-  Android device-farm assertions per QVAC-18993):
-  - `gpuBackendId` — numeric enum: `0` CPU, `1` Metal, `2` Vulkan, `3`
-    OpenCL, `4` CUDA, `99` other / unrecognized GPU backend.
+  Android device-farm assertions):
+  - `backendDevice` — post-fallback device class: `0` CPU, `1` GPU.
+    Mirrors `transcription-parakeet`'s `backendDevice`.
+  - `backendId` — `BackendId` enum: `0` CPU, `1` Metal, `2` CUDA, `3`
+    Vulkan, `4` OpenCL, `99` other. Kept in lock-step with
+    `transcription-parakeet`'s `BackendId` so the same integer means
+    the same backend family across both speech-stack addons.
   - `gpuMemTotalMb` — total memory of the active GPU device in MiB (or
     `-1` if the backend does not expose memory accounting).
+    Whisper-specific extra; parakeet does not expose this.
   - `gpuMemFreeMb` — free memory of the active GPU device in MiB (or
     `-1` if the backend does not expose memory accounting).
-- `WhisperModel::captureActiveBackendInfo()` queries
-  `ggml_backend_dev_*` after the dispatcher is initialised (post
-  `ggml_backend_load_all_from_path()` on Android) to pick the device
-  ggml's own load_best preference would pick (GPU/IGPU > CPU) and
-  records its name, description and memory snapshot. The result is
-  also logged once via `QLOG(INFO)` so it shows up in Android logcat
-  for the device-farm runs.
+- `WhisperModel::captureActiveBackendInfo()` mirrors
+  `whisper.cpp`'s own `whisper_backend_init_gpu()` selection (only
+  `GGML_BACKEND_DEVICE_TYPE_GPU`, honour `gpu_device` index when
+  set, otherwise first GPU in enumeration order) instead of a generic
+  "first GPU/IGPU" walk, so the reported backend matches what
+  whisper actually initialised against. Emits a `WARNING` through the
+  addon logger when `use_gpu=true` was requested but no GPU device
+  registered (silent CPU fallback case, parity with
+  `ParakeetModel::loadModel()`).
+- `BackendId` enum exported from `index.d.ts` (CPU / Metal / CUDA /
+  Vulkan / OpenCL / Other), backing the new `RuntimeStats.backendDevice`
+  / `backendId` fields.
 - `metal` feature on the consumed `whisper-cpp` port (QVAC-19236). The
   `vcpkg.json` `osx | ios` dep entry now reads
   `whisper-cpp[metal]` for `osx` so the Apple GPU backend selection
@@ -49,10 +59,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     per-arch CPU MODULE variants, Vulkan-Headers download and the
     spirv-headers `-isystem` shim are all owned by the `ggml-speech`
     port now; the whisper-cpp portfile shrank from ~160 lines to ~55.
-- Re-pinned the default-registry baseline to
-  qvac-registry-vcpkg HEAD after the whisper-cpp 1.8.5 + ggml-speech
-  migration PR merges (baseline updated in a follow-up commit before
-  merge).
 - The `WhisperModel` native addon now `#include <ggml-backend.h>`
   unconditionally (was: `#if defined(__ANDROID__)` only) so the new
   `captureActiveBackendInfo()` enumerates devices on every platform,
