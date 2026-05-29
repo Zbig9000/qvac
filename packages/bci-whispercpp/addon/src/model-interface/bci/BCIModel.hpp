@@ -132,7 +132,7 @@ private:
   int64_t gpu_mem_free_mb_ = -1;
   std::string backend_name_ = "CPU";
   std::string gpu_device_description_;
-  void captureActiveBackendInfo();
+  void captureActiveBackendInfo(const whisper_context_params& ctxParams);
 
   int64_t totalTokens_ = 0;
   int64_t totalSegments_ = 0;

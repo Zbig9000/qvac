@@ -178,7 +178,7 @@ void BCIModel::load() {
 
   try {
     ctx_.reset(rawCtx);
-    captureActiveBackendInfo();
+    captureActiveBackendInfo(contextParams);
     loadEmbedderIfNeeded();
     if (!is_warmed_up_) {
       warmup();
@@ -243,39 +243,10 @@ int64_t backendIdFromRegName(const std::string& nameLower) {
   return 99;
 }
 
-// Read whisper_context_params.use_gpu / .gpu_device out of the
-// BCIConfig variant map so captureActiveBackendInfo() can mirror
-// whisper.cpp's own backend-pick logic. Defaults match
-// `whisper_context_default_params()` (use_gpu=false, gpu_device=0;
-// the JS-facing default in this addon is also "CPU unless the
-// caller opts in").
-bool configUseGpu(const BCIConfig& cfg) {
-  const auto it = cfg.whisperContextCfg.find("use_gpu");
-  if (it == cfg.whisperContextCfg.end()) {
-    return false;
-  }
-  if (const auto* asBool = std::get_if<bool>(&it->second)) {
-    return *asBool;
-  }
-  return false;
-}
-
-int configGpuDeviceIndex(const BCIConfig& cfg) {
-  const auto it = cfg.whisperContextCfg.find("gpu_device");
-  if (it == cfg.whisperContextCfg.end()) {
-    return -1;
-  }
-  if (const auto* asDouble = std::get_if<double>(&it->second)) {
-    return static_cast<int>(*asDouble);
-  }
-  if (const auto* asInt = std::get_if<int>(&it->second)) {
-    return *asInt;
-  }
-  return -1;
-}
 } // namespace
 
-void BCIModel::captureActiveBackendInfo() {
+void BCIModel::captureActiveBackendInfo(
+    const whisper_context_params& ctxParams) {
   // Reset to CPU defaults so a fresh load() that doesn't end up on a GPU
   // still reports sensible values (parity with WhisperModel /
   // ParakeetModel post-load behaviour).
@@ -286,8 +257,17 @@ void BCIModel::captureActiveBackendInfo() {
   gpu_mem_free_mb_ = -1;
   gpu_device_description_.clear();
 
-  const bool useGpu = configUseGpu(cfg_);
-  const int gpuDeviceIndex = configGpuDeviceIndex(cfg_);
+  // Read use_gpu / gpu_device from the EXACT whisper_context_params the
+  // context was initialised with, not from the raw BCIConfig map. A
+  // missing `contextParams.use_gpu` leaves whisper_context_default_params()
+  // intact (use_gpu=true), so whisper can still load a GPU; deriving the
+  // flag from the config map (and defaulting it to false) would make
+  // runtimeStats report backendDevice=0/backendId=0 while the context
+  // actually ran on a GPU. Sourcing from ctxParams keeps the reported
+  // backend in lock-step with what whisper_init_from_file_with_params()
+  // actually used. (Addresses jpgaribotti review on #2326.)
+  const bool useGpu = ctxParams.use_gpu;
+  const int gpuDeviceIndex = ctxParams.gpu_device;
 
   if (!useGpu) {
     QLOG(
@@ -296,29 +276,26 @@ void BCIModel::captureActiveBackendInfo() {
     return;
   }
 
-  // Mirror whisper.cpp's `whisper_backend_init_gpu()` selection: pick
-  // the device at the configured `gpu_device` index when set,
-  // otherwise the first `GGML_BACKEND_DEVICE_TYPE_GPU` in ggml's
-  // enumeration order. Whisper does NOT consider IGPU / ACCEL, so we
-  // mustn't either -- reporting an IGPU here would lie about what
-  // whisper actually initialised against and confuse the Device Farm
-  // assertions (Mali vs Adreno).
+  // Mirror whisper.cpp's `whisper_backend_init_gpu()` selection: walk the
+  // ggml devices and pick the `gpu_device`-th `GGML_BACKEND_DEVICE_TYPE_GPU`
+  // (whisper's gpu_device is an index AMONG GPU devices, default 0, not an
+  // index into all devices -- device 0 is normally the CPU). Whisper does
+  // NOT consider IGPU / ACCEL, so we mustn't either -- reporting an IGPU
+  // here would lie about what whisper actually initialised against and
+  // confuse the Device Farm assertions (Mali vs Adreno).
   ggml_backend_dev_t dev = nullptr;
-  if (gpuDeviceIndex >= 0) {
-    dev = ggml_backend_dev_get(static_cast<size_t>(gpuDeviceIndex));
-    if (dev != nullptr &&
-        ggml_backend_dev_type(dev) != GGML_BACKEND_DEVICE_TYPE_GPU) {
-      dev = nullptr;
-    }
-  } else {
-    const size_t devCount = ggml_backend_dev_count();
-    for (size_t i = 0; i < devCount; ++i) {
-      ggml_backend_dev_t candidate = ggml_backend_dev_get(i);
-      if (candidate != nullptr &&
-          ggml_backend_dev_type(candidate) == GGML_BACKEND_DEVICE_TYPE_GPU) {
+  const int targetGpuIndex = gpuDeviceIndex >= 0 ? gpuDeviceIndex : 0;
+  int gpuSeen = 0;
+  const size_t devCount = ggml_backend_dev_count();
+  for (size_t i = 0; i < devCount; ++i) {
+    ggml_backend_dev_t candidate = ggml_backend_dev_get(i);
+    if (candidate != nullptr &&
+        ggml_backend_dev_type(candidate) == GGML_BACKEND_DEVICE_TYPE_GPU) {
+      if (gpuSeen == targetGpuIndex) {
         dev = candidate;
         break;
       }
+      ++gpuSeen;
     }
   }
 
