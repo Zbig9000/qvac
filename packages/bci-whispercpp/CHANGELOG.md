@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2]
+
+vcpkg dependency consistency with `transcription-whispercpp` (QVAC-19009).
+Bumps the whisper-cpp port from `1.8.4.2` to `1.8.5` and aligns the
+shared C++ dependencies. No JS/native source changes; no public API
+change.
+
+### Changed
+
+- `vcpkg.json`: `whisper-cpp` override `1.8.4.2` → `1.8.5#0`;
+  `qvac-lib-inference-addon-cpp` `>=1.2.0` → `>=1.2.1`;
+  `qvac-lint-cpp` (unpinned) → `>=1.4.4#3`. These match
+  `transcription-whispercpp 0.9.0`.
+- `vcpkg-configuration.json`: `default-registry.baseline`
+  `acdd94de…` → `b54eb179…` (current `tetherto/qvac-registry-vcpkg`
+  HEAD). Mandatory — the old baseline predates the version-database
+  entries for `whisper-cpp@1.8.5#0`, `qvac-lib-inference-addon-cpp@1.2.1`
+  and `qvac-lint-cpp@1.4.x`, so resolution fails ("no version database
+  entry") without it.
+
+### Android: dynamic backend loading activates
+
+`whisper-cpp@1.8.5` consumes the `ggml-speech` port, which builds ggml
+with `GGML_BACKEND_DL=ON` + `GGML_CPU_ALL_VARIANTS=ON` on Android.
+The android-arm64 prebuild now ships the per-arch CPU backend modules
+(`libqvac-speech-ggml-cpu-android_armv8.0_1.so` …
+`…_armv9.2_2.so`) loaded at runtime via `dlopen`. The loader added in
+`0.1.1` (`ensureBackendsLoadedAndroid()`) is what makes this safe — it
+calls `ggml_backend_load_all_from_path()` before the first
+`whisper_init`, preventing the NULL-CPU-device `SIGABRT`. No GPU
+backends yet (that is `0.2.0` / QVAC-19234). Verified locally by
+cross-building the android-arm64 prebuild with the NDK.
+
 ## [0.1.1]
 
 Android dynamic-backend-loading infrastructure (QVAC-19235). Behaviour
