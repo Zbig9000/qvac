@@ -245,9 +245,13 @@ bool configUseGpu(const WhisperConfig& cfg) {
 }
 
 int configGpuDeviceIndex(const WhisperConfig& cfg) {
+  // whisper_context_default_params() sets gpu_device = 0, so when the
+  // key is absent whisper itself selects the first GPU/IGPU device.
+  // Mirror that default (NOT -1) so our filtered-index walk below picks
+  // the same device whisper does.
   const auto it = cfg.whisperContextCfg.find("gpu_device");
   if (it == cfg.whisperContextCfg.end()) {
-    return -1;
+    return 0;
   }
   if (const auto* asDouble = std::get_if<double>(&it->second)) {
     return static_cast<int>(*asDouble);
@@ -255,7 +259,7 @@ int configGpuDeviceIndex(const WhisperConfig& cfg) {
   if (const auto* asInt = std::get_if<int>(&it->second)) {
     return *asInt;
   }
-  return -1;
+  return 0;
 }
 } // namespace
 
@@ -271,9 +275,10 @@ void WhisperModel::captureActiveBackendInfo() {
   const bool useGpu = configUseGpu(cfg_);
   const int gpuDeviceIndex = configGpuDeviceIndex(cfg_);
 
-  // Whisper.cpp v1.8.x picks a GPU only when contextParams.use_gpu is
-  // true. Reflect that intent here so a CPU-only load doesn't look
-  // like a silent fallback in the WARNING below.
+  // Whisper.cpp only attempts a GPU backend when contextParams.use_gpu
+  // is true (see whisper_backend_init_gpu, src/whisper.cpp). Reflect
+  // that here so a CPU-only load doesn't look like a silent fallback in
+  // the WARNING below.
   if (!useGpu) {
     QLOG(
         qvac_lib_inference_addon_cpp::logger::Priority::INFO,
@@ -281,29 +286,35 @@ void WhisperModel::captureActiveBackendInfo() {
     return;
   }
 
-  // Mirror whisper.cpp's `whisper_backend_init_gpu()` selection in
-  // src/whisper.cpp: pick the device at `gpu_device` index when set,
-  // otherwise the first `GGML_BACKEND_DEVICE_TYPE_GPU` in ggml's
-  // enumeration order. Whisper does NOT consider IGPU / ACCEL, so we
-  // mustn't either — reporting an IGPU here would lie about what
-  // whisper actually initialized against and confuse the device-farm
-  // assertions on Android (Mali vs Adreno).
+  // Mirror whisper_backend_init_gpu() (src/whisper.cpp) EXACTLY so the
+  // backend we report is the one whisper actually initialised against:
+  //  - walk devices in ggml registry order,
+  //  - consider BOTH GGML_BACKEND_DEVICE_TYPE_GPU and _IGPU. This is
+  //    essential: ggml-vulkan reports *integrated* GPUs (Mali,
+  //    Adreno-via-Vulkan, Intel iGPU) as IGPU, while ggml-opencl /
+  //    ggml-metal / ggml-cuda report GPU. Skipping IGPU would make
+  //    every Vulkan-on-mobile device (e.g. Pixel/Mali) look like a CPU
+  //    fallback even though whisper is running on the GPU.
+  //  - `gpu_device` is an index into the *filtered* GPU/IGPU list (not
+  //    a raw ggml_backend_dev_get index), matching whisper's `cnt`.
   ggml_backend_dev_t dev = nullptr;
-  if (gpuDeviceIndex >= 0) {
-    dev = ggml_backend_dev_get(static_cast<size_t>(gpuDeviceIndex));
-    if (dev != nullptr &&
-        ggml_backend_dev_type(dev) != GGML_BACKEND_DEVICE_TYPE_GPU) {
-      dev = nullptr;
+  int cnt = 0;
+  const size_t devCount = ggml_backend_dev_count();
+  for (size_t i = 0; i < devCount; ++i) {
+    ggml_backend_dev_t candidate = ggml_backend_dev_get(i);
+    if (candidate == nullptr) {
+      continue;
     }
-  } else {
-    const size_t devCount = ggml_backend_dev_count();
-    for (size_t i = 0; i < devCount; ++i) {
-      ggml_backend_dev_t candidate = ggml_backend_dev_get(i);
-      if (candidate != nullptr &&
-          ggml_backend_dev_type(candidate) == GGML_BACKEND_DEVICE_TYPE_GPU) {
-        dev = candidate;
-        break;
-      }
+    const enum ggml_backend_dev_type devType = ggml_backend_dev_type(candidate);
+    if (devType != GGML_BACKEND_DEVICE_TYPE_GPU &&
+        devType != GGML_BACKEND_DEVICE_TYPE_IGPU) {
+      continue;
+    }
+    if (cnt == gpuDeviceIndex) {
+      dev = candidate;
+    }
+    if (++cnt > gpuDeviceIndex) {
+      break;
     }
   }
 
@@ -315,13 +326,14 @@ void WhisperModel::captureActiveBackendInfo() {
     // CI logs without this line.
     QLOG(
         qvac_lib_inference_addon_cpp::logger::Priority::WARNING,
-        "Whisper: use_gpu=true was requested but no GGML GPU device is "
-        "registered (use_gpu fell back to CPU). Likely causes: the GPU "
+        "Whisper: use_gpu=true was requested but no GGML GPU/IGPU device "
+        "is registered (use_gpu fell back to CPU). Likely causes: the GPU "
         "backend library wasn't loaded (Android: ggml_backend_load_all_"
         "from_path failed for the backendsDir), the device was rejected "
-        "by the backend (Adreno-tier policy, missing OpenCL ICD, "
-        "iOS/Android simulator without GPU support), or no GPU backend "
-        "was compiled into ggml-speech for this triplet.");
+        "by the backend (Adreno pre-700 OpenCL policy, missing OpenCL ICD, "
+        "Vulkan driver without storageBuffer16BitAccess, iOS/Android "
+        "simulator without GPU support), or no GPU backend was compiled "
+        "into ggml-speech for this triplet.");
     return;
   }
 

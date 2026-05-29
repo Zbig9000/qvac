@@ -64,6 +64,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `captureActiveBackendInfo()` enumerates devices on every platform,
   not just Android.
 
+### Fixed
+- `captureActiveBackendInfo()` now mirrors whisper.cpp's
+  `whisper_backend_init_gpu()` selection exactly: it considers BOTH
+  `GGML_BACKEND_DEVICE_TYPE_GPU` and `GGML_BACKEND_DEVICE_TYPE_IGPU`
+  (was: GPU only). ggml-vulkan reports *integrated* GPUs — Mali,
+  Adreno-via-Vulkan, Intel iGPU — as `IGPU`, so the previous GPU-only
+  walk reported `backendDevice=0`/`backendId=0` and logged a spurious
+  "fell back to CPU" warning on every Mali device even though whisper
+  was actually running on the GPU via Vulkan (Metal/OpenCL/CUDA were
+  unaffected — those backends report `GPU`). `gpu_device` is now
+  treated as an index into the filtered GPU/IGPU list (default `0`),
+  matching whisper's own indexing, instead of a raw device index.
+
 ### Removed
 - `transcription-whispercpp`-side `spirv-headers` / `vulkan-headers` /
   `vulkan-loader` registry routings related to whisper-cpp are no
