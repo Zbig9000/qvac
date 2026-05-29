@@ -19,11 +19,20 @@ change.
   `qvac-lint-cpp` (unpinned) → `>=1.4.4#3`. These match
   `transcription-whispercpp 0.9.0`.
 - `vcpkg-configuration.json`: `default-registry.baseline`
-  `acdd94de…` → `b54eb179…` (current `tetherto/qvac-registry-vcpkg`
-  HEAD). Mandatory — the old baseline predates the version-database
-  entries for `whisper-cpp@1.8.5#0`, `qvac-lib-inference-addon-cpp@1.2.1`
-  and `qvac-lint-cpp@1.4.x`, so resolution fails ("no version database
-  entry") without it.
+  `acdd94de…` → `a9d7e924…` — the **same baseline
+  `transcription-whispercpp` uses**, not registry HEAD. The newer
+  `whisper-cpp@1.8.5#0` / `ggml-speech@2026-05-27` are pulled from the
+  registry's version history via the `overrides` + transitive
+  `version>=` constraints, *not* by moving the baseline to HEAD. The
+  baseline only had to advance far enough to contain a `ggml-speech`
+  port entry at all (bci's previous `acdd94de` predated that port), so
+  this is the minimum, sibling-consistent bump rather than a churny
+  jump to HEAD.
+- `vcpkg-configuration.json`: route `vulkan` / `vulkan-headers` /
+  `vulkan-loader` / `spirv-headers` to the Microsoft registry — required
+  for baseline validation because `ggml-speech` (pulled transitively by
+  `whisper-cpp@1.8.5`) declares a `vulkan` default-feature whose
+  `spirv-headers` dependency the qvac registry does not vendor.
 
 ### Android: dynamic backend loading activates
 
