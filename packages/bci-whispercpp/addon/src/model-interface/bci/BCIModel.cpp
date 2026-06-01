@@ -149,6 +149,64 @@ void BCIModel::loadEmbedderIfNeeded() {
   }
 }
 
+namespace {
+// Return the index, within whisper_backend_init_gpu()'s *filtered* GPU/IGPU
+// device list, of a registered *Adreno* OpenCL device -- or -1 if none.
+//
+// This is the Adreno guard. On Adreno (Android) ggml registers BOTH a Vulkan
+// device and an OpenCL device for the same physical GPU, and
+// ggml_backend_load_all_from_path() loads Vulkan *before* OpenCL
+// (ggml-backend-reg.cpp), so whisper_backend_init_gpu()'s default
+// (gpu_device=0) lands on the Vulkan device -- whose Adreno driver SIGSEGVs in
+// vkCmdBindPipeline during ggml compute. Steering to the Adreno OpenCL device
+// avoids that.
+//
+// Selection mirrors llm-llamacpp's BackendSelection gate (`isOpenCl &&
+// isAdreno`) and transcription-whispercpp's adrenoOpenclGpuDeviceIndex():
+// the device's backend must be OpenCL AND its description must be an Adreno
+// GPU. Gating on the Adreno *description* (not merely "some OpenCL device
+// exists") keeps Mali on Vulkan even if a Mali/Intel OpenCL ICD ever
+// enumerates, and leaves desktop (Metal / discrete Vulkan) untouched --
+// returning -1 there so the default selection stands.
+int adrenoOpenclGpuDeviceIndex() {
+  const size_t devCount = ggml_backend_dev_count();
+  int filteredIdx = 0;
+  for (size_t i = 0; i < devCount; ++i) {
+    ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+    if (dev == nullptr) {
+      continue;
+    }
+    const enum ggml_backend_dev_type devType = ggml_backend_dev_type(dev);
+    if (devType != GGML_BACKEND_DEVICE_TYPE_GPU &&
+        devType != GGML_BACKEND_DEVICE_TYPE_IGPU) {
+      continue;
+    }
+    ggml_backend_reg_t reg = ggml_backend_dev_backend_reg(dev);
+    const char* regName = (reg != nullptr) ? ggml_backend_reg_name(reg) : "";
+    const char* devDesc = ggml_backend_dev_description(dev);
+    std::string regNameLower = (regName != nullptr) ? regName : "";
+    std::string devDescLower = (devDesc != nullptr) ? devDesc : "";
+    std::transform(
+        regNameLower.begin(),
+        regNameLower.end(),
+        regNameLower.begin(),
+        [](unsigned char c) { return std::tolower(c); });
+    std::transform(
+        devDescLower.begin(),
+        devDescLower.end(),
+        devDescLower.begin(),
+        [](unsigned char c) { return std::tolower(c); });
+    const bool isOpenCl = regNameLower.find("opencl") != std::string::npos;
+    const bool isAdreno = devDescLower.find("adreno") != std::string::npos;
+    if (isOpenCl && isAdreno) {
+      return filteredIdx;
+    }
+    ++filteredIdx;
+  }
+  return -1;
+}
+} // namespace
+
 void BCIModel::load() {
   if (ctx_) return;
 
@@ -157,6 +215,28 @@ void BCIModel::load() {
 #endif
 
   whisper_context_params contextParams = toWhisperContextParams(cfg_);
+
+  // Adreno guard: when ggml registers an Adreno OpenCL device (Android,
+  // where it also registers a Vulkan device for the same GPU and Vulkan is
+  // loaded first), steer whisper to the OpenCL device. The Adreno Vulkan
+  // driver SIGSEGVs in ggml compute (vkCmdBindPipeline), whereas OpenCL is
+  // the supported Adreno backend. No-op on Mali / desktop (no Adreno OpenCL
+  // device registers there), so the proven Mali->Vulkan path is untouched.
+  if (contextParams.use_gpu) {
+    const int adrenoOpenclDeviceIndex = adrenoOpenclGpuDeviceIndex();
+    if (adrenoOpenclDeviceIndex >= 0 &&
+        adrenoOpenclDeviceIndex != contextParams.gpu_device) {
+      QLOG(
+          qvac_lib_inference_addon_cpp::logger::Priority::INFO,
+          std::string(
+              "Adreno OpenCL GPU device detected; preferring it over "
+              "the default GPU to avoid the Adreno Vulkan compute "
+              "crash (gpu_device ") +
+              std::to_string(contextParams.gpu_device) + " -> " +
+              std::to_string(adrenoOpenclDeviceIndex) + ")");
+      contextParams.gpu_device = adrenoOpenclDeviceIndex;
+    }
+  }
 
   const auto modelPathIt = cfg_.whisperContextCfg.find("model");
   if (modelPathIt == cfg_.whisperContextCfg.end()) {
@@ -178,7 +258,7 @@ void BCIModel::load() {
 
   try {
     ctx_.reset(rawCtx);
-    captureActiveBackendInfo(contextParams);
+    captureActiveBackendInfo(contextParams.use_gpu, contextParams.gpu_device);
     loadEmbedderIfNeeded();
     if (!is_warmed_up_) {
       warmup();
@@ -245,8 +325,7 @@ int64_t backendIdFromRegName(const std::string& nameLower) {
 
 } // namespace
 
-void BCIModel::captureActiveBackendInfo(
-    const whisper_context_params& ctxParams) {
+void BCIModel::captureActiveBackendInfo(bool useGpu, int gpuDeviceIndex) {
   // Reset to CPU defaults so a fresh load() that doesn't end up on a GPU
   // still reports sensible values (parity with WhisperModel /
   // ParakeetModel post-load behaviour).
@@ -257,18 +336,20 @@ void BCIModel::captureActiveBackendInfo(
   gpu_mem_free_mb_ = -1;
   gpu_device_description_.clear();
 
-  // Read use_gpu / gpu_device from the EXACT whisper_context_params the
-  // context was initialised with, not from the raw BCIConfig map. A
-  // missing `contextParams.use_gpu` leaves whisper_context_default_params()
-  // intact (use_gpu=true), so whisper can still load a GPU; deriving the
-  // flag from the config map (and defaulting it to false) would make
-  // runtimeStats report backendDevice=0/backendId=0 while the context
-  // actually ran on a GPU. Sourcing from ctxParams keeps the reported
-  // backend in lock-step with what whisper_init_from_file_with_params()
-  // actually used. (Addresses jpgaribotti review on #2326.)
-  const bool useGpu = ctxParams.use_gpu;
-  const int gpuDeviceIndex = ctxParams.gpu_device;
+  // `useGpu` / `gpuDeviceIndex` are the EXACT whisper_context_params values
+  // the context was initialised with (including the Adreno->OpenCL
+  // preference applied in load()), so the reported backend matches what
+  // whisper_init_from_file_with_params() actually selected. A missing
+  // `contextParams.use_gpu` leaves whisper_context_default_params() intact
+  // (use_gpu=true), so whisper can still load a GPU; sourcing the flag from
+  // the context params (not the raw config map, where a missing key would
+  // default to false) keeps runtimeStats in lock-step with the real backend
+  // (addresses jpgaribotti review on #2326).
 
+  // Whisper.cpp only attempts a GPU backend when contextParams.use_gpu is
+  // true (see whisper_backend_init_gpu, src/whisper.cpp). Reflect that here
+  // so a CPU-only load doesn't look like a silent fallback in the WARNING
+  // below.
   if (!useGpu) {
     QLOG(
         qvac_lib_inference_addon_cpp::logger::Priority::INFO,
@@ -276,39 +357,51 @@ void BCIModel::captureActiveBackendInfo(
     return;
   }
 
-  // Mirror whisper.cpp's `whisper_backend_init_gpu()` selection: walk the
-  // ggml devices and pick the `gpu_device`-th `GGML_BACKEND_DEVICE_TYPE_GPU`
-  // (whisper's gpu_device is an index AMONG GPU devices, default 0, not an
-  // index into all devices -- device 0 is normally the CPU). Whisper does
-  // NOT consider IGPU / ACCEL, so we mustn't either -- reporting an IGPU
-  // here would lie about what whisper actually initialised against and
-  // confuse the Device Farm assertions (Mali vs Adreno).
+  // Mirror whisper_backend_init_gpu() (src/whisper.cpp) EXACTLY so the
+  // backend we report is the one whisper actually initialised against:
+  // walk ggml devices in registry order and pick the `gpu_device`-th
+  // device whose type is GPU *or* IGPU. whisper's gpu_device is an index
+  // AMONG those devices (default 0), not an index into all devices.
+  //
+  // IGPU is essential: ggml-vulkan reports *integrated* GPUs (Mali,
+  // Adreno-via-Vulkan, Intel iGPU) as GGML_BACKEND_DEVICE_TYPE_IGPU,
+  // while ggml-opencl / ggml-metal / ggml-cuda report GPU. whisper.cpp's
+  // whisper_backend_init_gpu accepts BOTH (it ORs GPU || IGPU), so
+  // skipping IGPU here would make every Vulkan-on-mobile device (e.g.
+  // Pixel/Mali) look like a silent CPU fallback even though whisper is
+  // running on the GPU -- and would fail the Device Farm Vulkan path.
   ggml_backend_dev_t dev = nullptr;
   const int targetGpuIndex = gpuDeviceIndex >= 0 ? gpuDeviceIndex : 0;
   int gpuSeen = 0;
   const size_t devCount = ggml_backend_dev_count();
   for (size_t i = 0; i < devCount; ++i) {
     ggml_backend_dev_t candidate = ggml_backend_dev_get(i);
-    if (candidate != nullptr &&
-        ggml_backend_dev_type(candidate) == GGML_BACKEND_DEVICE_TYPE_GPU) {
-      if (gpuSeen == targetGpuIndex) {
-        dev = candidate;
-        break;
-      }
-      ++gpuSeen;
+    if (candidate == nullptr) {
+      continue;
     }
+    const enum ggml_backend_dev_type devType = ggml_backend_dev_type(candidate);
+    if (devType != GGML_BACKEND_DEVICE_TYPE_GPU &&
+        devType != GGML_BACKEND_DEVICE_TYPE_IGPU) {
+      continue;
+    }
+    if (gpuSeen == targetGpuIndex) {
+      dev = candidate;
+      break;
+    }
+    ++gpuSeen;
   }
 
   if (dev == nullptr) {
     QLOG(
         qvac_lib_inference_addon_cpp::logger::Priority::WARNING,
-        "BCI: use_gpu=true was requested but no GGML GPU device is "
+        "BCI: use_gpu=true was requested but no GGML GPU/IGPU device is "
         "registered (silent CPU fallback). Likely causes: the GPU backend "
         "library wasn't loaded (Android: ggml_backend_load_all_from_path "
         "failed for the backendsDir), the device was rejected by the "
-        "backend (Adreno-tier policy, missing OpenCL ICD, iOS/Android "
-        "simulator without GPU support), or no GPU backend was compiled "
-        "into ggml-speech for this triplet.");
+        "backend (Adreno pre-700 OpenCL policy, missing OpenCL ICD, Vulkan "
+        "driver without storageBuffer16BitAccess, iOS/Android simulator "
+        "without GPU support), or no GPU backend was compiled into "
+        "ggml-speech for this triplet.");
     return;
   }
 

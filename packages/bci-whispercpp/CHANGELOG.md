@@ -25,14 +25,20 @@ model load that hit `transcription-whispercpp` on its PR #2124. See
   (process-local `std::call_once`); resolves the per-arch backend
   subdir from `backendsDir / BACKENDS_SUBDIR` and dispatches to
   `ggml_backend_load_all_from_path()`.
-- `captureActiveBackendInfo()` in `BCIModel::load()`: enumerates
-  `ggml_backend_dev_*` after backend registration and snapshots the
-  active backend identity + device memory. New `RuntimeStats` keys:
-  `backendDevice`, `backendId`, `gpuMemTotalMb`, `gpuMemFreeMb`. The
-  numeric mapping (CPU=0 / Metal=1 / CUDA=2 / Vulkan=3 / OpenCL=4 /
-  other=99) is lock-stepped with `transcription-whispercpp 0.9.0`
-  and `transcription-parakeet` for cross-addon Device Farm
-  comparability.
+- `captureActiveBackendInfo(useGpu, gpuDevice)` in `BCIModel::load()`:
+  enumerates `ggml_backend_dev_*` after backend registration and
+  snapshots the active backend identity + device memory. New
+  `RuntimeStats` keys: `backendDevice`, `backendId`, `gpuMemTotalMb`,
+  `gpuMemFreeMb`. The numeric mapping (CPU=0 / Metal=1 / CUDA=2 /
+  Vulkan=3 / OpenCL=4 / other=99) is lock-stepped with
+  `transcription-whispercpp 0.9.0` and `transcription-parakeet` for
+  cross-addon Device Farm comparability. Backend selection is sourced
+  from the exact `whisper_context_params` the context was built with
+  (use_gpu/gpu_device), walks the `whisper_backend_init_gpu()`-filtered
+  GPU **and IGPU** device list (Mali / Adreno-via-Vulkan / Intel iGPU
+  report as IGPU), and applies the Adreno OpenCL preference — mirroring
+  `transcription-whispercpp` PR #2270 + #2343. Inert on
+  `whisper-cpp@1.8.4.2` (no GPU backends registered).
 - `CMakeLists.txt`: `bare_target` + `bare_module_target` discovery,
   `BACKENDS_SUBDIR` compile define, `BACKEND_DL_LIBS` (IMPORTED
   `ggml::*` targets) + `BACKEND_DL_LOOSE_SOS` (loose
