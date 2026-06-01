@@ -105,20 +105,24 @@ void ensureBackendsLoadedAndroid(const std::string& backendsDir) {
 
 namespace {
 // Return the index, within whisper_backend_init_gpu()'s *filtered* GPU/IGPU
-// device list, of a registered OpenCL device — or -1 if none is registered.
+// device list, of a registered *Adreno* OpenCL device — or -1 if none.
 //
 // This is the Adreno guard. On Adreno (Android) ggml registers BOTH a Vulkan
 // device and an OpenCL device for the same physical GPU, and
 // ggml_backend_load_all_from_path() loads Vulkan *before* OpenCL
 // (ggml-backend-reg.cpp), so whisper_backend_init_gpu()'s default
 // (gpu_device=0) lands on the Vulkan device — whose Adreno driver SIGSEGVs in
-// vkCmdBindPipeline during compute. ggml-opencl only registers on Adreno, so
-// "an OpenCL GPU device is registered" is a reliable Adreno signal. Preferring
-// it routes Adreno to the supported OpenCL backend. On Mali / desktop no
-// OpenCL device registers (OpenCL ships only in the Android build's
-// whisper-cpp[opencl] feature), so this returns -1 and the Vulkan/Metal path
-// is left untouched.
-int openclGpuDeviceIndex() {
+// vkCmdBindPipeline during ggml compute. Steering to the Adreno OpenCL device
+// avoids that.
+//
+// Selection mirrors llm-llamacpp's BackendSelection gate (`isOpenCl &&
+// isAdreno`, see packages/llm-llamacpp/addon/src/utils/BackendSelection.cpp):
+// the device's backend must be OpenCL AND its description must be an Adreno
+// GPU. Gating on the Adreno *description* (not merely "some OpenCL device
+// exists") keeps Mali on Vulkan even if a Mali/Intel OpenCL ICD ever
+// enumerates, and leaves desktop (Metal / discrete Vulkan) untouched —
+// returning -1 there so the default selection stands.
+int adrenoOpenclGpuDeviceIndex() {
   const size_t devCount = ggml_backend_dev_count();
   int filteredIdx = 0;
   for (size_t i = 0; i < devCount; ++i) {
@@ -133,13 +137,22 @@ int openclGpuDeviceIndex() {
     }
     ggml_backend_reg_t reg = ggml_backend_dev_backend_reg(dev);
     const char* regName = (reg != nullptr) ? ggml_backend_reg_name(reg) : "";
+    const char* devDesc = ggml_backend_dev_description(dev);
     std::string regNameLower = (regName != nullptr) ? regName : "";
+    std::string devDescLower = (devDesc != nullptr) ? devDesc : "";
     std::transform(
         regNameLower.begin(),
         regNameLower.end(),
         regNameLower.begin(),
         [](unsigned char c) { return std::tolower(c); });
-    if (regNameLower.find("opencl") != std::string::npos) {
+    std::transform(
+        devDescLower.begin(),
+        devDescLower.end(),
+        devDescLower.begin(),
+        [](unsigned char c) { return std::tolower(c); });
+    const bool isOpenCl = regNameLower.find("opencl") != std::string::npos;
+    const bool isAdreno = devDescLower.find("adreno") != std::string::npos;
+    if (isOpenCl && isAdreno) {
       return filteredIdx;
     }
     ++filteredIdx;
@@ -157,24 +170,24 @@ void WhisperModel::load() {
 
     whisper_context_params contextParams = toWhisperContextParams(cfg_);
 
-    // Adreno guard: when ggml registers an OpenCL GPU device (Android/Adreno,
+    // Adreno guard: when ggml registers an Adreno OpenCL device (Android,
     // where it also registers a Vulkan device for the same GPU and Vulkan is
     // loaded first), steer whisper to the OpenCL device. The Adreno Vulkan
     // driver SIGSEGVs in ggml compute (vkCmdBindPipeline), whereas OpenCL is
-    // the supported Adreno backend. No-op on Mali / desktop (no OpenCL device
-    // registers there), so the proven Mali->Vulkan path is left untouched.
+    // the supported Adreno backend. No-op on Mali / desktop (no Adreno OpenCL
+    // device registers there), so the proven Mali->Vulkan path is untouched.
     if (contextParams.use_gpu) {
-      const int openclDeviceIndex = openclGpuDeviceIndex();
-      if (openclDeviceIndex >= 0 &&
-          openclDeviceIndex != contextParams.gpu_device) {
+      const int adrenoOpenclDeviceIndex = adrenoOpenclGpuDeviceIndex();
+      if (adrenoOpenclDeviceIndex >= 0 &&
+          adrenoOpenclDeviceIndex != contextParams.gpu_device) {
         QLOG(
             qvac_lib_inference_addon_cpp::logger::Priority::INFO,
-            std::string("OpenCL GPU device detected (Adreno); preferring it "
-                        "over the default GPU to avoid the Adreno Vulkan "
-                        "compute crash (gpu_device ") +
+            std::string("Adreno OpenCL GPU device detected; preferring it over "
+                        "the default GPU to avoid the Adreno Vulkan compute "
+                        "crash (gpu_device ") +
                 std::to_string(contextParams.gpu_device) + " -> " +
-                std::to_string(openclDeviceIndex) + ")");
-        contextParams.gpu_device = openclDeviceIndex;
+                std::to_string(adrenoOpenclDeviceIndex) + ")");
+        contextParams.gpu_device = adrenoOpenclDeviceIndex;
       }
     }
 

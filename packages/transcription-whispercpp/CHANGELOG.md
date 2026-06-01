@@ -81,12 +81,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ggml_backend_load_all_from_path()` loads Vulkan first, so whisper's
   default (`gpu_device=0`) landed on the Adreno Vulkan device — whose driver
   SIGSEGVs in `vkCmdBindPipeline` during ggml compute. `load()` now detects a
-  registered OpenCL GPU device (a reliable Adreno signal — ggml-opencl only
-  registers on Adreno) and steers `contextParams.gpu_device` to it. No-op on
-  Mali / desktop (no OpenCL device registers there), so the Mali→Vulkan path
-  is untouched. `captureActiveBackendInfo()` now takes the EXACT
-  `use_gpu` / `gpu_device` the context was created with, so the reported
-  backend always matches whisper's actual pick.
+  registered **Adreno** OpenCL device and steers `contextParams.gpu_device`
+  to it. The detection mirrors `llm-llamacpp`'s `BackendSelection`
+  (`isOpenCl && isAdreno`): the device's backend must be OpenCL AND its
+  description must be an Adreno GPU, so a Mali/Intel OpenCL ICD would not
+  trigger it and Mali stays on Vulkan. No-op on Mali / desktop, so the
+  Mali→Vulkan and Metal paths are untouched. `captureActiveBackendInfo()` now
+  takes the EXACT `use_gpu` / `gpu_device` the context was created with, so
+  the reported backend always matches whisper's actual pick.
 - Whisper/ggml native logs are no longer discarded. The previous
   `whisper_log_set(<no-op>)` swallowed every whisper.cpp and ggml log line
   (whisper routes ggml's logs through the same callback); they are now
