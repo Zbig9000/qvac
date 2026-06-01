@@ -76,6 +76,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unaffected — those backends report `GPU`). `gpu_device` is now
   treated as an index into the filtered GPU/IGPU list (default `0`),
   matching whisper's own indexing, instead of a raw device index.
+- Adreno GPUs (Android) now use OpenCL instead of Vulkan. On Adreno ggml
+  registers both a Vulkan and an OpenCL device for the same GPU, and
+  `ggml_backend_load_all_from_path()` loads Vulkan first, so whisper's
+  default (`gpu_device=0`) landed on the Adreno Vulkan device — whose driver
+  SIGSEGVs in `vkCmdBindPipeline` during ggml compute. `load()` now detects a
+  registered OpenCL GPU device (a reliable Adreno signal — ggml-opencl only
+  registers on Adreno) and steers `contextParams.gpu_device` to it. No-op on
+  Mali / desktop (no OpenCL device registers there), so the Mali→Vulkan path
+  is untouched. `captureActiveBackendInfo()` now takes the EXACT
+  `use_gpu` / `gpu_device` the context was created with, so the reported
+  backend always matches whisper's actual pick.
+- Whisper/ggml native logs are no longer discarded. The previous
+  `whisper_log_set(<no-op>)` swallowed every whisper.cpp and ggml log line
+  (whisper routes ggml's logs through the same callback); they are now
+  forwarded into the addon logger (`QLOG` → JS logger), surfacing the
+  authoritative backend-init lines (`ggml_vulkan: Found N Vulkan devices…`,
+  `whisper_backend_init_gpu: using <name> backend`). Verbosity is gated by
+  the JS-side logger level (nothing shows unless the host raises it to
+  INFO/DEBUG); the forwarding sink is thread-safe and never throws back into
+  ggml's C log path.
 
 ### Removed
 - `transcription-whispercpp`-side `spirv-headers` / `vulkan-headers` /
