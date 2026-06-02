@@ -15,9 +15,5 @@
         "spirv-headers"
       ]
     }
-  ],
-  "overlay-ports": [
-    "vcpkg-overlays/ggml-speech",
-    "vcpkg-overlays/parakeet-cpp"
   ]
 }
