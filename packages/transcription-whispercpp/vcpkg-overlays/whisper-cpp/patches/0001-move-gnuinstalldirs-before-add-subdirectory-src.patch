@@ -1,0 +1,50 @@
+From: qvac-registry-vcpkg <none@tether.io>
+Subject: [PATCH] CMake: include(GNUInstallDirs) before add_subdirectory(src)
+
+src/CMakeLists.txt uses `${CMAKE_INSTALL_INCLUDEDIR}` in line
+`$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/whisper>` to populate
+the imported target's INTERFACE_INCLUDE_DIRECTORIES via the exported
+`whisper-targets.cmake`. The variable is only defined after
+`include(GNUInstallDirs)` runs, which is currently *after*
+`add_subdirectory(src)` in top-level CMakeLists.txt. As a result the
+generator-expression expands to just `/whisper`, and downstream
+`find_package(whisper)` consumers that rely on the install-tree
+(`WHISPER_USE_SYSTEM_GGML=ON` paths in vcpkg ports such as
+parakeet-cpp / tts-cpp / transcription-whispercpp addons) fail to
+configure with:
+
+  CMake Error in CMakeLists.txt:
+  Imported target "whisper::whisper" includes non-existent path
+    "/whisper"
+  in its INTERFACE_INCLUDE_DIRECTORIES.
+
+Move the `include(GNUInstallDirs)` call above `add_subdirectory(src)`
+so the INSTALL_INTERFACE generator-expression evaluates to the
+intended `include/whisper`. Does not change build-tree behavior
+(BUILD_INTERFACE path unaffected) and does not move any other rule
+that consumes `${CMAKE_INSTALL_*}` (those all stay after src/).
+
+Filed for upstream submission as a follow-up PR.
+---
+ CMakeLists.txt | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -167,13 +167,14 @@
+     endif()
+     # ... otherwise assume ggml is added by a parent CMakeLists.txt
+ endif()
++include(GNUInstallDirs)
++
+ add_subdirectory(src)
+ 
+ #
+ # install
+ #
+ 
+-include(GNUInstallDirs)
+ include(CMakePackageConfigHelpers)
+ 
+ set(WHISPER_BUILD_NUMBER        ${BUILD_NUMBER})

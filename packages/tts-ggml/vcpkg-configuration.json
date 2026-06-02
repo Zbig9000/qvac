@@ -16,5 +16,9 @@
         "vulkan-loader"
       ]
     }
+  ],
+  "overlay-ports": [
+    "vcpkg-overlays/ggml-speech",
+    "vcpkg-overlays/tts-cpp"
   ]
 }
