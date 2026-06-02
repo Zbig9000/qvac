@@ -92,17 +92,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Whisper/ggml native logs are redirected to JS through the addon logger
   (`QLOG`) with verbosity preserved (QVAC-19783). The previous
   `whisper_log_set(<no-op>)` swallowed every whisper.cpp and ggml log line;
-  they now flow through a buffered trampoline installed via
-  `whisper_log_set()` (the correct hook — whisper re-applies the callback to
-  ggml during `whisper_backend_init_gpu()`, so a raw `ggml_log_set()` would be
-  clobbered). The trampoline (a) maps each `ggml_log_level` to the matching
-  logger `Priority` (ERROR/WARNING/INFO/DEBUG) so the JS-side logger level
-  controls how much is shown, and (b) assembles `GGML_LOG_LEVEL_CONT`
-  continuations and bare fragments into whole lines so the JS side sees clean,
-  complete entries — e.g. `ggml_vulkan: Found N Vulkan devices…` at DEBUG and
-  `whisper_backend_init_gpu: using <name> backend` at INFO. Nothing shows
-  unless the host raises the level via `binding.setLogger()` / `--native-logs`;
-  the trampoline is mutex-guarded and never throws back into ggml's C log path.
+  they are now forwarded via `whisper_log_set()` (the correct hook — whisper
+  re-applies the callback to ggml during `whisper_backend_init_gpu()`, so a
+  raw `ggml_log_set()` would be clobbered). `ggmlLevelToPriority()` maps each
+  `ggml_log_level` to the matching logger `Priority` (ERROR/WARNING/INFO/DEBUG)
+  so the JS-side logger level controls how much is shown — e.g.
+  `ggml_vulkan: Found N Vulkan devices…` at DEBUG and
+  `whisper_backend_init_gpu: using <name> backend` at INFO. Each callback is
+  forwarded immediately (no cross-call buffering), mirroring `llm-llamacpp`'s
+  `LlamaModel::llamaLogCallback`, so it is deterministic regardless of newline
+  termination (whisper/ggml error paths emit lines without a trailing `\n`) —
+  no message is held pending or merged into a later one at the wrong priority,
+  and there is no unbounded buffer or partial line lost at shutdown. Nothing
+  shows unless the host raises the level via `binding.setLogger()` /
+  `--native-logs`. The forwarder is JS-free (`GgmlLogForwarding.hpp`) and
+  unit-tested; it never throws back into ggml's C log path.
 
 ### Removed
 - `transcription-whispercpp`-side `spirv-headers` / `vulkan-headers` /

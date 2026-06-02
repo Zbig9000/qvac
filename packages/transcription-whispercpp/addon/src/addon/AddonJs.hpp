@@ -10,7 +10,6 @@
 
 #include <inference-addon-cpp/JsInterface.hpp>
 #include <inference-addon-cpp/JsUtils.hpp>
-#include <inference-addon-cpp/Logger.hpp>
 #include <inference-addon-cpp/ModelInterfaces.hpp>
 #include <inference-addon-cpp/addon/AddonJs.hpp>
 #include <inference-addon-cpp/handlers/JsOutputHandlerImplementations.hpp>
@@ -19,6 +18,7 @@
 #include <js.h>
 #include <whisper.h>
 
+#include "addon/GgmlLogForwarding.hpp"
 #include "model-interface/StreamingProcessor.hpp"
 #include "model-interface/WhisperTypes.hpp"
 #include "model-interface/whisper.cpp/WhisperModel.hpp"
@@ -34,9 +34,9 @@ inline std::unordered_map<
 namespace js = qvac_lib_inference_addon_cpp::js;
 using qvac_lib_inference_addon_cpp::OutputQueue;
 
-// Forward whisper.cpp / ggml native logs into the addon logger (QLOG -> JS
-// logger) instead of discarding them, preserving each line's verbosity
-// (QVAC-19783).
+// whisper.cpp / ggml native-log forwarding lives in GgmlLogForwarding.hpp
+// (kept JS-free so the level mapping + per-call forwarding can be unit-tested).
+// createInstance() installs forwardGgmlLog() via whisper_log_set().
 //
 // Hook choice: whisper_log_set() — NOT a raw ggml_log_set(). whisper_log_set()
 // stores the callback in g_state.log_callback and re-applies it to ggml via
@@ -45,91 +45,7 @@ using qvac_lib_inference_addon_cpp::OutputQueue;
 // ggml_log_set() would therefore be clobbered, while whisper_log_set()
 // reliably captures BOTH whisper.cpp's own lines (whisper_model_load,
 // "whisper_backend_init_gpu: using <name> backend", ...) and ggml's
-// ("ggml_vulkan: Found N Vulkan devices ...") — the authoritative record of
-// the compute backend whisper actually initialised against.
-//
-// Verbosity: each ggml_log_level maps to the matching addon logger Priority
-// (ERROR / WARNING / INFO / DEBUG), so the JS-side logger level decides what
-// is shown — nothing surfaces unless the host raises the level to INFO/DEBUG
-// (binding.setLogger / --native-logs).
-//
-// Line assembly: ggml/whisper emit GGML_LOG_LEVEL_CONT continuations and bare
-// fragments without a trailing '\n' (whisper_log_internal splits long lines;
-// metal pipeline compiles print in parts). The fragments are buffered and
-// flushed one whole line at a time so QLOG/JS sees clean, complete lines at
-// the correct level. JsLogger::log() is thread-safe (mutex-guarded queue +
-// uv_async_send) and the buffer below is mutex-guarded, so this is safe to
-// call from ggml's worker threads. The callback must never throw back into
-// ggml's C log path.
-//
-// (The statics live in inline accessors so the single buffer/level is shared
-// across every translation unit that includes this header.)
-inline std::mutex& ggmlLogBufferMutex() {
-  static std::mutex mutex;
-  return mutex;
-}
-inline std::string& ggmlLogBuffer() {
-  static std::string buffer;
-  return buffer;
-}
-inline enum ggml_log_level& ggmlLogBufferLevel() {
-  static enum ggml_log_level level = GGML_LOG_LEVEL_INFO;
-  return level;
-}
-
-inline qvac_lib_inference_addon_cpp::logger::Priority ggmlLevelToPriority(
-    enum ggml_log_level level) {
-  namespace logp = qvac_lib_inference_addon_cpp::logger;
-  switch (level) {
-  case GGML_LOG_LEVEL_ERROR:
-    return logp::Priority::ERROR;
-  case GGML_LOG_LEVEL_WARN:
-    return logp::Priority::WARNING;
-  case GGML_LOG_LEVEL_DEBUG:
-    return logp::Priority::DEBUG;
-  case GGML_LOG_LEVEL_INFO:
-  case GGML_LOG_LEVEL_CONT:
-  case GGML_LOG_LEVEL_NONE:
-  default:
-    return logp::Priority::INFO;
-  }
-}
-
-inline void forwardGgmlLog(
-    enum ggml_log_level level, const char* text, void* /*userData*/) {
-  if (text == nullptr) {
-    return;
-  }
-
-  std::lock_guard<std::mutex> lock(ggmlLogBufferMutex());
-  // GGML_LOG_LEVEL_CONT continues the previous logical line, so keep the last
-  // non-CONT level for everything buffered until the next newline.
-  if (level != GGML_LOG_LEVEL_CONT) {
-    ggmlLogBufferLevel() = level;
-  }
-  ggmlLogBuffer().append(text);
-
-  // Drain every complete line; whatever has no trailing '\n' yet stays
-  // buffered for the next call.
-  for (std::size_t newline = ggmlLogBuffer().find('\n');
-       newline != std::string::npos;
-       newline = ggmlLogBuffer().find('\n')) {
-    std::string line = ggmlLogBuffer().substr(0, newline);
-    ggmlLogBuffer().erase(0, newline + 1);
-    while (!line.empty() && line.back() == '\r') {
-      line.pop_back();
-    }
-    if (line.empty()) {
-      continue;
-    }
-    try {
-      QLOG(ggmlLevelToPriority(ggmlLogBufferLevel()), line);
-    } catch (...) {
-      // A logging failure (e.g. JS logger not yet initialised) must never
-      // propagate back into ggml's C log callback.
-    }
-  }
-}
+// ("ggml_vulkan: Found N Vulkan devices ...").
 
 inline WhisperConfig
 createWhisperConfig(js_env_t* env, const js::Object& configurationParams) {
