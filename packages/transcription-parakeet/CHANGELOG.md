@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] - 2026-06-10
+
+### Fixed
+
+- **Android: ship Parakeet CPU-only by dropping the Adreno GPU backends, fixing a
+  SIGABRT during model load.** Parakeet already forces `useGPU=false` on Android at
+  the engine boundary (`ParakeetModel::load`, "pending Vulkan/Mali and OpenCL/Adreno
+  driver fixes"), but the addon still *shipped* the
+  `libqvac-speech-ggml-{vulkan,opencl}.so` backends, and `parakeet-cpp`'s
+  `ggml_backend_load_all_from_path()` initialises the Adreno Vulkan device regardless
+  of `n_gpu_layers=0`. After `parakeet-cpp 2026-06-04#0` (#2461) added robust
+  Adreno-generation detection, that init now engages the Adreno Vulkan backend on
+  devices like the Samsung S25 Ultra and aborts in `ggml` graph compute ~8 s into
+  loading `parakeet-tdt-0.6b-v3`, killing the Bare worklet (SIGABRT) and every
+  subsequent test. (Confirmed identical on device-farm runs 27282459468 and
+  27286841825; the same `parakeet@0.7.1` passed on Android on Jun 5 with the older
+  `parakeet-cpp 2026-05-26#2`, which did not detect the Adreno → stayed on CPU.)
+  Drop the `vulkan`/`opencl` vcpkg features from the Android `parakeet-cpp`
+  dependency so the Android prebuild is CPU-only — no GPU backend `.so` is shipped,
+  so nothing initialises the Adreno driver. iOS (Metal) and desktop
+  (Vulkan) builds are unchanged. The Android GPU path can be re-enabled once the
+  upstream Adreno Vulkan/OpenCL `ggml` instability is fixed.
+
 ## [0.7.1] - 2026-06-02
 
 ### Changed
