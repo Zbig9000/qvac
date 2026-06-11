@@ -150,3 +150,29 @@ if(WIN32)
       msvcrt.lib
   )
 endif()
+
+# Symbol-export hygiene: hide everything except the Bare entrypoint so this
+# addon's statically linked ggml / stable-diffusion symbols cannot interpose on
+# another ggml addon loaded into the same process (see packages/ggml-coload-smoke
+# and scripts/verify-prebuild-symbols.mjs). Mirrors transcription-parakeet,
+# which already ships this; diffusion-cpp previously shipped neither
+# --exclude-libs nor a version script, leaving its ggml_* symbols exported.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_link_options(${inference-addon-sd}_module PRIVATE -Wl,--exclude-libs,ALL)
+endif()
+
+if(UNIX AND NOT APPLE)
+  target_link_options(
+    ${inference-addon-sd}_module
+    PRIVATE
+      -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/symbols.map
+  )
+endif()
+
+if(APPLE)
+  target_link_options(
+    ${inference-addon-sd}_module
+    PRIVATE
+      -Wl,-exported_symbol,_bare_get_module_name_v0
+  )
+endif()
