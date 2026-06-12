@@ -174,5 +174,6 @@ if(APPLE)
     ${inference-addon-sd}_module
     PRIVATE
       -Wl,-exported_symbol,_bare_get_module_name_v0
+      -Wl,-exported_symbol,_bare_register_module_v0
   )
 endif()
