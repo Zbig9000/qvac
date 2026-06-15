@@ -71,7 +71,7 @@ function parseArgs (argv) {
   const opts = {
     dirs: [],
     platform: process.env.PREBUILD_PLATFORM || '',
-    enginePrefixes: ['ggml', 'gguf', 'llama', 'whisper', 'clip', 'mtmd'],
+    enginePrefixes: ['ggml', 'gguf', 'llama', 'whisper', 'clip', 'mtmd', 'sd', 'stable_diffusion'],
     enforceExports: false,
     allowExports: new Set(),
     readelf: process.env.READELF || '',
@@ -211,7 +211,15 @@ function parseNmPosix (output) {
 function symbolsOf (tools, path, format) {
   // ELF uses the dynamic symbol table (-D); Mach-O has a single table.
   const args = format === 'elf' ? ['-D', '-P'] : ['-P']
-  return parseNmPosix(runNm(tools.nm, args, path))
+  const parsed = parseNmPosix(runNm(tools.nm, args, path))
+  if (format === 'macho') {
+    // Mach-O C symbols carry a leading underscore (_ggml_backend_is_cpu,
+    // _bare_get_module_name_v0); strip it so isEngineSymbol's `ggml`/`ggml_*`
+    // roots and the bare_*/napi_* export allowlist match on darwin/ios too.
+    const strip = (set) => new Set([...set].map(s => s.startsWith('_') ? s.slice(1) : s))
+    return { undefined_: strip(parsed.undefined_), exported: strip(parsed.exported) }
+  }
+  return parsed
 }
 
 function neededOf (tools, path, format) {
