@@ -289,6 +289,13 @@ function main () {
     const { undefined_, exported } = symbolsOf(tools, p, fmt)
 
     // Provider set = exported symbols of co-located DT_NEEDED libs.
+    // NOTE: exportsBySoname is keyed by on-disk basename, while DT_NEEDED holds
+    // sonames. They coincide for qvac's backend libs today (filename == soname),
+    // but if a soname (libfoo.so.1) ever diverged from the filename
+    // (libfoo.so.1.2.3 + a symlink) and the symlink weren't staged in prebuilds/,
+    // this lookup would miss and a genuinely-resolved symbol would read as
+    // unresolved. Latent fragility -- revisit if a backend lib grows a versioned
+    // soname.
     const needed = neededOf(tools, p, fmt)
     const provided = new Set()
     for (const soname of needed) {
@@ -311,13 +318,22 @@ function main () {
       leakedExports.push(s)
     }
 
-    const fileFail = unresolvedEngine.length > 0 || (opts.enforceExports && leakedExports.length > 0)
+    // The UND hard-fail is ELF-only (Linux/Android) by design. neededOf cannot
+    // enumerate DT_NEEDED providers for Mach-O, and Apple addons statically link
+    // the engine today, so a Mach-O UND engine symbol is reported as a WARNING
+    // (not a hard fail) to avoid a false-positive should an addon ever ship
+    // co-located engine .dylibs. GGML_BACKEND_DL -- the dlopen class this guards
+    // -- is Android-only anyway.
+    const undFatal = fmt === 'elf' && unresolvedEngine.length > 0
+    const fileFail = undFatal || (opts.enforceExports && leakedExports.length > 0)
     if (fileFail) hardFail = true
 
     results.push({ path: rel, kind, format: fmt, unresolvedEngine, leakedExports })
 
     if (unresolvedEngine.length > 0) {
-      ghaError(`${rel}: ${unresolvedEngine.length} unresolved engine symbol(s) (will dlopen-crash on device): ${unresolvedEngine.sort().slice(0, 20).join(', ')}${unresolvedEngine.length > 20 ? ', ...' : ''}`)
+      const m = `${rel}: ${unresolvedEngine.length} unresolved engine symbol(s) (will dlopen-crash on device): ${unresolvedEngine.sort().slice(0, 20).join(', ')}${unresolvedEngine.length > 20 ? ', ...' : ''}`
+      if (fmt === 'elf') ghaError(m)
+      else ghaWarn(`${m} [Mach-O: warn-only -- provider resolution unavailable]`)
     }
     if (leakedExports.length > 0) {
       const m = `${rel}: exports ${leakedExports.length} engine symbol(s) at default visibility (cross-addon interposition risk): ${leakedExports.sort().slice(0, 20).join(', ')}${leakedExports.length > 20 ? ', ...' : ''}. Add a symbols.map (see transcription-parakeet) / -Wl,--exclude-libs,ALL.`
