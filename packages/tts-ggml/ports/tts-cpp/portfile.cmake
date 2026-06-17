@@ -1,11 +1,20 @@
-# tts-cpp — LOCAL OVERLAY PORT (Android dlopen-fix validation).
+# tts-cpp — LOCAL OVERLAY PORT.
 #
-# This package-local overlay replaces the registry `tts-cpp` port so the
-# tts-ggml prebuild builds an upstream fix that is NOT yet published to
-# qvac-registry-vcpkg. It pins qvac-ext-lib-whisper.cpp@f7d4d6c — exactly
-# one commit on top of the published 2026-06-05 pin (128dae42) — which
-# reroutes Supertonic's direct CPU-backend calls that are unlinkable under
-# `GGML_BACKEND_DL=ON`:
+# *** QVAC-20616 DEVICE-FARM TEST PIN — DO NOT MERGE ***
+# Temporarily repoints this overlay at Zbig9000/qvac-ext-lib-whisper.cpp@
+# ea51e37b (branch QVAC-20616-devicefarm-test) so the AWS Device Farm
+# (Android OpenCL + iOS Metal) exercises the QVAC-20616 end-of-speech fix
+# (Phase 1 heuristic stop + Phase 2 alignment EOS + improvements #1-#5) on
+# real mobile GPUs. That branch == the Android dlopen-fix baseline f7d4d6c
+# (described below) with the 9 QVAC-20616 commits rebased on top, so the only
+# delta vs the known-good pin is QVAC-20616 itself. Revert this overlay to the
+# registry `tts-cpp` once the fix is published.
+#
+# Baseline f7d4d6c (now the parent of the test pin) replaces the registry
+# `tts-cpp` port so the tts-ggml prebuild builds an upstream fix that is NOT
+# yet published to qvac-registry-vcpkg. It is exactly one commit on top of the
+# published 2026-06-05 pin (128dae42) which reroutes Supertonic's direct
+# CPU-backend calls that are unlinkable under `GGML_BACKEND_DL=ON`:
 #   - `ggml_get_type_traits_cpu(...)->from_float` -> `ggml_quantize_chunk()`
 #     (ggml-base, always linked)
 #   - `ggml_backend_is_cpu()` -> `tts_cpp::detail::backend_is_cpu()` registry
@@ -35,10 +44,10 @@ set(VCPKG_BUILD_TYPE release)
 
 vcpkg_from_github(
     OUT_SOURCE_PATH WHISPER_CPP_SRC
-    REPO tetherto/qvac-ext-lib-whisper.cpp
-    REF f7d4d6c18615dc0c094776db78421bbb07e90371
-    SHA512 eb4d5679db948a496282f3a73ad11da0b19efbfc63c0b27a08cb536a88c3313ad03f91aa2f875463fd9990b2cf0e2b66a063a3a84bb2ff930718926c497b435d
-    HEAD_REF master
+    REPO Zbig9000/qvac-ext-lib-whisper.cpp
+    REF ea51e37b07ba24140145c371f9a0452b74e47126
+    SHA512 cab29c9119e3738753703ed403bb3e22fe02be0c5c830c506675aa26f4c8b558825978934e5ca3cd89521702a5a5e4f2188dddc08641bbc87a8f2203b7344c42
+    HEAD_REF QVAC-20616-devicefarm-test
 )
 
 set(SOURCE_PATH "${WHISPER_CPP_SRC}/tts-cpp")

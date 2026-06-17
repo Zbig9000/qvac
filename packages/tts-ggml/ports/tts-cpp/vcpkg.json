@@ -1,8 +1,8 @@
 {
   "name": "tts-cpp",
-  "version-date": "2026-06-05",
+  "version-date": "2026-06-17",
   "port-version": 0,
-  "description": "LOCAL OVERLAY of tts-cpp pinned at qvac-ext-lib-whisper.cpp@f7d4d6c (= the published 2026-06-05 pin 128dae42 + one fix commit). Reroutes Supertonic's direct ggml_get_type_traits_cpu()->from_float and ggml_backend_is_cpu() calls (unlinkable under GGML_BACKEND_DL on Android) to ggml_quantize_chunk() and the tts_cpp::detail::backend_is_cpu() registry shim, so the tts-ggml addon dlopen's cleanly on Android. Temporary QVAC-19254 follow-up; remove once published to the registry.",
+  "description": "QVAC-20616 DEVICE-FARM TEST PIN (DO NOT MERGE): LOCAL OVERLAY of tts-cpp repointed at Zbig9000/qvac-ext-lib-whisper.cpp@ea51e37b (branch QVAC-20616-devicefarm-test) = the Android dlopen-fix baseline f7d4d6c with the 9 QVAC-20616 end-of-speech commits rebased on top, so AWS Device Farm (Android OpenCL + iOS Metal) exercises the fix on real GPUs. The baseline still reroutes Supertonic's direct ggml_get_type_traits_cpu()->from_float and ggml_backend_is_cpu() calls (unlinkable under GGML_BACKEND_DL on Android) to ggml_quantize_chunk() and the tts_cpp::detail::backend_is_cpu() registry shim. Revert to the registry tts-cpp once QVAC-20616 is published.",
   "homepage": "https://github.com/tetherto/qvac-ext-lib-whisper.cpp/tree/master/tts-cpp",
   "license": "MIT",
   "dependencies": [
