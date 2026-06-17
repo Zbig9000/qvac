@@ -1,0 +1,53 @@
+# Self-test for the prebuild symbol gate (scripts/verify-prebuild-symbols.mjs).
+#
+# Proves -- straight off the published artifacts, no device or rebuild -- that
+# the gate CATCHES the @qvac/tts-ggml@0.2.1 Android dlopen regression (the build
+# #2502 reverted: UND ggml_backend_is_cpu / ggml_get_type_traits_cpu) and PASSES
+# the good 0.2.0. Guards the gate itself from silently rotting. Uses public npm
+# only, so it runs on fork PRs without secrets.
+name: Gate self-test (prebuild symbols)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "scripts/verify-prebuild-symbols.mjs"
+      - ".github/workflows/gate-selftest.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  selftest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # 6.0.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # 6.3.0
+        with:
+          node-version: lts/*
+
+      - name: Gate MUST hard-fail on the broken 0.2.1 (the build #2502 reverted)
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/bad && mkdir -p /tmp/bad
+          npm pack @qvac/tts-ggml@0.2.1 --pack-destination /tmp/bad
+          tar -xf /tmp/bad/*.tgz -C /tmp/bad package/prebuilds/android-arm64
+          if node scripts/verify-prebuild-symbols.mjs --dir /tmp/bad/package/prebuilds/android-arm64 --platform android; then
+            echo "::error::Gate PASSED on the known-broken 0.2.1 prebuild -- the gate would NOT catch the regression."
+            exit 1
+          fi
+          echo "OK: gate correctly hard-failed on 0.2.1 (expected: ggml_backend_is_cpu / ggml_get_type_traits_cpu)."
+
+      - name: Gate MUST pass on the good 0.2.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/good && mkdir -p /tmp/good
+          npm pack @qvac/tts-ggml@0.2.0 --pack-destination /tmp/good
+          tar -xf /tmp/good/*.tgz -C /tmp/good package/prebuilds/android-arm64
+          node scripts/verify-prebuild-symbols.mjs --dir /tmp/good/package/prebuilds/android-arm64 --platform android
+          echo "OK: gate correctly passed on 0.2.0."
