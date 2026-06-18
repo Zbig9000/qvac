@@ -9,11 +9,12 @@
 # the full set, each ggml stack, cross-stack pairs, and -- on PRs -- combos
 # focused on the addon(s) the PR changed.
 #
-# It installs the *published* addons and co-loads them (a continuous regression
-# net for the registry). Follow-up: overlay the PR's freshly-built prebuild for
-# the changed addon (download its prebuild artifact into
-# node_modules/@qvac/<addon>/prebuilds) so the co-load also exercises
-# unpublished changes; the desktop run intentionally stays model-free and cheap.
+# IMPORTANT: it installs the *published* addons from npm and co-loads those, so
+# on a PR it validates the current REGISTRY BASELINE, not the PR's own diff (a
+# PR's freshly-built change is guarded by the Phase-1 prebuild symbol gate).
+# Follow-up: overlay the PR's freshly-built prebuild for the changed addon
+# (download its prebuild artifact into node_modules/@qvac/<addon>/prebuilds) so
+# the co-load also exercises unpublished changes; the run stays model-free/cheap.
 
 name: Co-load smoke (ggml)
 

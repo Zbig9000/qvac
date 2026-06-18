@@ -40,8 +40,10 @@ COLOAD_ADDONS=tts-ggml,llm-llamacpp bare test/coload.test.js
 `COLOAD_ADDONS` accepts `all`, a stack name (`speech` | `fabric` | `diffusion`),
 or a comma-separated list of addon short names. Unknown names fail fast.
 
-The test resolves each addon from its sibling directory under `packages/`, so it
-always exercises the **current tree's** build rather than a published version.
+The test resolves each addon by its package specifier (`@qvac/<addon>`): it uses
+the **installed** package when present -- which is how CI co-loads the published
+addons -- and falls back to the monorepo source package under `packages/` only
+when the addon isn't installed (e.g. a local run against a freshly-built tree).
 
 ## Adding / changing an addon
 
@@ -51,7 +53,9 @@ directory) and its `stack`. Keep the inventory in sync with the SDK addon map in
 
 ## CI
 
-A desktop matrix runs this on PRs that touch any ggml addon (the "all" combo
-plus combos focused on the changed addon and a pairwise covering array). A
-Device Farm variant reuses the SDK mobile bundle machinery to reproduce the
-Android/Adreno paths.
+A desktop matrix runs this on PRs that touch any ggml addon -- the "all" combo
+plus per-stack, cross-stack, and changed-addon-focused combos. On a PR it
+co-loads the **published** addons (a registry-baseline net), not the PR's own
+build; the PR's freshly-built change is guarded by the Phase-1 prebuild symbol
+gate. A Device Farm variant reuses the SDK mobile bundle machinery to reproduce
+the Android paths.

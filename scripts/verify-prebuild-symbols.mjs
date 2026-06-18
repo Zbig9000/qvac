@@ -77,7 +77,7 @@ function parseArgs (argv) {
     readelf: process.env.READELF || '',
     nm: process.env.NM || '',
     json: false,
-    quiet: false,
+    quiet: false
   }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
@@ -321,7 +321,6 @@ function main () {
     for (const s of exported) {
       if (!isEngineSymbol(s, opts.enginePrefixes)) continue
       if (opts.allowExports.has(s)) continue
-      if (/^(bare_|napi_)/.test(s)) continue
       leakedExports.push(s)
     }
 
