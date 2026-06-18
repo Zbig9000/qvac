@@ -276,6 +276,13 @@ function main () {
     exportsBySoname.set(basename(p), exported)
   }
 
+  // DT_NEEDED provider resolution (ELF) requires readelf; without it every
+  // genuinely-resolved engine import would read as unresolved -> false-positive
+  // hard fail. Fail loudly as a tooling error rather than silently over-flag.
+  if (!tools.readelf && [...fmtByPath.values()].includes('elf')) {
+    fail('readelf/llvm-readelf not found but ELF binaries are present -- DT_NEEDED provider resolution would be unreliable. Install LLVM/binutils or pass --readelf.')
+  }
+
   const results = []
   let hardFail = false
 

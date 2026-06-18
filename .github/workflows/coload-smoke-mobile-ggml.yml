@@ -16,10 +16,11 @@
 # secondary feature-test failures for a feature whose plugin is not in the
 # subset -- the co-load/bootstrap result is the signal that matters there.
 #
-# Gated behind the `verified` label (Device Farm is expensive), like the other
-# heavy mobile jobs. iOS statically links ggml (the dlopen class does not bite
-# there); an iOS variant is a symmetric follow-up once test-ios-sdk.yml grows
-# the same `plugins` input.
+# Gated behind the `verified` label (Device Farm is expensive) AND an in-repo
+# branch -- a `pull_request` from a fork cannot read the Device Farm secrets, so
+# fork PRs rely on the desktop co-load plus workflow_dispatch. iOS statically
+# links ggml (the dlopen class does not bite there); an iOS variant is a
+# symmetric follow-up once test-ios-sdk.yml grows the same `plugins` input.
 
 name: Co-load smoke (ggml, mobile)
 
@@ -57,8 +58,11 @@ permissions:
 
 jobs:
   gate:
-    # Device Farm is expensive: only run on explicit dispatch or a `verified` PR.
-    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'verified') }}
+    # Device Farm needs base-repo secrets, which a `pull_request` from a fork
+    # cannot access. Only run on explicit dispatch, or on a `verified` PR from an
+    # in-repo branch. Fork PRs are covered by the desktop co-load and can still
+    # be exercised on demand via workflow_dispatch from the base repo.
+    if: ${{ github.event_name == 'workflow_dispatch' || (contains(github.event.pull_request.labels.*.name, 'verified') && github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-latest
     outputs:
       combos: ${{ steps.gen.outputs.combos }}
@@ -67,7 +71,6 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # 6.0.2
         with:
           fetch-depth: 0
-          token: ${{ secrets.PAT_TOKEN }}
 
       - name: Setup Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # 6.3.0
