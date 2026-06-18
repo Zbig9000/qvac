@@ -51,3 +51,62 @@ jobs:
           tar -xf /tmp/good/*.tgz -C /tmp/good package/prebuilds/android-arm64
           node scripts/verify-prebuild-symbols.mjs --dir /tmp/good/package/prebuilds/android-arm64 --platform android
           echo "OK: gate correctly passed on 0.2.0."
+
+  fleet-dryrun:
+    # De-risks the fleet-wide activation flagged in review: the gate runs inside
+    # reusable-prebuilds.yml, which all 14 prebuild-*.yml callers reference by
+    # LOCAL PATH (uses: ./.github/workflows/reusable-prebuilds.yml) -- resolved
+    # at the caller's ref, no pinned SHA. So the UND hard-fail goes live for
+    # every ggml/onnx addon on its next publish the moment this merges (not
+    # gradually). This job dry-runs the gate over EVERY currently-published
+    # addon's android-arm64 prebuild (the platform the UND check bites hardest)
+    # and asserts 0 hard-fails -- proving no shipping addon is blocked on merge.
+    # Public npm only -> no secrets, runs on fork PRs too. Packs `latest`, so it
+    # also keeps tracking the live fleet on every gate-touching PR.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # 6.0.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # 6.3.0
+        with:
+          node-version: lts/*
+
+      - name: Dry-run the UND gate over every published addon (android-arm64)
+        shell: bash
+        run: |
+          set -uo pipefail
+          addons="tts-ggml transcription-parakeet transcription-whispercpp bci-whispercpp llm-llamacpp embed-llamacpp classification-ggml vla-ggml ocr-ggml translation-nmtcpp diffusion-cpp ocr-onnx"
+          checked=0
+          failed=0
+          skipped=0
+          for a in $addons; do
+            d="/tmp/fleet/$a"
+            rm -rf "$d"
+            mkdir -p "$d"
+            if ! npm pack "@qvac/$a" --pack-destination "$d"; then
+              echo "::warning::npm pack @qvac/$a failed (not on public npm?) -- skipping"
+              skipped=$((skipped + 1))
+              continue
+            fi
+            tar -xf "$d"/*.tgz -C "$d"
+            if [ ! -d "$d/package/prebuilds/android-arm64" ]; then
+              echo "-- @qvac/$a: no android-arm64 prebuild in tarball -- skipping"
+              skipped=$((skipped + 1))
+              continue
+            fi
+            echo "== @qvac/$a =="
+            checked=$((checked + 1))
+            if node scripts/verify-prebuild-symbols.mjs --dir "$d/package/prebuilds/android-arm64" --platform android; then
+              echo "OK: @qvac/$a passes the UND gate on android-arm64"
+            else
+              echo "::error::@qvac/$a HARD-FAILS the UND gate on android-arm64"
+              failed=$((failed + 1))
+            fi
+          done
+          echo "=== $checked addon(s) checked on android-arm64, $failed hard-fail(s), $skipped skipped ==="
+          if [ "$failed" -ne 0 ]; then
+            echo "::error::fleet dry-run found $failed addon(s) the gate would block on merge"
+            exit 1
+          fi
