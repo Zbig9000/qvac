@@ -11,6 +11,7 @@
 #include <vector>
 
 #include <tts-cpp/chatterbox/engine.h>
+#include <tts-cpp/lavasr/enhancer.h>
 
 #include "addon/TTSErrors.hpp"
 #include "inference-addon-cpp/Errors.hpp"
@@ -153,6 +154,12 @@ ChatterboxModel::ChatterboxModel(ChatterboxConfig config)
 ChatterboxModel::~ChatterboxModel() noexcept = default;
 
 void ChatterboxModel::validateConfig(const ChatterboxConfig& cfg) {
+  if (!cfg.enhancerGgufPath.empty() &&
+      !std::filesystem::exists(cfg.enhancerGgufPath)) {
+    throw createTTSError(
+        TTSErrorCode::ModelFileNotFound,
+        "lavasr enhancer GGUF not found: " + cfg.enhancerGgufPath);
+  }
   if (cfg.useGpu.has_value() && cfg.nGpuLayers.has_value()) {
     const bool wantsGpu = *cfg.useGpu;
     const int  layers   = *cfg.nGpuLayers;
@@ -283,10 +290,26 @@ void ChatterboxModel::loadLocked() {
   gpuUnsupported_ =
       engine_->gpu_unsupported() ||
       (wantsGpu && backendDevice_ == 0 && androidOffAllowlistGpuPresent());
+
+  // LavaSR enhancer: load when a GGUF path is set and enhancement isn't
+  // explicitly disabled. CPU-only neural post-process; null = disabled.
+  if (!cfg_.enhancerGgufPath.empty() && cfg_.enhance.value_or(true)) {
+    try {
+      enhancer_ = tts_cpp::lavasr::Enhancer::load(cfg_.enhancerGgufPath);
+    } catch (const std::exception& e) {
+      enhancer_.reset();
+      throw createTTSError(
+          TTSErrorCode::InitializationFailed,
+          std::string("ChatterboxModel::load: lavasr enhancer: ") + e.what());
+    }
+  } else {
+    enhancer_.reset();
+  }
 }
 
 void ChatterboxModel::unloadLocked() {
   engine_.reset();
+  enhancer_.reset();
 }
 
 void ChatterboxModel::cancel() const {
@@ -310,9 +333,11 @@ ChatterboxModel::SynthesizeResult ChatterboxModel::synthesize(
   // concurrently swaps a new one in.  Reload's new engine takes effect
   // on the NEXT synthesize call.
   std::shared_ptr<tts_cpp::chatterbox::Engine> engine;
+  std::shared_ptr<tts_cpp::lavasr::Enhancer> enhancer;
   {
     std::lock_guard lk(engineMu_);
     engine = engine_;
+    enhancer = enhancer_;
   }
   if (!engine) {
     throw createTTSError(TTSErrorCode::ModelNotLoaded,
@@ -382,6 +407,21 @@ ChatterboxModel::SynthesizeResult ChatterboxModel::synthesize(
   } catch (const std::exception& e) {
     throw createTTSError(TTSErrorCode::SynthesisFailed,
                          std::string("engine.synthesize: ") + e.what());
+  }
+
+  // LavaSR neural bandwidth extension (batch path only). The enhancer needs
+  // the full utterance, so streaming enhancement is a follow-up. Applied
+  // before the WSOLA speed stretch so rate control operates on the 48 kHz
+  // enhanced signal; result.sample_rate is updated so the stats below are
+  // correct and the JS callback reports 48000.
+  if (!wasStreaming && enhancer) {
+    try {
+      result.pcm = enhancer->enhance(result.pcm, result.sample_rate);
+      result.sample_rate = enhancer->output_sample_rate();
+    } catch (const std::exception& e) {
+      throw createTTSError(TTSErrorCode::SynthesisFailed,
+                           std::string("chatterbox.lavasr: ") + e.what());
+    }
   }
 
   // Batch: build the PCM we return (stretched in-place if a speed is active).

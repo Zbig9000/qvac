@@ -91,14 +91,23 @@ inline js_value_t* createInstance(js_env_t* env, js_callback_info_t* info) try {
   unique_ptr<model::IModel> model;
   int sampleRate = 24000;
 
+  // The output sample rate is baked into the JS output handlers at instance
+  // creation. The LavaSR enhancer (QVAC-16579) always emits 48 kHz, so when
+  // it is enabled we report that regardless of the engine's native rate.
+  constexpr int kLavasrEnhancedSampleRate = 48000;
+
   if (engineType == EngineType::Supertonic) {
     auto cfg = adapter.buildSupertonicConfig(configurationParams, env);
+    const bool enhanced =
+        !cfg.enhancerGgufPath.empty() && cfg.enhance.value_or(true);
     auto stm = make_unique<SupertonicModel>(std::move(cfg));
-    sampleRate = stm->sampleRate();
+    sampleRate = enhanced ? kLavasrEnhancedSampleRate : stm->sampleRate();
     model = std::move(stm);
   } else {
     auto cfg = adapter.buildChatterboxConfig(configurationParams, env);
-    sampleRate = 24000;
+    const bool enhanced =
+        !cfg.enhancerGgufPath.empty() && cfg.enhance.value_or(true);
+    sampleRate = enhanced ? kLavasrEnhancedSampleRate : 24000;
     model = make_unique<ChatterboxModel>(std::move(cfg));
   }
 

@@ -130,6 +130,9 @@ chatterbox::ChatterboxConfig JSAdapter::buildChatterboxConfig(
   cfg.openclCacheDir = readOptionalString(configurationParams, env, "openclCacheDir");
   cfg.mecabDictPath  = readOptionalString(configurationParams, env, "mecabDictPath");
   cfg.cangjieTsvPath = readOptionalString(configurationParams, env, "cangjieTsvPath");
+  // LavaSR neural enhancement (QVAC-16579).
+  cfg.enhancerGgufPath = readOptionalString(configurationParams, env, "lavasrEnhancerPath");
+  cfg.enhance          = readOptionalBool(configurationParams, env, "enhance");
   return cfg;
 }
 

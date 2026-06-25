@@ -47,22 +47,35 @@ async function resolveChatterboxConfig(
 ): Promise<ResolveResult<TtsRuntimeConfig>> {
   rejectLegacyOnnxFields(config);
 
-  const { s3genModelSrc, referenceAudioSrc, ...runtime } = config;
+  const { s3genModelSrc, referenceAudioSrc, enhancer, ...rest } = config;
   if (!s3genModelSrc) {
     throw new TtsArtifactsRequiredError();
   }
 
   const resolve = ctx.resolveModelPath;
-  const [s3genPath, referenceAudioPath] = await Promise.all([
+  const enhancerSrc =
+    enhancer && enhancer.type === "lavasr" ? enhancer.enhancerSrc : undefined;
+  const [s3genPath, referenceAudioPath, enhancerGgufPath] = await Promise.all([
     resolve(s3genModelSrc),
     referenceAudioSrc ? resolve(referenceAudioSrc) : Promise.resolve(undefined),
+    enhancerSrc ? resolve(enhancerSrc) : Promise.resolve(undefined),
   ]);
 
+  // Keep the flags-only enhancer block in the runtime config (the GGUF
+  // source is dropped — it becomes the enhancerGgufPath artifact).
+  const runtimeEnhancer = enhancer
+    ? (() => {
+        const { enhancerSrc: _drop, ...flags } = enhancer;
+        return flags;
+      })()
+    : undefined;
+
   return {
-    config: runtime,
+    config: { ...rest, ...(runtimeEnhancer ? { enhancer: runtimeEnhancer } : {}) },
     artifacts: {
       s3genPath,
       ...(referenceAudioPath ? { referenceAudioPath } : {}),
+      ...(enhancerGgufPath ? { enhancerGgufPath } : {}),
     },
   };
 }
@@ -105,10 +118,26 @@ function createChatterboxModel(
   const logger = createStreamLogger(modelId, ModelType.ttsGgml);
   registerAddonLogger(modelId, ModelType.ttsGgml, logger);
 
+  // LavaSR enhancer: bind the resolved GGUF when the runtime config opts in.
+  const enhancerGgufPath = artifacts["enhancerGgufPath"];
+  const enhancerOpts =
+    config.enhancer?.type === "lavasr" && enhancerGgufPath
+      ? {
+          enhancer: {
+            type: "lavasr" as const,
+            enhancerPath: enhancerGgufPath,
+            ...(config.enhancer.enhance !== undefined
+              ? { enhance: config.enhancer.enhance }
+              : {}),
+          },
+        }
+      : {};
+
   const model = new TTSGgml({
     engine: TTSGgml.ENGINE_CHATTERBOX,
     files: { t3Model, s3genModel },
     ...(referenceAudioPath ? { referenceAudio: referenceAudioPath } : {}),
+    ...enhancerOpts,
     ...(config.streamChunkTokens !== undefined
       ? { streamChunkTokens: config.streamChunkTokens }
       : {}),

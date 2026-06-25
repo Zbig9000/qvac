@@ -834,6 +834,10 @@ class TTSGgml {
       params.streamFirstChunkTokens = this._streamFirstChunkTokens | 0
     }
     if (this._cfmSteps != null) params.cfmSteps = this._cfmSteps | 0
+    if (this._enhancerGgufPath) {
+      params.lavasrEnhancerPath = this._enhancerGgufPath
+      if (this._enhance != null) params.enhance = !!this._enhance
+    }
     // Speaking-rate multiplier (1.0 = unchanged, < 1 slower, > 1 faster).
     // Chatterbox has no native rate control, so the addon applies a
     // pitch-preserving WSOLA time-stretch post-synthesis; see
