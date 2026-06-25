@@ -231,3 +231,47 @@ test('Supertonic: modelDir auto-detects supertonic.gguf', async (t) => {
     try { fs.rmSync(tmpRoot, { recursive: true, force: true }) } catch (_e) {}
   }
 })
+
+// === LavaSR enhancer (QVAC-16579) param forwarding ===
+
+test('Supertonic: enhancer block forwards lavasrEnhancerPath + enhance', (t) => {
+  const model = createMockedSupertonicModel({
+    files: {
+      supertonicModel: './models/supertonic.gguf',
+      lavasrEnhancer: './models/lavasr/lavasr-enhancer.gguf'
+    },
+    extra: { enhancer: { type: 'lavasr', enhance: true } }
+  })
+  const params = model._buildTtsParams()
+  t.is(params.lavasrEnhancerPath, './models/lavasr/lavasr-enhancer.gguf')
+  t.is(params.enhance, true)
+})
+
+test('Supertonic: enhancerPath via enhancer block (no files) forwards + defaults enhance=true', (t) => {
+  const model = createMockedSupertonicModel({
+    extra: { enhancer: { type: 'lavasr', enhancerPath: '/abs/enh.gguf' } }
+  })
+  const params = model._buildTtsParams()
+  t.is(params.lavasrEnhancerPath, '/abs/enh.gguf')
+  t.is(params.enhance, true, 'enhance defaults to true when a path is present')
+})
+
+test('Supertonic: enhance:false keeps the path but forwards enhance=false', (t) => {
+  const model = createMockedSupertonicModel({
+    files: {
+      supertonicModel: './models/supertonic.gguf',
+      lavasrEnhancer: '/abs/enh.gguf'
+    },
+    extra: { enhancer: { type: 'lavasr', enhance: false } }
+  })
+  const params = model._buildTtsParams()
+  t.is(params.lavasrEnhancerPath, '/abs/enh.gguf')
+  t.is(params.enhance, false)
+})
+
+test('Supertonic: no enhancer -> no enhancer params (backward compat)', (t) => {
+  const model = createMockedSupertonicModel()
+  const params = model._buildTtsParams()
+  t.absent(params.lavasrEnhancerPath, 'no lavasrEnhancerPath when enhancer absent')
+  t.absent(params.enhance, 'no enhance flag when enhancer absent')
+})

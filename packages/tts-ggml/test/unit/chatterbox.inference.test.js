@@ -243,3 +243,23 @@ test('Chatterbox: kvCacheType forwards to ttsParams; omitted when unset (QVAC-19
   const defaulted = new TTSGgml({ files, config: { language: 'en' } })
   t.absent(defaulted._buildTtsParams().kvCacheType, 'kvCacheType omitted when unset so the addon applies its q8_0 default')
 })
+
+test('Chatterbox: enhancer forwards lavasrEnhancerPath + enhance (QVAC-16579)', (t) => {
+  const files = {
+    t3Model: './models/chatterbox-t3-turbo.gguf',
+    s3genModel: './models/chatterbox-s3gen.gguf'
+  }
+
+  const enhanced = new TTSGgml({
+    files: { ...files, lavasrEnhancer: '/abs/enh.gguf' },
+    config: { language: 'en' },
+    enhancer: { type: 'lavasr', enhance: true }
+  })
+  const params = enhanced._buildTtsParams()
+  t.is(params.engineType, TTSGgml.ENGINE_CHATTERBOX, 'routes to chatterbox')
+  t.is(params.lavasrEnhancerPath, '/abs/enh.gguf', 'enhancer GGUF path forwarded')
+  t.is(params.enhance, true, 'enhance flag forwarded')
+
+  const plain = new TTSGgml({ files, config: { language: 'en' } })
+  t.absent(plain._buildTtsParams().lavasrEnhancerPath, 'no enhancer params when absent')
+})
