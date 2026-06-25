@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include <tts-cpp/lavasr/enhancer.h>
 #include <tts-cpp/supertonic/engine.h>
 
 #include "addon/TTSErrors.hpp"
@@ -104,6 +105,11 @@ void SupertonicModel::validateConfig(const SupertonicConfig& cfg) {
     throw createTTSError(TTSErrorCode::ModelFileNotFound,
                          "noise npy not found: " + cfg.noiseNpyPath);
   }
+  if (!cfg.enhancerGgufPath.empty() &&
+      !std::filesystem::exists(cfg.enhancerGgufPath)) {
+    throw createTTSError(TTSErrorCode::ModelFileNotFound,
+                         "lavasr enhancer GGUF not found: " + cfg.enhancerGgufPath);
+  }
   // Defense-in-depth: the JS layer (index.js::_validateConfig) runs the
   // same conflict check before this method is reached, so direct C++
   // callers are the only ones who can actually trip this branch.
@@ -163,10 +169,26 @@ void SupertonicModel::loadLocked() {
   backendDevice_ = backendDeviceCode(engine_->backend_device());
   backendId_     = backendIdFromName(backendName_);
   gpuUnsupported_ = engine_->gpu_unsupported();
+
+  // LavaSR enhancer: load when a GGUF path is set and enhancement isn't
+  // explicitly disabled. CPU-only neural post-process; null = disabled.
+  if (!cfg_.enhancerGgufPath.empty() && cfg_.enhance.value_or(true)) {
+    try {
+      enhancer_ = tts_cpp::lavasr::Enhancer::load(cfg_.enhancerGgufPath);
+    } catch (const std::exception& e) {
+      enhancer_.reset();
+      throw createTTSError(
+          TTSErrorCode::InitializationFailed,
+          std::string("SupertonicModel::load: lavasr enhancer: ") + e.what());
+    }
+  } else {
+    enhancer_.reset();
+  }
 }
 
 void SupertonicModel::unloadLocked() {
   engine_.reset();
+  enhancer_.reset();
 }
 
 void SupertonicModel::cancel() const {
@@ -181,9 +203,11 @@ void SupertonicModel::cancel() const {
 
 SupertonicModel::Output SupertonicModel::synthesize(const std::string& text) {
   std::shared_ptr<tts_cpp::supertonic::Engine> engine;
+  std::shared_ptr<tts_cpp::lavasr::Enhancer> enhancer;
   {
     std::lock_guard lk(engineMu_);
     engine = engine_;
+    enhancer = enhancer_;
   }
   if (!engine) {
     throw createTTSError(TTSErrorCode::InitializationFailed,
@@ -204,6 +228,20 @@ SupertonicModel::Output SupertonicModel::synthesize(const std::string& text) {
     throw createTTSError(TTSErrorCode::SynthesisFailed,
                          std::string("supertonic.synthesize: ") + e.what());
   }
+
+  // LavaSR neural bandwidth extension (opt-in). Runs on the full utterance
+  // (batch path) and upsamples to 48 kHz; timed as part of synthesis so the
+  // reported RTF reflects the enhanced output.
+  if (enhancer) {
+    try {
+      result.pcm = enhancer->enhance(result.pcm, result.sample_rate);
+      result.sample_rate = enhancer->output_sample_rate();
+    } catch (const std::exception& e) {
+      throw createTTSError(TTSErrorCode::SynthesisFailed,
+                           std::string("supertonic.lavasr: ") + e.what());
+    }
+  }
+
   const auto t1 = std::chrono::steady_clock::now();
 
   sampleRate_ = result.sample_rate;

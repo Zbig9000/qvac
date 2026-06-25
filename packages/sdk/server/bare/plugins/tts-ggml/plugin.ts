@@ -67,11 +67,25 @@ async function resolveChatterboxConfig(
   };
 }
 
-function resolveSupertonicConfig(
+async function resolveSupertonicConfig(
   config: TtsSupertonicLoadConfig,
+  ctx: ResolveContext,
 ): Promise<ResolveResult<TtsRuntimeConfig>> {
   rejectLegacyOnnxFields(config);
-  return Promise.resolve({ config });
+
+  // LavaSR enhancer (QVAC-16579): resolve the enhancer GGUF source to a
+  // local path and strip the source from the runtime config (the runtime
+  // config carries only the flags-only enhancer block).
+  const { enhancer } = config;
+  if (enhancer && enhancer.type === "lavasr" && enhancer.enhancerSrc) {
+    const enhancerGgufPath = await ctx.resolveModelPath(enhancer.enhancerSrc);
+    const { enhancerSrc: _drop, ...enhancerRuntime } = enhancer;
+    return {
+      config: { ...config, enhancer: enhancerRuntime },
+      artifacts: { enhancerGgufPath },
+    };
+  }
+  return { config };
 }
 
 function createChatterboxModel(
@@ -123,6 +137,7 @@ function createSupertonicModel(
   modelId: string,
   config: TtsSupertonicRuntimeConfig,
   params: CreateModelParams,
+  artifacts: Record<string, string | undefined>,
 ): PluginModelResult {
   const supertonicModel = params.modelPath;
   if (!supertonicModel) {
@@ -132,6 +147,22 @@ function createSupertonicModel(
   const logger = createStreamLogger(modelId, ModelType.ttsGgml);
   registerAddonLogger(modelId, ModelType.ttsGgml, logger);
 
+  // LavaSR enhancer: bind the resolved GGUF (from resolveSupertonicConfig)
+  // when the runtime config opts in.
+  const enhancerGgufPath = artifacts["enhancerGgufPath"];
+  const enhancerOpts =
+    config.enhancer?.type === "lavasr" && enhancerGgufPath
+      ? {
+          enhancer: {
+            type: "lavasr" as const,
+            enhancerPath: enhancerGgufPath,
+            ...(config.enhancer.enhance !== undefined
+              ? { enhance: config.enhancer.enhance }
+              : {}),
+          },
+        }
+      : {};
+
   const model = new TTSGgml({
     engine: TTSGgml.ENGINE_SUPERTONIC,
     files: { supertonicModel },
@@ -140,6 +171,7 @@ function createSupertonicModel(
     ...(config.ttsNumInferenceSteps !== undefined
       ? { numInferenceSteps: config.ttsNumInferenceSteps }
       : {}),
+    ...enhancerOpts,
     config: {
       language: config.language ?? "en",
       useGPU: config.useGPU ?? false,
@@ -166,7 +198,7 @@ export const ttsPlugin = definePlugin({
 
     // Same default as the former onnx-tts plugin: omitting `ttsEngine` → Chatterbox.
     if (ttsEngine === "supertonic") {
-      return resolveSupertonicConfig(cfg as TtsSupertonicLoadConfig);
+      return resolveSupertonicConfig(cfg as TtsSupertonicLoadConfig, ctx);
     }
     return resolveChatterboxConfig(cfg as TtsChatterboxLoadConfig, ctx);
   },
@@ -176,7 +208,7 @@ export const ttsPlugin = definePlugin({
     const artifacts = params.artifacts ?? {};
 
     if (config.ttsEngine === "supertonic") {
-      return createSupertonicModel(params.modelId, config, params);
+      return createSupertonicModel(params.modelId, config, params, artifacts);
     }
 
     return createChatterboxModel(

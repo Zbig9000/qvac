@@ -111,6 +111,13 @@ function normalizeGgmlFiles (files) {
       f.supertonic
     ),
     voicesDir: firstNonEmpty(f.voicesDir),
+    // LavaSR enhancer GGUF (QVAC-16579): single-file Vocos bandwidth
+    // extension, produced by tts-cpp/scripts/convert-lavasr-enhancer-to-gguf.py.
+    lavasrEnhancer: firstNonEmpty(
+      f.lavasrEnhancer,
+      f.lavasrEnhancerPath,
+      f.enhancer
+    ),
     // Directory of the compiled MeCab/IPAdic dictionary (Japanese) and
     // the Cangjie TSV (Chinese).  The host resolves/stages these (e.g.
     // from the QVAC model registry) and passes the local paths; the
@@ -263,6 +270,7 @@ class TTSGgml {
       numInferenceSteps,
       speed,
       noiseNpyPath,
+      enhancer,
       backendsDir,
       openclCacheDir,
       mecabDictDir,
@@ -367,6 +375,19 @@ class TTSGgml {
     this._steps = firstNonEmpty(steps, numInferenceSteps)
     this._speed = speed
     this._noiseNpyPath = noiseNpyPath
+
+    // LavaSR enhancer (QVAC-16579). The GGUF path may come from
+    // `files.lavasrEnhancer` or `enhancer.enhancerPath`; `enhance` defaults
+    // to true when an enhancer block/path is supplied (opt-in to begin with).
+    const enhancerBlock =
+      enhancer && enhancer.type === 'lavasr' ? enhancer : null
+    this._enhancerGgufPath = firstNonEmpty(
+      normalizedFiles.lavasrEnhancer,
+      enhancerBlock ? enhancerBlock.enhancerPath : undefined
+    )
+    this._enhance = enhancerBlock && enhancerBlock.enhance != null
+      ? !!enhancerBlock.enhance
+      : (this._enhancerGgufPath ? true : null)
 
     // Per-platform fallback for `backendsDir` when the host didn't
     // pass one. Mirrors the qvac/packages/llm-llamacpp +
@@ -850,6 +871,10 @@ class TTSGgml {
       params.useGPU = !!this._config.useGPU
     }
     if (this._noiseNpyPath) params.noiseNpyPath = this._noiseNpyPath
+    if (this._enhancerGgufPath) {
+      params.lavasrEnhancerPath = this._enhancerGgufPath
+      if (this._enhance != null) params.enhance = !!this._enhance
+    }
     if (this._backendsDir) params.backendsDir = this._backendsDir
     if (this._openclCacheDir) params.openclCacheDir = this._openclCacheDir
     return params

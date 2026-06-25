@@ -33,6 +33,13 @@ struct SupertonicConfig {
   std::string noiseNpyPath;
   std::string backendsDir;
   std::string openclCacheDir;
+
+  // LavaSR neural speech enhancement (QVAC-16579). When `enhancerGgufPath`
+  // is set and `enhance` is not explicitly false, the model loads the
+  // enhancer GGUF and bandwidth-extends the synthesized PCM to 48 kHz before
+  // returning it. Empty path disables enhancement (full backward compat).
+  std::string enhancerGgufPath;
+  std::optional<bool> enhance;
 };
 
 }

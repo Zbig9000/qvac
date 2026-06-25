@@ -26,6 +26,16 @@ declare interface TTSGgmlFiles {
   supertonicModel?: string
   supertonicModelPath?: string
   supertonic?: string
+  /**
+   * LavaSR enhancer GGUF (QVAC-16579): single-file Vocos bandwidth
+   * extension produced by
+   * tts-cpp/scripts/convert-lavasr-enhancer-to-gguf.py. When supplied,
+   * Supertonic output is neurally upsampled to 48 kHz. Aliases:
+   * `lavasrEnhancerPath`, `enhancer`.
+   */
+  lavasrEnhancer?: string
+  lavasrEnhancerPath?: string
+  enhancer?: string
   /** Optional directory containing baked Chatterbox voice profiles. */
   voicesDir?: string
   /**
@@ -53,6 +63,18 @@ declare interface TTSGgmlRuntimeConfig {
   useGPU?: boolean
   /** Resample the engine's native rate (24 kHz Chatterbox, 44.1 kHz Supertonic) to this rate before emitting (8000-192000 Hz). */
   outputSampleRate?: number
+}
+
+/**
+ * LavaSR enhancer config (QVAC-16579). A discriminated union on `type`
+ * leaves room for future enhancer kinds; v1 ships `lavasr`.
+ */
+declare interface LavaSREnhancerOptions {
+  type: 'lavasr'
+  /** Enable neural bandwidth extension. Defaults to true when present. */
+  enhance?: boolean
+  /** Enhancer GGUF path (alternative to `files.lavasrEnhancer`). */
+  enhancerPath?: string
 }
 
 declare interface TTSGgmlOptions {
@@ -102,6 +124,14 @@ declare interface TTSGgmlOptions {
   speed?: number
   /** Supertonic: optional path to a .npy initial-noise tensor (byte-exact reference reproduction). */
   noiseNpyPath?: string
+  /**
+   * LavaSR neural speech enhancement (QVAC-16579). Opt-in CPU/GGML
+   * bandwidth extension to 48 kHz applied after synthesis. The GGUF can be
+   * given here via `enhancerPath` or through `files.lavasrEnhancer`.
+   * Supported on the Supertonic engine in v1; the denoiser stage is a
+   * planned follow-up.
+   */
+  enhancer?: LavaSREnhancerOptions
   /** Directory the addon scans for dynamically-loaded ggml backends */
   backendsDir?: string
   /** Directory where ggml-opencl persists its compiled program-binary */
@@ -236,6 +266,7 @@ declare namespace TTSGgml {
     TTSGgml as default,
     TTSGgmlFiles,
     TTSGgmlOptions,
+    LavaSREnhancerOptions,
     TTSGgmlRuntimeConfig,
     RuntimeStats,
     SentenceStreamChunkMeta,

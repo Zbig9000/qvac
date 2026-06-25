@@ -152,6 +152,9 @@ supertonic::SupertonicConfig JSAdapter::buildSupertonicConfig(
   cfg.noiseNpyPath      = readOptionalString(configurationParams, env, "noiseNpyPath");
   cfg.backendsDir       = readOptionalString(configurationParams, env, "backendsDir");
   cfg.openclCacheDir    = readOptionalString(configurationParams, env, "openclCacheDir");
+  // LavaSR neural enhancement (QVAC-16579).
+  cfg.enhancerGgufPath  = readOptionalString(configurationParams, env, "lavasrEnhancerPath");
+  cfg.enhance           = readOptionalBool(configurationParams, env, "enhance");
   return cfg;
 }
 

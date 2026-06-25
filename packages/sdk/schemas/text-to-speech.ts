@@ -97,6 +97,40 @@ const ttsIntegerSchema = z.number().int();
 const ttsNonNegativeIntegerSchema = ttsIntegerSchema.nonnegative();
 const ttsPositiveIntegerSchema = ttsIntegerSchema.positive();
 
+// === LavaSR neural speech enhancement (QVAC-16579) ===
+//
+// Opt-in post-processing applied after synthesis. The LavaSR enhancer is a
+// lightweight Vocos bandwidth-extension network (ConvNeXt backbone + ISTFT
+// spec head) converted to a single GGUF and run on the CPU/GGML path; it
+// upsamples the engine's output to 48 kHz with a synthesised high band.
+//
+// A discriminated union on `type` keeps room for future enhancer kinds. v1
+// ships the `enhance` flag only; `denoise` (the UL-UNAS denoiser) is a planned
+// follow-up and is intentionally not part of the schema yet.
+export const lavaSREnhancerRuntimeSchema = z.object({
+  type: z.literal("lavasr"),
+  // Run neural bandwidth extension to 48 kHz. Defaults to true when an
+  // `enhancer` block is present (the block is opt-in to begin with).
+  enhance: z.boolean().optional(),
+});
+
+export const lavaSREnhancerConfigSchema = lavaSREnhancerRuntimeSchema.extend({
+  // GGUF produced by tts-cpp/scripts/convert-lavasr-enhancer-to-gguf.py
+  // (backbone + spec head in one file). Required at load time to enable
+  // enhancement; omit the whole `enhancer` block to disable.
+  enhancerSrc: modelSrcInputSchema.optional(),
+});
+
+// Runtime (per-job) enhancer toggle — flags only, no model sources.
+export const ttsEnhancerRuntimeConfigSchema = z.discriminatedUnion("type", [
+  lavaSREnhancerRuntimeSchema,
+]);
+
+// Load-time enhancer config — includes the model source(s).
+export const ttsEnhancerConfigSchema = z.discriminatedUnion("type", [
+  lavaSREnhancerConfigSchema,
+]);
+
 export const ttsChatterboxRuntimeConfigSchema = z.object({
   ttsEngine: z.literal("chatterbox"),
   language: ttsChatterboxLanguageSchema,
@@ -109,6 +143,8 @@ export const ttsChatterboxRuntimeConfigSchema = z.object({
   threads: ttsPositiveIntegerSchema.optional(),
   nGpuLayers: ttsIntegerSchema.optional(),
   seed: ttsIntegerSchema.optional(),
+  // Per-job LavaSR toggle (the GGUF is bound at load time).
+  enhancer: ttsEnhancerRuntimeConfigSchema.optional(),
 });
 
 export const ttsSupertonicRuntimeConfigSchema = z.object({
@@ -118,6 +154,8 @@ export const ttsSupertonicRuntimeConfigSchema = z.object({
   ttsSpeed: z.number().optional(),
   ttsNumInferenceSteps: z.number().optional(),
   useGPU: z.boolean().optional(),
+  // Per-job LavaSR toggle (the GGUF is bound at load time).
+  enhancer: ttsEnhancerRuntimeConfigSchema.optional(),
 });
 
 export const ttsRuntimeConfigSchema = z.discriminatedUnion("ttsEngine", [
@@ -130,9 +168,14 @@ export const ttsChatterboxLoadConfigSchema = ttsChatterboxRuntimeConfigSchema.ex
   // the plugin's resolveConfig and raise LegacyTtsModelDeprecatedError.
   s3genModelSrc: modelSrcInputSchema.optional(),
   referenceAudioSrc: modelSrcInputSchema.optional(),
+  // Load-time enhancer config carries the GGUF source (overrides the
+  // runtime flags-only enhancer inherited from the runtime schema).
+  enhancer: ttsEnhancerConfigSchema.optional(),
 });
 
-export const ttsSupertonicLoadConfigSchema = ttsSupertonicRuntimeConfigSchema;
+export const ttsSupertonicLoadConfigSchema = ttsSupertonicRuntimeConfigSchema.extend({
+  enhancer: ttsEnhancerConfigSchema.optional(),
+});
 
 export const ttsLoadConfigSchema = z.discriminatedUnion("ttsEngine", [
   ttsChatterboxLoadConfigSchema,
@@ -251,6 +294,11 @@ export type TtsSupertonicRuntimeConfig = z.infer<
 >;
 export type TtsRuntimeConfig = z.infer<typeof ttsRuntimeConfigSchema>;
 export type TtsConfig = z.infer<typeof ttsConfigSchema>;
+export type LavaSREnhancerConfig = z.infer<typeof lavaSREnhancerConfigSchema>;
+export type TtsEnhancerConfig = z.infer<typeof ttsEnhancerConfigSchema>;
+export type TtsEnhancerRuntimeConfig = z.infer<
+  typeof ttsEnhancerRuntimeConfigSchema
+>;
 export type TtsClientParamsInput = z.input<typeof ttsClientParamsSchema>;
 export type TtsClientParams = z.output<typeof ttsClientParamsSchema>;
 export type TtsRequest = z.infer<typeof ttsRequestSchema>;
