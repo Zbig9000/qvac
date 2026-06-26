@@ -61,7 +61,13 @@ declare interface TTSGgmlRuntimeConfig {
   language?: string
   /** Route inference through a GPU backend (Metal / Vulkan / OpenCL) if available.  Defaults to `false` for both engines (opt-in via `useGPU: true` on GPU-capable hosts).  Honored on Apple (Metal), desktop (Vulkan), and Android (Vulkan/OpenCL), where tts-cpp selects the backend per its per-vendor allowlist (Chatterbox falls back to CPU on Mali). */
   useGPU?: boolean
-  /** Resample the engine's native rate (24 kHz Chatterbox, 44.1 kHz Supertonic) to this rate before emitting (8000-192000 Hz). */
+  /**
+   * Desired output sample rate in Hz (8000-192000); omit to keep the engine's
+   * native rate. Resamples the native output (24 kHz Chatterbox, 44.1 kHz
+   * Supertonic) — or, when the LavaSR enhancer is active, the 48 kHz enhanced
+   * signal — to this rate before emitting. `TTSOutputChunk.sampleRate` reports
+   * the resulting rate.
+   */
   outputSampleRate?: number
 }
 

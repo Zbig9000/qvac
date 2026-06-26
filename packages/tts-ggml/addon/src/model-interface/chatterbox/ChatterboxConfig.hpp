@@ -63,7 +63,14 @@ struct ChatterboxConfig {
    * outside the three values is rejected by validateConfig.
    */
   std::string kvCacheType;
-  /** Post-processing output sample rate.  Currently unused (engine always emits 24 kHz). */
+  /**
+   * QVAC-21483 — desired output sample rate in Hz (8000–192000), or unset/0 to
+   * keep the engine's native 24 kHz. Forwarded to the engine
+   * (EngineOptions::output_sample_rate), which resamples (batch once, streaming
+   * per-chunk seam-free). When the LavaSR enhancer is active the engine emits
+   * native and the model resamples after enhancement instead; the final
+   * emitted rate is this value either way.
+   */
   std::optional<int> outputSampleRate;
   /**
    * Speaking-rate multiplier (a duration multiplier, mirroring Supertonic's
@@ -145,8 +152,9 @@ struct ChatterboxConfig {
   //
   // Constraints (enforced in validateConfig): incompatible with native chunk
   // streaming (streamChunkTokens > 0) since the enhancer needs the full
-  // utterance. While active the output is ALWAYS 48 kHz; `outputSampleRate`
-  // is ignored in that case (the JS layer warns).
+  // utterance. The enhancer always produces 48 kHz; if `outputSampleRate` is
+  // also set the model resamples the enhanced signal to that rate afterwards
+  // (QVAC-21483).
   std::string enhancerGgufPath;
   std::optional<bool> enhance;
 };

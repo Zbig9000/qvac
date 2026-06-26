@@ -27,16 +27,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `scripts/convert-lavasr-enhancer-to-gguf.py` (f32 or f16). Examples:
   `examples/supertonic-enhanced.js`, `examples/chatterbox-enhanced.js`.
   Requires the `tts-cpp` pin that ships `tts_cpp::lavasr::Enhancer`
-  (qvac-ext-lib-whisper.cpp PR #68). The denoiser stage and a configurable
-  post-enhancement output rate are planned follow-ups.
+  (qvac-ext-lib-whisper.cpp PR #68). The denoiser stage is a planned follow-up.
+
+- **Selectable output sample rate (QVAC-21483).** `outputSampleRate`
+  (8000–192000 Hz, runtime config) now resamples the synthesized audio to the
+  requested rate, and `TTSOutputChunk.sampleRate` reports it. Without the
+  enhancer the tts-cpp engine resamples (batch once / streaming per-chunk,
+  seam-free; `EngineOptions::output_sample_rate`, qvac-ext-lib-whisper.cpp
+  PR #69); with the enhancer active the 48 kHz enhanced signal is resampled to
+  the requested rate afterwards. Omit it to keep the engine's native rate
+  (default, zero behaviour change).
 
 ### Notes
 
 - Enhancement runs on the full utterance, so it is **rejected together with
   Chatterbox native chunk streaming** (`streamChunkTokens > 0`) — use
   sentence-level streaming (`runStream` / `runStreaming`) for enhanced output.
-- While the enhancer is active the output is always 48 kHz; any
-  `outputSampleRate` is ignored (a warning is logged).
+- When the enhancer is active it produces 48 kHz; if `outputSampleRate` is also
+  set, the enhanced audio is resampled to that rate afterwards (QVAC-21483).
 
 ## [0.3.6] - 2026-06-25
 

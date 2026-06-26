@@ -400,16 +400,6 @@ class TTSGgml {
       )
     }
 
-    // The enhancer always emits 48 kHz; a caller-supplied outputSampleRate is
-    // ignored while it is active (post-enhancement resample is a follow-up).
-    if (this._enhancerGgufPath && this._enhance !== false &&
-        this._outputSampleRate != null) {
-      this.logger.warn(
-        '[TTSGgml] outputSampleRate is ignored while the LavaSR enhancer is ' +
-        'active — enhanced output is always 48 kHz.'
-      )
-    }
-
     // Per-platform fallback for `backendsDir` when the host didn't
     // pass one. Mirrors the qvac/packages/llm-llamacpp +
     // transcription-parakeet resolution shape

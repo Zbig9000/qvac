@@ -275,3 +275,45 @@ test('Supertonic: no enhancer -> no enhancer params (backward compat)', (t) => {
   t.absent(params.lavasrEnhancerPath, 'no lavasrEnhancerPath when enhancer absent')
   t.absent(params.enhance, 'no enhance flag when enhancer absent')
 })
+
+// === Output sample rate (QVAC-21483) ===
+
+test('Supertonic: outputSampleRate forwards to ttsParams; omitted when unset', (t) => {
+  const withRate = new TTSGgml({
+    engine: TTSGgml.ENGINE_SUPERTONIC,
+    files: { supertonicModel: './models/supertonic.gguf' },
+    config: { language: 'en', outputSampleRate: 16000 }
+  })
+  t.is(withRate._buildTtsParams().outputSampleRate, 16000, 'outputSampleRate forwarded to native params')
+
+  const noRate = new TTSGgml({
+    engine: TTSGgml.ENGINE_SUPERTONIC,
+    files: { supertonicModel: './models/supertonic.gguf' },
+    config: { language: 'en' }
+  })
+  t.absent(noRate._buildTtsParams().outputSampleRate, 'no outputSampleRate when unset (engine keeps native)')
+})
+
+test('Supertonic: out-of-range outputSampleRate rejected at construction', (t) => {
+  for (const bad of [999, 200000]) {
+    t.exception(() => new TTSGgml({
+      engine: TTSGgml.ENGINE_SUPERTONIC,
+      files: { supertonicModel: './models/supertonic.gguf' },
+      config: { language: 'en', outputSampleRate: bad }
+    }), /between 8000 and 192000/, `outputSampleRate=${bad} rejected`)
+  }
+})
+
+test('Supertonic: outputSampleRate coexists with the enhancer (no longer ignored)', (t) => {
+  // Both set is now valid (enhancer -> 48 kHz -> resample to outputSampleRate);
+  // it must NOT throw at construction.
+  const model = new TTSGgml({
+    engine: TTSGgml.ENGINE_SUPERTONIC,
+    files: { supertonicModel: './models/supertonic.gguf', lavasrEnhancer: '/abs/enh.gguf' },
+    enhancer: { type: 'lavasr', enhance: true },
+    config: { language: 'en', outputSampleRate: 22050 }
+  })
+  const params = model._buildTtsParams()
+  t.is(params.outputSampleRate, 22050, 'outputSampleRate forwarded alongside the enhancer')
+  t.is(params.lavasrEnhancerPath, '/abs/enh.gguf', 'enhancer still forwarded')
+})

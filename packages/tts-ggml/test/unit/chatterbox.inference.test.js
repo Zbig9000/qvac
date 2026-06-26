@@ -263,3 +263,16 @@ test('Chatterbox: enhancer forwards lavasrEnhancerPath + enhance (QVAC-16579)', 
   const plain = new TTSGgml({ files, config: { language: 'en' } })
   t.absent(plain._buildTtsParams().lavasrEnhancerPath, 'no enhancer params when absent')
 })
+
+test('Chatterbox: outputSampleRate forwards to ttsParams; omitted when unset (QVAC-21483)', (t) => {
+  const files = {
+    t3Model: './models/chatterbox-t3-turbo.gguf',
+    s3genModel: './models/chatterbox-s3gen.gguf'
+  }
+
+  const withRate = new TTSGgml({ files, config: { language: 'en', outputSampleRate: 22050 } })
+  t.is(withRate._buildTtsParams().outputSampleRate, 22050, 'outputSampleRate forwarded to native params')
+
+  const noRate = new TTSGgml({ files, config: { language: 'en' } })
+  t.absent(noRate._buildTtsParams().outputSampleRate, 'no outputSampleRate when unset')
+})

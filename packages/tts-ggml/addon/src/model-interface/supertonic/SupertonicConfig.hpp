@@ -14,6 +14,14 @@ struct SupertonicConfig {
   std::optional<int> seed;
   std::optional<int> threads;
   std::optional<int> nGpuLayers;
+  /**
+   * QVAC-21483 — desired output sample rate in Hz (8000–192000), or unset/0 to
+   * keep the engine's native rate. Forwarded to the engine
+   * (EngineOptions::output_sample_rate), which resamples the PCM. When the
+   * LavaSR enhancer is active the engine emits its native rate and the model
+   * resamples after enhancement instead (see SupertonicModel::synthesize); the
+   * final emitted rate is this value either way.
+   */
   std::optional<int> outputSampleRate;
   /**
    * Tri-state GPU intent (mirrors ChatterboxConfig::useGpu):
@@ -39,9 +47,8 @@ struct SupertonicConfig {
   // enhancer GGUF and bandwidth-extends the synthesized PCM to 48 kHz before
   // returning it. Empty path disables enhancement (full backward compat).
   //
-  // NOTE: while the enhancer is active the output is ALWAYS 48 kHz; any
-  // `outputSampleRate` above is ignored in that case (the JS layer warns).
-  // A configurable post-enhancement resample is a planned follow-up.
+  // The enhancer always produces 48 kHz; if `outputSampleRate` is also set the
+  // model resamples the enhanced signal to that rate afterwards (QVAC-21483).
   std::string enhancerGgufPath;
   std::optional<bool> enhance;
 };

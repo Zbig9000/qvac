@@ -16,6 +16,7 @@
 #include "addon/TTSErrors.hpp"
 #include "inference-addon-cpp/Errors.hpp"
 #include "model-interface/BackendUtils.hpp"
+#include "model-interface/OutputResampler.hpp"
 #include "model-interface/chatterbox/TimeStretch.hpp"
 
 namespace qvac::ttsggml::chatterbox {
@@ -116,6 +117,18 @@ tts_cpp::chatterbox::EngineOptions toEngineOptions(const ChatterboxConfig& cfg) 
   // so tts-cpp keeps its character-level fallback.
   if (!cfg.mecabDictPath.empty())  opts.mecab_dict_path  = cfg.mecabDictPath;
   if (!cfg.cangjieTsvPath.empty()) opts.cangjie_tsv_path = cfg.cangjieTsvPath;
+
+  // QVAC-21483 — output-frequency selection. Forward to the engine
+  // (output_sample_rate; 0 = native), which resamples (batch once / streaming
+  // per-chunk, seam-free). When the LavaSR enhancer is active the engine emits
+  // its native rate (enhancer + native streaming is rejected) and the addon
+  // resamples after enhancement in synthesize(), so pass 0 here.
+  {
+    const bool enhancerActive =
+        !cfg.enhancerGgufPath.empty() && cfg.enhance.value_or(true);
+    opts.output_sample_rate =
+        enhancerActive ? 0 : cfg.outputSampleRate.value_or(0);
+  }
   return opts;
 }
 
@@ -444,6 +457,14 @@ ChatterboxModel::SynthesizeResult ChatterboxModel::synthesize(
     } catch (const std::exception& e) {
       throw createTTSError(TTSErrorCode::SynthesisFailed,
                            std::string("chatterbox.lavasr: ") + e.what());
+    }
+    // QVAC-21483 — honor outputSampleRate after enhancement (the enhancer emits
+    // 48 kHz; the engine's output_sample_rate was bypassed while enhancing).
+    if (cfg_.outputSampleRate.has_value() && *cfg_.outputSampleRate > 0 &&
+        *cfg_.outputSampleRate != result.sample_rate) {
+      result.pcm = OutputResampler::resample(result.pcm, result.sample_rate,
+                                             *cfg_.outputSampleRate);
+      result.sample_rate = *cfg_.outputSampleRate;
     }
   }
 
