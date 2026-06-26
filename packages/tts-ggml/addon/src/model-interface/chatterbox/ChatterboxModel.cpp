@@ -160,6 +160,21 @@ void ChatterboxModel::validateConfig(const ChatterboxConfig& cfg) {
         TTSErrorCode::ModelFileNotFound,
         "lavasr enhancer GGUF not found: " + cfg.enhancerGgufPath);
   }
+  // The LavaSR enhancer consumes the full utterance (whole-signal STFT/ISTFT),
+  // so it is incompatible with native chunk streaming, which emits sub-
+  // utterance chunks. Reject the combination up front rather than silently
+  // emitting un-enhanced 24 kHz audio under a 48 kHz label (streaming +
+  // enhancer is a deferred follow-up). Sentence-level streaming
+  // (runStream / runStreaming) keeps working — each sentence is a full
+  // synthesize() that the enhancer can process.
+  if (!cfg.enhancerGgufPath.empty() && cfg.streamChunkTokens.value_or(0) > 0) {
+    throw StatusError(
+        general_error::InvalidArgument,
+        "ChatterboxModel: the LavaSR enhancer is not supported with native "
+        "chunk streaming (streamChunkTokens > 0); it requires the full "
+        "utterance. Drop streamChunkTokens for enhanced synthesis, or use "
+        "sentence-level streaming (runStream / runStreaming).");
+  }
   if (cfg.useGpu.has_value() && cfg.nGpuLayers.has_value()) {
     const bool wantsGpu = *cfg.useGpu;
     const int  layers   = *cfg.nGpuLayers;

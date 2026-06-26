@@ -84,10 +84,7 @@ export interface DuplexPluginHandlerDefinition<
  * - `referenceAudioPath` - TTS (Chatterbox) path to reference WAV file for voice cloning
  * - `tokenizerPath`, `textEncoderPath`, `latentDenoiserPath`, `voiceDecoderPath` - TTS (Supertonic) model files
  * - `voicePath` - TTS (Supertonic) path to voice .bin file (e.g. voices/M1.bin)
- *
- * Note: Supertonic speech-rate / step-count are NOT artifacts — they are
- * `modelConfig` options named `ttsSpeed` and `ttsNumInferenceSteps`
- * (see `ttsSupertonicRuntimeConfigSchema` in `schemas/text-to-speech.ts`).
+ * - `speed`, `numInferenceSteps` - TTS (Supertonic) options
  * - `detectorModelPath` - OCR detector model
  * - `embedderPath` - BCI whisper.cpp embedder weights
  *

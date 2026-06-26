@@ -47,58 +47,31 @@ async function resolveChatterboxConfig(
 ): Promise<ResolveResult<TtsRuntimeConfig>> {
   rejectLegacyOnnxFields(config);
 
-  const { s3genModelSrc, referenceAudioSrc, enhancer, ...rest } = config;
+  const { s3genModelSrc, referenceAudioSrc, ...runtime } = config;
   if (!s3genModelSrc) {
     throw new TtsArtifactsRequiredError();
   }
 
   const resolve = ctx.resolveModelPath;
-  const enhancerSrc =
-    enhancer && enhancer.type === "lavasr" ? enhancer.enhancerSrc : undefined;
-  const [s3genPath, referenceAudioPath, enhancerGgufPath] = await Promise.all([
+  const [s3genPath, referenceAudioPath] = await Promise.all([
     resolve(s3genModelSrc),
     referenceAudioSrc ? resolve(referenceAudioSrc) : Promise.resolve(undefined),
-    enhancerSrc ? resolve(enhancerSrc) : Promise.resolve(undefined),
   ]);
 
-  // Keep the flags-only enhancer block in the runtime config (the GGUF
-  // source is dropped — it becomes the enhancerGgufPath artifact).
-  const runtimeEnhancer = enhancer
-    ? (() => {
-        const { enhancerSrc: _drop, ...flags } = enhancer;
-        return flags;
-      })()
-    : undefined;
-
   return {
-    config: { ...rest, ...(runtimeEnhancer ? { enhancer: runtimeEnhancer } : {}) },
+    config: runtime,
     artifacts: {
       s3genPath,
       ...(referenceAudioPath ? { referenceAudioPath } : {}),
-      ...(enhancerGgufPath ? { enhancerGgufPath } : {}),
     },
   };
 }
 
-async function resolveSupertonicConfig(
+function resolveSupertonicConfig(
   config: TtsSupertonicLoadConfig,
-  ctx: ResolveContext,
 ): Promise<ResolveResult<TtsRuntimeConfig>> {
   rejectLegacyOnnxFields(config);
-
-  // LavaSR enhancer (QVAC-16579): resolve the enhancer GGUF source to a
-  // local path and strip the source from the runtime config (the runtime
-  // config carries only the flags-only enhancer block).
-  const { enhancer } = config;
-  if (enhancer && enhancer.type === "lavasr" && enhancer.enhancerSrc) {
-    const enhancerGgufPath = await ctx.resolveModelPath(enhancer.enhancerSrc);
-    const { enhancerSrc: _drop, ...enhancerRuntime } = enhancer;
-    return {
-      config: { ...config, enhancer: enhancerRuntime },
-      artifacts: { enhancerGgufPath },
-    };
-  }
-  return { config };
+  return Promise.resolve({ config });
 }
 
 function createChatterboxModel(
@@ -118,26 +91,10 @@ function createChatterboxModel(
   const logger = createStreamLogger(modelId, ModelType.ttsGgml);
   registerAddonLogger(modelId, ModelType.ttsGgml, logger);
 
-  // LavaSR enhancer: bind the resolved GGUF when the runtime config opts in.
-  const enhancerGgufPath = artifacts["enhancerGgufPath"];
-  const enhancerOpts =
-    config.enhancer?.type === "lavasr" && enhancerGgufPath
-      ? {
-          enhancer: {
-            type: "lavasr" as const,
-            enhancerPath: enhancerGgufPath,
-            ...(config.enhancer.enhance !== undefined
-              ? { enhance: config.enhancer.enhance }
-              : {}),
-          },
-        }
-      : {};
-
   const model = new TTSGgml({
     engine: TTSGgml.ENGINE_CHATTERBOX,
     files: { t3Model, s3genModel },
     ...(referenceAudioPath ? { referenceAudio: referenceAudioPath } : {}),
-    ...enhancerOpts,
     ...(config.streamChunkTokens !== undefined
       ? { streamChunkTokens: config.streamChunkTokens }
       : {}),
@@ -166,7 +123,6 @@ function createSupertonicModel(
   modelId: string,
   config: TtsSupertonicRuntimeConfig,
   params: CreateModelParams,
-  artifacts: Record<string, string | undefined>,
 ): PluginModelResult {
   const supertonicModel = params.modelPath;
   if (!supertonicModel) {
@@ -176,22 +132,6 @@ function createSupertonicModel(
   const logger = createStreamLogger(modelId, ModelType.ttsGgml);
   registerAddonLogger(modelId, ModelType.ttsGgml, logger);
 
-  // LavaSR enhancer: bind the resolved GGUF (from resolveSupertonicConfig)
-  // when the runtime config opts in.
-  const enhancerGgufPath = artifacts["enhancerGgufPath"];
-  const enhancerOpts =
-    config.enhancer?.type === "lavasr" && enhancerGgufPath
-      ? {
-          enhancer: {
-            type: "lavasr" as const,
-            enhancerPath: enhancerGgufPath,
-            ...(config.enhancer.enhance !== undefined
-              ? { enhance: config.enhancer.enhance }
-              : {}),
-          },
-        }
-      : {};
-
   const model = new TTSGgml({
     engine: TTSGgml.ENGINE_SUPERTONIC,
     files: { supertonicModel },
@@ -200,7 +140,6 @@ function createSupertonicModel(
     ...(config.ttsNumInferenceSteps !== undefined
       ? { numInferenceSteps: config.ttsNumInferenceSteps }
       : {}),
-    ...enhancerOpts,
     config: {
       language: config.language ?? "en",
       useGPU: config.useGPU ?? false,
@@ -227,7 +166,7 @@ export const ttsPlugin = definePlugin({
 
     // Same default as the former onnx-tts plugin: omitting `ttsEngine` → Chatterbox.
     if (ttsEngine === "supertonic") {
-      return resolveSupertonicConfig(cfg as TtsSupertonicLoadConfig, ctx);
+      return resolveSupertonicConfig(cfg as TtsSupertonicLoadConfig);
     }
     return resolveChatterboxConfig(cfg as TtsChatterboxLoadConfig, ctx);
   },
@@ -237,7 +176,7 @@ export const ttsPlugin = definePlugin({
     const artifacts = params.artifacts ?? {};
 
     if (config.ttsEngine === "supertonic") {
-      return createSupertonicModel(params.modelId, config, params, artifacts);
+      return createSupertonicModel(params.modelId, config, params);
     }
 
     return createChatterboxModel(

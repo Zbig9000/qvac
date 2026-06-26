@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **LavaSR neural speech enhancement (QVAC-16579).** Opt-in CPU/GGML
+  post-processing that bandwidth-extends synthesized audio to **48 kHz** using
+  the LavaSR Vocos enhancer (ConvNeXt backbone + ISTFT spec head), converted to
+  a single GGUF. Enable per model via an `enhancer` block plus the enhancer GGUF:
+
+  ```js
+  new TTSGgml({
+    engine: TTSGgml.ENGINE_SUPERTONIC,
+    files: { supertonicModel, lavasrEnhancer: 'lavasr-enhancer.gguf' },
+    enhancer: { type: 'lavasr', enhance: true }
+  })
+  ```
+
+  When active, `TTSOutputChunk.sampleRate` is `48000` for both engines.
+  Convert the GGUF from the public LavaSRcpp ONNX release with
+  `scripts/convert-lavasr-enhancer-to-gguf.py` (f32 or f16). Examples:
+  `examples/supertonic-enhanced.js`, `examples/chatterbox-enhanced.js`.
+  Requires the `tts-cpp` pin that ships `tts_cpp::lavasr::Enhancer`
+  (qvac-ext-lib-whisper.cpp PR #68). The denoiser stage and a configurable
+  post-enhancement output rate are planned follow-ups.
+
+### Notes
+
+- Enhancement runs on the full utterance, so it is **rejected together with
+  Chatterbox native chunk streaming** (`streamChunkTokens > 0`) — use
+  sentence-level streaming (`runStream` / `runStreaming`) for enhanced output.
+- While the enhancer is active the output is always 48 kHz; any
+  `outputSampleRate` is ignored (a warning is logged).
+
 ## [0.3.5] - 2026-06-24
 
 ### Changed

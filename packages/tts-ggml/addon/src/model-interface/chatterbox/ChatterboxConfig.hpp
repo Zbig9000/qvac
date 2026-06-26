@@ -139,9 +139,13 @@ struct ChatterboxConfig {
 
   // LavaSR neural speech enhancement (QVAC-16579). When `enhancerGgufPath`
   // is set and `enhance` is not explicitly false, the synthesized 24 kHz PCM
-  // is bandwidth-extended to 48 kHz before being returned. Applied on the
-  // batch (non-streaming) path; streaming enhancement is a follow-up. Empty
-  // path disables it (full backward compat).
+  // is bandwidth-extended to 48 kHz before being returned. Empty path
+  // disables it (full backward compat).
+  //
+  // Constraints (enforced in validateConfig): incompatible with native chunk
+  // streaming (streamChunkTokens > 0) since the enhancer needs the full
+  // utterance. While active the output is ALWAYS 48 kHz; `outputSampleRate`
+  // is ignored in that case (the JS layer warns).
   std::string enhancerGgufPath;
   std::optional<bool> enhance;
 };

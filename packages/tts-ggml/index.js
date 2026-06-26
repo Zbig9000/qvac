@@ -389,6 +389,27 @@ class TTSGgml {
       ? !!enhancerBlock.enhance
       : (this._enhancerGgufPath ? true : null)
 
+    // Fail loudly on a misconfigured enhancer: enhancement explicitly enabled
+    // but no GGUF path resolved (neither files.lavasrEnhancer nor
+    // enhancer.enhancerPath) would otherwise be a silent no-op.
+    if (enhancerBlock && enhancerBlock.enhance === true && !this._enhancerGgufPath) {
+      throw new Error(
+        'tts-ggml: enhancer.enhance is true but no enhancer GGUF was provided. ' +
+        'Set files.lavasrEnhancer or enhancer.enhancerPath to the LavaSR ' +
+        'enhancer GGUF (see scripts/convert-lavasr-enhancer-to-gguf.py).'
+      )
+    }
+
+    // The enhancer always emits 48 kHz; a caller-supplied outputSampleRate is
+    // ignored while it is active (post-enhancement resample is a follow-up).
+    if (this._enhancerGgufPath && this._enhance !== false &&
+        this._outputSampleRate != null) {
+      this.logger.warn(
+        '[TTSGgml] outputSampleRate is ignored while the LavaSR enhancer is ' +
+        'active — enhanced output is always 48 kHz.'
+      )
+    }
+
     // Per-platform fallback for `backendsDir` when the host didn't
     // pass one. Mirrors the qvac/packages/llm-llamacpp +
     // transcription-parakeet resolution shape
@@ -434,6 +455,23 @@ class TTSGgml {
           'agnostic runStream() / runStreaming() / run({ streamOutput: true }) APIs.'
         )
       }
+    }
+
+    // The LavaSR enhancer needs the full utterance, so it is incompatible with
+    // Chatterbox native chunk streaming. Reject early (the native addon also
+    // rejects this) so a misconfig surfaces at construction with a clear error
+    // instead of emitting un-enhanced 24 kHz audio mislabeled as 48 kHz.
+    if (
+      this._engineType === ENGINE_CHATTERBOX &&
+      this._enhancerGgufPath &&
+      (this._streamChunkTokens || 0) > 0
+    ) {
+      throw new Error(
+        'tts-ggml: the LavaSR enhancer is not supported together with ' +
+        'streamChunkTokens (Chatterbox native chunk streaming) — it requires ' +
+        'the full utterance. Drop streamChunkTokens for enhanced synthesis, or ' +
+        'use sentence-level streaming (runStream() / runStreaming()).'
+      )
     }
     // Default GPU off only when neither knob is set, for every engine. A
     // caller passing nGpuLayers alone keeps it (no silent conflict with the

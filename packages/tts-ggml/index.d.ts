@@ -220,7 +220,11 @@ declare namespace TTSGgml {
 
   export interface TTSOutputChunk {
     outputArray: ArrayBuffer
-    /** Native engine sample rate (24000 for Chatterbox, 44100 for Supertonic). */
+    /**
+     * Output sample rate. The native engine rate (24000 for Chatterbox,
+     * 44100 for Supertonic) — or 48000 when the LavaSR enhancer is active,
+     * which neurally upsamples the output regardless of engine.
+     */
     sampleRate?: number
   }
 

@@ -1,43 +1,35 @@
 'use strict'
 
-// LavaSR enhancer integration test (QVAC-16579): a Supertonic model loaded
-// with an `enhancer` block reports 48 kHz output (vs the native 44.1 kHz),
-// exercising the addon -> tts_cpp::lavasr::Enhancer path end-to-end on the
-// real ggml backend.
+// LavaSR enhancer integration + regression tests (QVAC-16579).
 //
-// Gated on the converted enhancer GGUF being present. It is a converted
-// artifact (not yet in the model registry), so when missing the test skips
-// cleanly. Produce it with:
-//   python qvac-ext-lib-whisper.cpp/tts-cpp/scripts/convert-lavasr-enhancer-to-gguf.py \
-//     --backbone enhancer_backbone.onnx --spec-head enhancer_spec_head.onnx \
-//     --out models/lavasr/lavasr-enhancer.gguf --ftype f16
-// or set LAVASR_ENHANCER_GGUF to its path.
+// The construct-time tests need no models and always run in CI — they pin the
+// two failure modes that review flagged: enhancer + native chunk streaming
+// (would emit un-enhanced 24 kHz mislabeled as 48 kHz) and enhance:true with no
+// GGUF (a silent no-op). The model-backed tests assert the enhanced output is
+// reported as 48 kHz for both engines; they are gated on the converted enhancer
+// GGUF being staged (a tracked registry follow-up), and skip cleanly otherwise.
+//
+// Stage the enhancer GGUF via scripts/convert-lavasr-enhancer-to-gguf.py (from
+// the public LavaSRcpp ONNX release) into models/lavasr/lavasr-enhancer.gguf,
+// or set LAVASR_ENHANCER_GGUF.
 
 const os = require('bare-os')
-const fs = require('bare-fs')
 const path = require('bare-path')
-const proc = require('bare-process')
 const test = require('brittle')
+const TTSGgml = require('@qvac/tts-ggml')
 
-const { ensureSupertonicModel } = require('../utils/downloadModel')
+const {
+  ensureLavaSREnhancerGguf,
+  ensureSupertonicModel,
+  ensureChatterboxModels
+} = require('../utils/downloadModel')
+const { resolveRefWavPath } = require('../utils/runChatterboxTTS')
 
 const platform = os.platform()
 const isMobile = platform === 'ios' || platform === 'android'
 
 function getBaseDir () {
   return isMobile && global.testDir ? global.testDir : '.'
-}
-
-function findEnhancerGguf (baseDir) {
-  const candidates = [
-    proc.env && proc.env.LAVASR_ENHANCER_GGUF,
-    path.join(baseDir, 'models', 'lavasr', 'lavasr-enhancer.gguf'),
-    path.join(baseDir, 'models', 'lavasr-enhancer.gguf')
-  ].filter(Boolean)
-  for (const c of candidates) {
-    try { if (fs.existsSync(c)) return c } catch (_e) {}
-  }
-  return null
 }
 
 async function runAndCollect (model, text) {
@@ -53,21 +45,51 @@ async function runAndCollect (model, text) {
   return { samples, sampleRate, stats: response.stats || null }
 }
 
+// ---- Construct-time regression tests (no models, always run) ----
+
+test('Chatterbox: enhancer + streamChunkTokens is rejected at construction', (t) => {
+  t.exception(
+    () => new TTSGgml({
+      engine: TTSGgml.ENGINE_CHATTERBOX,
+      files: {
+        t3Model: './models/chatterbox-t3-turbo.gguf',
+        s3genModel: './models/chatterbox-s3gen.gguf',
+        lavasrEnhancer: './models/lavasr/lavasr-enhancer.gguf'
+      },
+      enhancer: { type: 'lavasr', enhance: true },
+      streamChunkTokens: 25,
+      config: { language: 'en' }
+    }),
+    /streamChunkTokens/,
+    'enhancer + native chunk streaming is rejected (it needs the full utterance)'
+  )
+})
+
+test('enhancer.enhance:true with no GGUF path is rejected at construction', (t) => {
+  t.exception(
+    () => new TTSGgml({
+      engine: TTSGgml.ENGINE_SUPERTONIC,
+      files: { supertonicModel: './models/supertonic.gguf' },
+      enhancer: { type: 'lavasr', enhance: true },
+      config: { language: 'en' }
+    }),
+    /no enhancer GGUF/,
+    'enhance:true without a resolvable GGUF path is rejected (no silent no-op)'
+  )
+})
+
+// ---- Model-backed tests (gated on staged models) ----
+
 test('Supertonic + LavaSR enhancer reports 48 kHz enhanced output', { timeout: 600000 }, async (t) => {
   const baseDir = getBaseDir()
-  const enhancerPath = findEnhancerGguf(baseDir)
-  if (!enhancerPath) {
-    t.comment('LavaSR enhancer GGUF not found (set LAVASR_ENHANCER_GGUF or stage models/lavasr/lavasr-enhancer.gguf). Skipping.')
-    t.pass('skipped — no enhancer GGUF')
-    return
-  }
-  const download = await ensureSupertonicModel({ targetDir: path.join(baseDir, 'models') })
-  if (!download.success) { t.fail('Supertonic GGUF not available — registry fetch failed.'); return }
+  const enh = await ensureLavaSREnhancerGguf({ targetDir: path.join(baseDir, 'models', 'lavasr') })
+  if (!enh.success) { t.comment('LavaSR enhancer GGUF not staged; skipping.'); t.pass('skipped — no enhancer GGUF'); return }
+  const dl = await ensureSupertonicModel({ targetDir: path.join(baseDir, 'models') })
+  if (!dl.success) { t.fail('Supertonic GGUF not available — registry fetch failed.'); return }
 
-  const TTSGgml = require('@qvac/tts-ggml')
   const model = new TTSGgml({
     engine: TTSGgml.ENGINE_SUPERTONIC,
-    files: { supertonicModel: download.path, lavasrEnhancer: enhancerPath },
+    files: { supertonicModel: dl.path, lavasrEnhancer: enh.path },
     voice: 'F1',
     enhancer: { type: 'lavasr', enhance: true },
     config: { language: 'en', useGPU: false },
@@ -83,15 +105,14 @@ test('Supertonic + LavaSR enhancer reports 48 kHz enhanced output', { timeout: 6
   }
 })
 
-test('Supertonic without enhancer still reports native 44.1 kHz (backward compat)', { timeout: 600000 }, async (t) => {
+test('Supertonic without enhancer reports native 44.1 kHz (backward compat)', { timeout: 600000 }, async (t) => {
   const baseDir = getBaseDir()
-  const download = await ensureSupertonicModel({ targetDir: path.join(baseDir, 'models') })
-  if (!download.success) { t.fail('Supertonic GGUF not available — registry fetch failed.'); return }
+  const dl = await ensureSupertonicModel({ targetDir: path.join(baseDir, 'models') })
+  if (!dl.success) { t.fail('Supertonic GGUF not available — registry fetch failed.'); return }
 
-  const TTSGgml = require('@qvac/tts-ggml')
   const model = new TTSGgml({
     engine: TTSGgml.ENGINE_SUPERTONIC,
-    files: { supertonicModel: download.path },
+    files: { supertonicModel: dl.path },
     voice: 'F1',
     config: { language: 'en', useGPU: false },
     opts: { stats: true }
@@ -101,6 +122,38 @@ test('Supertonic without enhancer still reports native 44.1 kHz (backward compat
     const r = await runAndCollect(model, 'No enhancement here, just the native engine output.')
     t.is(r.sampleRate, 44100, 'un-enhanced supertonic reports 44.1 kHz')
     t.ok(r.samples > 0, 'synthesis produced audio')
+  } finally {
+    try { await model.unload() } catch (_e) {}
+  }
+})
+
+test('Chatterbox + LavaSR enhancer (batch) reports 48 kHz enhanced output', { timeout: 900000 }, async (t) => {
+  const baseDir = getBaseDir()
+  const enh = await ensureLavaSREnhancerGguf({ targetDir: path.join(baseDir, 'models', 'lavasr') })
+  if (!enh.success) { t.comment('LavaSR enhancer GGUF not staged; skipping.'); t.pass('skipped — no enhancer GGUF'); return }
+  const modelsDir = path.join(baseDir, 'models')
+  const dl = await ensureChatterboxModels({ targetDir: modelsDir })
+  if (!dl.success) { t.fail('Chatterbox GGUFs not available — registry fetch failed.'); return }
+  const dir = dl.targetDir || modelsDir
+
+  const model = new TTSGgml({
+    engine: TTSGgml.ENGINE_CHATTERBOX,
+    files: {
+      modelDir: dir,
+      t3Model: path.join(dir, 'chatterbox-t3-turbo.gguf'),
+      s3genModel: path.join(dir, 'chatterbox-s3gen.gguf'),
+      lavasrEnhancer: enh.path
+    },
+    referenceAudio: resolveRefWavPath({}),
+    enhancer: { type: 'lavasr', enhance: true },
+    config: { language: 'en', useGPU: false },
+    opts: { stats: true }
+  })
+  await model.load()
+  try {
+    const r = await runAndCollect(model, 'Chatterbox output neurally upsampled to forty-eight kilohertz.')
+    t.is(r.sampleRate, 48000, 'enhanced chatterbox output reports 48 kHz')
+    t.ok(r.samples > 0, 'enhanced synthesis produced audio')
   } finally {
     try { await model.unload() } catch (_e) {}
   }

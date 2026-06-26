@@ -202,6 +202,44 @@ new TTSGgml({
 When both are supplied, missing tensors in `voiceDir` are backfilled
 from `referenceAudio`.
 
+## Speech enhancement (LavaSR)
+
+Opt-in neural post-processing (QVAC-16579) that bandwidth-extends the
+synthesized audio to **48 kHz** with a synthesised high band, using the LavaSR
+Vocos enhancer (ConvNeXt backbone + ISTFT spec head) converted to a single GGUF
+and run on the CPU/GGML path. It is fully backward compatible — omit the
+`enhancer` block and nothing changes.
+
+```js
+const model = new TTSGgml({
+  engine: TTSGgml.ENGINE_SUPERTONIC,
+  files: { supertonicModel, lavasrEnhancer: 'models/lavasr/lavasr-enhancer.gguf' },
+  enhancer: { type: 'lavasr', enhance: true },
+  config: { language: 'en' }
+})
+// The output callback now reports 48000:
+//   response.onUpdate(d => { /* d.outputArray; d.sampleRate === 48000 */ })
+```
+
+The GGUF path may also be given as `enhancer.enhancerPath`. Convert it from the
+public [LavaSRcpp](https://github.com/Topping1/LavaSRcpp) ONNX release:
+
+```bash
+python scripts/convert-lavasr-enhancer-to-gguf.py \
+  --backbone enhancer_backbone.onnx --spec-head enhancer_spec_head.onnx \
+  --out models/lavasr/lavasr-enhancer.gguf --ftype f16   # or f32
+```
+
+Notes:
+
+- Works for Supertonic and Chatterbox (batch / sentence-level streaming).
+- **Not** supported with Chatterbox native chunk streaming
+  (`streamChunkTokens > 0`) — the enhancer needs the full utterance, so that
+  combination is rejected at construction.
+- While active the output is always 48 kHz; any `outputSampleRate` is ignored
+  (a warning is logged). A configurable post-enhancement rate and the LavaSR
+  denoiser stage are planned follow-ups.
+
 ## Backends & GPU acceleration
 
 The addon delegates backend selection to `tts-cpp`'s registry-only
@@ -313,6 +351,8 @@ Runnable demos under `examples/`:
 | `chatterbox-tts.js` | Batch synth + wav dump. `bare examples/chatterbox-tts.js "Hello"` |
 | `chatterbox-sentence-stream-tts.js` | `runStreaming()` over an async iterator of sentences, with gapless streaming playback |
 | `chatterbox-chunk-stream-tts.js` | Native per-chunk PCM streaming via `streamChunkTokens`, with gapless streaming playback |
+| `supertonic-enhanced.js` | Supertonic + LavaSR 48 kHz enhancement. `bare examples/supertonic-enhanced.js "Hello"` |
+| `chatterbox-enhanced.js` | Chatterbox + LavaSR 48 kHz enhancement (batch). `bare examples/chatterbox-enhanced.js "Hello"` |
 
 The two streaming examples feed PCM into a single long-running
 `sox play` / `ffplay` process so chunks play back-to-back without any

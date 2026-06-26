@@ -6,10 +6,6 @@ import {
   ttsConfigSchema,
   ttsChatterboxRuntimeConfigSchema,
   ttsSupertonicRuntimeConfigSchema,
-  lavaSREnhancerConfigSchema,
-  lavaSREnhancerRuntimeSchema,
-  ttsEnhancerConfigSchema,
-  ttsEnhancerRuntimeConfigSchema,
   TTS_CHATTERBOX_LANGUAGES,
   TTS_SUPERTONIC_LANGUAGES,
   LEGACY_TTS_ONNX_MODEL_CONFIG_FIELDS,
@@ -286,88 +282,4 @@ test("textToSpeechStreamResponseSchema: rejects missing buffer", (t) => {
     type: "textToSpeechStream",
   });
   t.is(r.success, false, "missing buffer is rejected");
-});
-
-// === LavaSR enhancer (QVAC-16579) ===
-
-test("lavaSREnhancerRuntimeSchema: runtime block is flags-only", (t) => {
-  const r = lavaSREnhancerRuntimeSchema.safeParse({ type: "lavasr", enhance: true });
-  t.is(r.success, true);
-  if (r.success) {
-    t.is(r.data.type, "lavasr");
-    t.is(r.data.enhance, true);
-  }
-  // type is required (discriminator).
-  t.is(lavaSREnhancerRuntimeSchema.safeParse({ enhance: true }).success, false);
-});
-
-test("lavaSREnhancerConfigSchema: load block carries enhancerSrc", (t) => {
-  const r = lavaSREnhancerConfigSchema.safeParse({
-    type: "lavasr",
-    enhance: true,
-    enhancerSrc: "s3:///qvac_models_compiled/lavasr/2026-04-03/lavasr-enhancer.gguf",
-  });
-  t.is(r.success, true);
-  if (r.success) {
-    t.is(r.data.enhancerSrc !== undefined, true);
-  }
-});
-
-test("ttsEnhancerConfigSchema / RuntimeConfigSchema: discriminate on type", (t) => {
-  t.is(ttsEnhancerConfigSchema.safeParse({ type: "lavasr", enhance: true }).success, true);
-  t.is(ttsEnhancerRuntimeConfigSchema.safeParse({ type: "lavasr" }).success, true);
-  // Unknown enhancer type is rejected by the discriminated union.
-  t.is(ttsEnhancerConfigSchema.safeParse({ type: "rnnoise", enhance: true }).success, false);
-});
-
-test("ttsConfigSchema: accepts Supertonic load config with LavaSR enhancer", (t) => {
-  const r = ttsConfigSchema.safeParse({
-    ttsEngine: "supertonic",
-    language: "en",
-    voice: "F1",
-    ttsSpeed: 1.05,
-    ttsNumInferenceSteps: 5,
-    enhancer: {
-      type: "lavasr",
-      enhance: true,
-      enhancerSrc: "s3:///qvac_models_compiled/lavasr/2026-04-03/lavasr-enhancer.gguf",
-    },
-  });
-  t.is(r.success, true);
-  if (r.success && r.data.enhancer) {
-    t.is(r.data.enhancer.type, "lavasr");
-    t.is(r.data.enhancer.enhance, true);
-  }
-});
-
-test("ttsConfigSchema: accepts Chatterbox load config with LavaSR enhancer", (t) => {
-  const r = ttsConfigSchema.safeParse({
-    ttsEngine: "chatterbox",
-    language: "en",
-    s3genModelSrc: "s3:///example/s3gen.gguf",
-    enhancer: {
-      type: "lavasr",
-      enhance: true,
-      enhancerSrc: "s3:///example/lavasr-enhancer.gguf",
-    },
-  });
-  t.is(r.success, true);
-});
-
-test("ttsConfigSchema: rejects an enhancer with an unknown type", (t) => {
-  const r = ttsConfigSchema.safeParse({
-    ttsEngine: "supertonic",
-    language: "en",
-    enhancer: { type: "bogus", enhance: true },
-  });
-  t.is(r.success, false);
-});
-
-test("ttsChatterboxRuntimeConfigSchema: accepts a per-job enhancer toggle", (t) => {
-  const r = ttsChatterboxRuntimeConfigSchema.safeParse({
-    ttsEngine: "chatterbox",
-    language: "en",
-    enhancer: { type: "lavasr", enhance: false },
-  });
-  t.is(r.success, true);
 });

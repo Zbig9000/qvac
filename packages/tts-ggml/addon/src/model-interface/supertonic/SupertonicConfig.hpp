@@ -38,6 +38,10 @@ struct SupertonicConfig {
   // is set and `enhance` is not explicitly false, the model loads the
   // enhancer GGUF and bandwidth-extends the synthesized PCM to 48 kHz before
   // returning it. Empty path disables enhancement (full backward compat).
+  //
+  // NOTE: while the enhancer is active the output is ALWAYS 48 kHz; any
+  // `outputSampleRate` above is ignored in that case (the JS layer warns).
+  // A configurable post-enhancement resample is a planned follow-up.
   std::string enhancerGgufPath;
   std::optional<bool> enhance;
 };
