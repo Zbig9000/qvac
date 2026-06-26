@@ -1,13 +1,14 @@
 'use strict'
 
-// LavaSR enhancer integration + regression tests (QVAC-16579).
+// LavaSR enhancer integration + regression tests.
 //
-// The construct-time tests need no models and always run in CI — they pin the
-// two failure modes that review flagged: enhancer + native chunk streaming
-// (would emit un-enhanced 24 kHz mislabeled as 48 kHz) and enhance:true with no
-// GGUF (a silent no-op). The model-backed tests assert the enhanced output is
+// The construct-time tests need no models and always run in CI. They pin the
+// behaviours review flagged: enhancer + native chunk streaming is rejected (it
+// would otherwise emit un-enhanced 24 kHz mislabeled as 48 kHz), and a
+// misconfigured enhancer can't silently become a no-op (an unknown
+// enhancer.type throws). The model-backed tests assert the enhanced output is
 // reported as 48 kHz for both engines; they are gated on the converted enhancer
-// GGUF being staged (a tracked registry follow-up), and skip cleanly otherwise.
+// GGUF being staged, and skip cleanly otherwise.
 //
 // Stage the enhancer GGUF via scripts/convert-lavasr-enhancer-to-gguf.py (from
 // the public LavaSRcpp ONNX release) into models/lavasr/lavasr-enhancer.gguf,
@@ -56,7 +57,6 @@ test('Chatterbox: enhancer + streamChunkTokens is rejected at construction', (t)
         s3genModel: './models/chatterbox-s3gen.gguf',
         lavasrEnhancer: './models/lavasr/lavasr-enhancer.gguf'
       },
-      enhancer: { type: 'lavasr', enhance: true },
       streamChunkTokens: 25,
       config: { language: 'en' }
     }),
@@ -65,16 +65,32 @@ test('Chatterbox: enhancer + streamChunkTokens is rejected at construction', (t)
   )
 })
 
-test('enhancer.enhance:true with no GGUF path is rejected at construction', (t) => {
+test('enhancer with an unknown type is rejected at construction', (t) => {
   t.exception(
     () => new TTSGgml({
       engine: TTSGgml.ENGINE_SUPERTONIC,
-      files: { supertonicModel: './models/supertonic.gguf' },
-      enhancer: { type: 'lavasr', enhance: true },
+      files: {
+        supertonicModel: './models/supertonic.gguf',
+        lavasrEnhancer: './models/lavasr/lavasr-enhancer.gguf'
+      },
+      enhancer: { type: 'lavasr-typo' },
       config: { language: 'en' }
     }),
-    /no enhancer GGUF/,
-    'enhance:true without a resolvable GGUF path is rejected (no silent no-op)'
+    /unknown enhancer\.type/,
+    'a typo in enhancer.type throws instead of silently disabling enhancement'
+  )
+})
+
+test('enhancer block with no GGUF path leaves enhancement off (no throw)', (t) => {
+  const model = new TTSGgml({
+    engine: TTSGgml.ENGINE_SUPERTONIC,
+    files: { supertonicModel: './models/supertonic.gguf' },
+    enhancer: { type: 'lavasr' },
+    config: { language: 'en' }
+  })
+  t.absent(
+    model._buildTtsParams().lavasrEnhancerPath,
+    'no path resolved -> enhancement stays off (the path is the on switch)'
   )
 })
 
@@ -91,7 +107,6 @@ test('Supertonic + LavaSR enhancer reports 48 kHz enhanced output', { timeout: 6
     engine: TTSGgml.ENGINE_SUPERTONIC,
     files: { supertonicModel: dl.path, lavasrEnhancer: enh.path },
     voice: 'F1',
-    enhancer: { type: 'lavasr', enhance: true },
     config: { language: 'en', useGPU: false },
     opts: { stats: true }
   })
@@ -145,7 +160,6 @@ test('Chatterbox + LavaSR enhancer (batch) reports 48 kHz enhanced output', { ti
       lavasrEnhancer: enh.path
     },
     referenceAudio: resolveRefWavPath({}),
-    enhancer: { type: 'lavasr', enhance: true },
     config: { language: 'en', useGPU: false },
     opts: { stats: true }
   })

@@ -111,13 +111,10 @@ function normalizeGgmlFiles (files) {
       f.supertonic
     ),
     voicesDir: firstNonEmpty(f.voicesDir),
-    // LavaSR enhancer GGUF (QVAC-16579): single-file Vocos bandwidth
-    // extension, produced by tts-cpp/scripts/convert-lavasr-enhancer-to-gguf.py.
-    lavasrEnhancer: firstNonEmpty(
-      f.lavasrEnhancer,
-      f.lavasrEnhancerPath,
-      f.enhancer
-    ),
+    // LavaSR enhancer GGUF: single-file Vocos bandwidth extension, produced by
+    // tts-cpp/scripts/convert-lavasr-enhancer-to-gguf.py. One canonical key
+    // (the alternative is enhancer.enhancerPath on the options object).
+    lavasrEnhancer: firstNonEmpty(f.lavasrEnhancer),
     // Directory of the compiled MeCab/IPAdic dictionary (Japanese) and
     // the Cangjie TSV (Chinese).  The host resolves/stages these (e.g.
     // from the QVAC model registry) and passes the local paths; the
@@ -376,29 +373,20 @@ class TTSGgml {
     this._speed = speed
     this._noiseNpyPath = noiseNpyPath
 
-    // LavaSR enhancer (QVAC-16579). The GGUF path may come from
-    // `files.lavasrEnhancer` or `enhancer.enhancerPath`; `enhance` defaults
-    // to true when an enhancer block/path is supplied (opt-in to begin with).
-    const enhancerBlock =
-      enhancer && enhancer.type === 'lavasr' ? enhancer : null
-    this._enhancerGgufPath = firstNonEmpty(
-      normalizedFiles.lavasrEnhancer,
-      enhancerBlock ? enhancerBlock.enhancerPath : undefined
-    )
-    this._enhance = enhancerBlock && enhancerBlock.enhance != null
-      ? !!enhancerBlock.enhance
-      : (this._enhancerGgufPath ? true : null)
-
-    // Fail loudly on a misconfigured enhancer: enhancement explicitly enabled
-    // but no GGUF path resolved (neither files.lavasrEnhancer nor
-    // enhancer.enhancerPath) would otherwise be a silent no-op.
-    if (enhancerBlock && enhancerBlock.enhance === true && !this._enhancerGgufPath) {
+    // LavaSR enhancer (opt-in). Enhancement is ON iff a GGUF path is provided
+    // — via files.lavasrEnhancer or enhancer.enhancerPath — so there is no
+    // separate on/off flag to keep in sync (a future SDK layer can gate at
+    // runtime by choosing whether to pass the path). A provided `enhancer`
+    // block must use the supported type so a typo can't silently disable it.
+    if (enhancer != null && enhancer.type !== 'lavasr') {
       throw new Error(
-        'tts-ggml: enhancer.enhance is true but no enhancer GGUF was provided. ' +
-        'Set files.lavasrEnhancer or enhancer.enhancerPath to the LavaSR ' +
-        'enhancer GGUF (see scripts/convert-lavasr-enhancer-to-gguf.py).'
+        `tts-ggml: unknown enhancer.type '${enhancer.type}', expected 'lavasr'.`
       )
     }
+    this._enhancerGgufPath = firstNonEmpty(
+      normalizedFiles.lavasrEnhancer,
+      enhancer ? enhancer.enhancerPath : undefined
+    )
 
     // Per-platform fallback for `backendsDir` when the host didn't
     // pass one. Mirrors the qvac/packages/llm-llamacpp +
@@ -864,7 +852,6 @@ class TTSGgml {
     if (this._cfmSteps != null) params.cfmSteps = this._cfmSteps | 0
     if (this._enhancerGgufPath) {
       params.lavasrEnhancerPath = this._enhancerGgufPath
-      if (this._enhance != null) params.enhance = !!this._enhance
     }
     // Speaking-rate multiplier (1.0 = unchanged, < 1 slower, > 1 faster).
     // Chatterbox has no native rate control, so the addon applies a
@@ -905,7 +892,6 @@ class TTSGgml {
     if (this._noiseNpyPath) params.noiseNpyPath = this._noiseNpyPath
     if (this._enhancerGgufPath) {
       params.lavasrEnhancerPath = this._enhancerGgufPath
-      if (this._enhance != null) params.enhance = !!this._enhance
     }
     if (this._backendsDir) params.backendsDir = this._backendsDir
     if (this._openclCacheDir) params.openclCacheDir = this._openclCacheDir

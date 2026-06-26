@@ -64,8 +64,8 @@ struct ChatterboxConfig {
    */
   std::string kvCacheType;
   /**
-   * QVAC-21483 — desired output sample rate in Hz (8000–192000), or unset/0 to
-   * keep the engine's native 24 kHz. Forwarded to the engine
+   * Desired output sample rate in Hz (8000–192000), or unset/0 to keep the
+   * engine's native 24 kHz. Forwarded to the engine
    * (EngineOptions::output_sample_rate), which resamples (batch once, streaming
    * per-chunk seam-free). When the LavaSR enhancer is active the engine emits
    * native and the model resamples after enhancement instead; the final
@@ -145,18 +145,15 @@ struct ChatterboxConfig {
   std::string mecabDictPath;
   std::string cangjieTsvPath;
 
-  // LavaSR neural speech enhancement (QVAC-16579). When `enhancerGgufPath`
-  // is set and `enhance` is not explicitly false, the synthesized 24 kHz PCM
-  // is bandwidth-extended to 48 kHz before being returned. Empty path
-  // disables it (full backward compat).
+  // LavaSR neural speech enhancement. A non-empty `enhancerGgufPath` is the
+  // single switch: when set, the synthesized 24 kHz PCM is bandwidth-extended
+  // to 48 kHz before being returned; empty disables it (full backward compat).
   //
   // Constraints (enforced in validateConfig): incompatible with native chunk
   // streaming (streamChunkTokens > 0) since the enhancer needs the full
   // utterance. The enhancer always produces 48 kHz; if `outputSampleRate` is
-  // also set the model resamples the enhanced signal to that rate afterwards
-  // (QVAC-21483).
+  // also set the model resamples the enhanced signal to that rate afterwards.
   std::string enhancerGgufPath;
-  std::optional<bool> enhance;
 };
 
 } // namespace qvac::ttsggml::chatterbox

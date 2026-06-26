@@ -27,15 +27,12 @@ declare interface TTSGgmlFiles {
   supertonicModelPath?: string
   supertonic?: string
   /**
-   * LavaSR enhancer GGUF (QVAC-16579): single-file Vocos bandwidth
-   * extension produced by
-   * tts-cpp/scripts/convert-lavasr-enhancer-to-gguf.py. When supplied,
-   * Supertonic output is neurally upsampled to 48 kHz. Aliases:
-   * `lavasrEnhancerPath`, `enhancer`.
+   * LavaSR enhancer GGUF: single-file Vocos bandwidth extension produced by
+   * tts-cpp/scripts/convert-lavasr-enhancer-to-gguf.py. When supplied, output
+   * is neurally upsampled to 48 kHz (the canonical way to enable enhancement;
+   * `enhancer.enhancerPath` is the only alternative).
    */
   lavasrEnhancer?: string
-  lavasrEnhancerPath?: string
-  enhancer?: string
   /** Optional directory containing baked Chatterbox voice profiles. */
   voicesDir?: string
   /**
@@ -72,13 +69,13 @@ declare interface TTSGgmlRuntimeConfig {
 }
 
 /**
- * LavaSR enhancer config (QVAC-16579). A discriminated union on `type`
- * leaves room for future enhancer kinds; v1 ships `lavasr`.
+ * LavaSR enhancer config. The discriminated `type` leaves room for future
+ * enhancer kinds; v1 ships `lavasr`. Enhancement is enabled by providing a
+ * GGUF path (here as `enhancerPath`, or via `files.lavasrEnhancer`) — there is
+ * no separate on/off flag.
  */
 declare interface LavaSREnhancerOptions {
   type: 'lavasr'
-  /** Enable neural bandwidth extension. Defaults to true when present. */
-  enhance?: boolean
   /** Enhancer GGUF path (alternative to `files.lavasrEnhancer`). */
   enhancerPath?: string
 }
@@ -131,11 +128,10 @@ declare interface TTSGgmlOptions {
   /** Supertonic: optional path to a .npy initial-noise tensor (byte-exact reference reproduction). */
   noiseNpyPath?: string
   /**
-   * LavaSR neural speech enhancement (QVAC-16579). Opt-in CPU/GGML
-   * bandwidth extension to 48 kHz applied after synthesis. The GGUF can be
-   * given here via `enhancerPath` or through `files.lavasrEnhancer`.
-   * Supported on the Supertonic engine in v1; the denoiser stage is a
-   * planned follow-up.
+   * LavaSR neural speech enhancement. Opt-in CPU/GGML bandwidth extension to
+   * 48 kHz applied after synthesis; enabled by providing a GGUF path (here via
+   * `enhancerPath` or through `files.lavasrEnhancer`). Supported on the
+   * Supertonic engine in v1; the denoiser stage is a planned follow-up.
    */
   enhancer?: LavaSREnhancerOptions
   /** Directory the addon scans for dynamically-loaded ggml backends */

@@ -204,24 +204,28 @@ from `referenceAudio`.
 
 ## Speech enhancement (LavaSR)
 
-Opt-in neural post-processing (QVAC-16579) that bandwidth-extends the
-synthesized audio to **48 kHz** with a synthesised high band, using the LavaSR
-Vocos enhancer (ConvNeXt backbone + ISTFT spec head) converted to a single GGUF
-and run on the CPU/GGML path. It is fully backward compatible — omit the
-`enhancer` block and nothing changes.
+Opt-in neural post-processing that bandwidth-extends the synthesized audio to
+**48 kHz** with a synthesised high band, using the LavaSR Vocos enhancer
+(ConvNeXt backbone + ISTFT spec head) converted to a single GGUF and run on the
+CPU/GGML path. It is fully backward compatible — provide no enhancer GGUF and
+nothing changes.
+
+Enhancement is enabled simply by supplying the enhancer GGUF; there is no
+separate on/off flag.
 
 ```js
 const model = new TTSGgml({
   engine: TTSGgml.ENGINE_SUPERTONIC,
+  // Providing the enhancer GGUF is what turns enhancement on:
   files: { supertonicModel, lavasrEnhancer: 'models/lavasr/lavasr-enhancer.gguf' },
-  enhancer: { type: 'lavasr', enhance: true },
   config: { language: 'en' }
 })
 // The output callback now reports 48000:
 //   response.onUpdate(d => { /* d.outputArray; d.sampleRate === 48000 */ })
 ```
 
-The GGUF path may also be given as `enhancer.enhancerPath`. Convert it from the
+The GGUF path may instead be given as `enhancer.enhancerPath` (an
+`enhancer: { type: 'lavasr', enhancerPath }` block). Convert the GGUF from the
 public [LavaSRcpp](https://github.com/Topping1/LavaSRcpp) ONNX release:
 
 ```bash
@@ -236,9 +240,10 @@ Notes:
 - **Not** supported with Chatterbox native chunk streaming
   (`streamChunkTokens > 0`) — the enhancer needs the full utterance, so that
   combination is rejected at construction.
-- While active the output is always 48 kHz; any `outputSampleRate` is ignored
-  (a warning is logged). A configurable post-enhancement rate and the LavaSR
-  denoiser stage are planned follow-ups.
+- The enhancer always runs at 48 kHz internally. By default the emitted audio
+  is 48 kHz; set `config.outputSampleRate` to resample the enhanced output to a
+  different rate (`TTSOutputChunk.sampleRate` reports the actual rate). The
+  LavaSR denoiser stage is a planned follow-up.
 
 ## Backends & GPU acceleration
 

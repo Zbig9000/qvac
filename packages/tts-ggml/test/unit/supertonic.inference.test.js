@@ -232,41 +232,51 @@ test('Supertonic: modelDir auto-detects supertonic.gguf', async (t) => {
   }
 })
 
-// === LavaSR enhancer (QVAC-16579) param forwarding ===
+// === LavaSR enhancer param forwarding ===
+// Enhancement is enabled purely by the presence of a GGUF path; there is no
+// `enhance` flag for this layer to forward or keep in sync.
 
-test('Supertonic: enhancer block forwards lavasrEnhancerPath + enhance', (t) => {
+test('Supertonic: files.lavasrEnhancer forwards lavasrEnhancerPath (no enhance flag)', (t) => {
   const model = createMockedSupertonicModel({
     files: {
       supertonicModel: './models/supertonic.gguf',
       lavasrEnhancer: './models/lavasr/lavasr-enhancer.gguf'
-    },
-    extra: { enhancer: { type: 'lavasr', enhance: true } }
+    }
   })
   const params = model._buildTtsParams()
   t.is(params.lavasrEnhancerPath, './models/lavasr/lavasr-enhancer.gguf')
-  t.is(params.enhance, true)
+  t.absent(params.enhance, 'no separate enhance flag is forwarded')
 })
 
-test('Supertonic: enhancerPath via enhancer block (no files) forwards + defaults enhance=true', (t) => {
+test('Supertonic: enhancerPath via enhancer block (no files) forwards the path', (t) => {
   const model = createMockedSupertonicModel({
     extra: { enhancer: { type: 'lavasr', enhancerPath: '/abs/enh.gguf' } }
   })
   const params = model._buildTtsParams()
   t.is(params.lavasrEnhancerPath, '/abs/enh.gguf')
-  t.is(params.enhance, true, 'enhance defaults to true when a path is present')
+  t.absent(params.enhance, 'presence of the path is what enables enhancement')
 })
 
-test('Supertonic: enhance:false keeps the path but forwards enhance=false', (t) => {
+test('Supertonic: unknown enhancer.type is rejected at construction', (t) => {
+  t.exception(
+    () => createMockedSupertonicModel({
+      files: {
+        supertonicModel: './models/supertonic.gguf',
+        lavasrEnhancer: '/abs/enh.gguf'
+      },
+      extra: { enhancer: { type: 'bogus' } }
+    }),
+    /unknown enhancer\.type/,
+    'a typo in enhancer.type throws instead of silently disabling enhancement'
+  )
+})
+
+test('Supertonic: enhancer block without a path is a no-op (no enhancer params)', (t) => {
   const model = createMockedSupertonicModel({
-    files: {
-      supertonicModel: './models/supertonic.gguf',
-      lavasrEnhancer: '/abs/enh.gguf'
-    },
-    extra: { enhancer: { type: 'lavasr', enhance: false } }
+    extra: { enhancer: { type: 'lavasr' } }
   })
   const params = model._buildTtsParams()
-  t.is(params.lavasrEnhancerPath, '/abs/enh.gguf')
-  t.is(params.enhance, false)
+  t.absent(params.lavasrEnhancerPath, 'no resolvable path -> enhancement stays off')
 })
 
 test('Supertonic: no enhancer -> no enhancer params (backward compat)', (t) => {
@@ -276,7 +286,7 @@ test('Supertonic: no enhancer -> no enhancer params (backward compat)', (t) => {
   t.absent(params.enhance, 'no enhance flag when enhancer absent')
 })
 
-// === Output sample rate (QVAC-21483) ===
+// === Output sample rate ===
 
 test('Supertonic: outputSampleRate forwards to ttsParams; omitted when unset', (t) => {
   const withRate = new TTSGgml({
@@ -310,7 +320,7 @@ test('Supertonic: outputSampleRate coexists with the enhancer (no longer ignored
   const model = new TTSGgml({
     engine: TTSGgml.ENGINE_SUPERTONIC,
     files: { supertonicModel: './models/supertonic.gguf', lavasrEnhancer: '/abs/enh.gguf' },
-    enhancer: { type: 'lavasr', enhance: true },
+    enhancer: { type: 'lavasr' },
     config: { language: 'en', outputSampleRate: 22050 }
   })
   const params = model._buildTtsParams()

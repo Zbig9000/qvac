@@ -92,7 +92,7 @@ inline js_value_t* createInstance(js_env_t* env, js_callback_info_t* info) try {
   int sampleRate = 24000;
 
   // The output sample rate is baked into the JS output handlers at instance
-  // creation. Final-rate precedence (QVAC-21483 + QVAC-16579):
+  // creation. Final-rate precedence:
   //   1. outputSampleRate (engine resamples, or the addon resamples after the
   //      enhancer) — always the final emitted rate when set;
   //   2. 48000 when the LavaSR enhancer is active (it always emits 48 kHz);
@@ -101,8 +101,7 @@ inline js_value_t* createInstance(js_env_t* env, js_callback_info_t* info) try {
 
   if (engineType == EngineType::Supertonic) {
     auto cfg = adapter.buildSupertonicConfig(configurationParams, env);
-    const bool enhanced =
-        !cfg.enhancerGgufPath.empty() && cfg.enhance.value_or(true);
+    const bool enhanced = !cfg.enhancerGgufPath.empty();
     const int outSr = cfg.outputSampleRate.value_or(0);
     auto stm = make_unique<SupertonicModel>(std::move(cfg));
     sampleRate = outSr > 0 ? outSr
@@ -110,8 +109,7 @@ inline js_value_t* createInstance(js_env_t* env, js_callback_info_t* info) try {
     model = std::move(stm);
   } else {
     auto cfg = adapter.buildChatterboxConfig(configurationParams, env);
-    const bool enhanced =
-        !cfg.enhancerGgufPath.empty() && cfg.enhance.value_or(true);
+    const bool enhanced = !cfg.enhancerGgufPath.empty();
     const int outSr = cfg.outputSampleRate.value_or(0);
     sampleRate = outSr > 0 ? outSr : (enhanced ? kLavasrEnhancedSampleRate : 24000);
     model = make_unique<ChatterboxModel>(std::move(cfg));

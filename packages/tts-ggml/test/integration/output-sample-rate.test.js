@@ -1,9 +1,9 @@
 'use strict'
 
-// Output-sample-rate selection (QVAC-21483): a requested outputSampleRate is
-// honored end-to-end and reported on the output chunk. Gated on the Supertonic
-// GGUF + a tts-cpp build that supports EngineOptions::output_sample_rate (PR
-// #69); skips/fails cleanly otherwise.
+// Output-sample-rate selection: a requested outputSampleRate is honored
+// end-to-end and reported on the output chunk. Gated on the Supertonic GGUF +
+// a tts-cpp build that supports EngineOptions::output_sample_rate (PR #69);
+// skips/fails cleanly otherwise.
 
 const os = require('bare-os')
 const path = require('bare-path')

@@ -938,7 +938,7 @@ async function ensureMecabDict (options = {}) {
 }
 
 /**
- * Ensure the LavaSR enhancer GGUF (QVAC-16579) is staged, returning its path.
+ * Ensure the LavaSR enhancer GGUF is staged, returning its path.
  * Resolution order: $LAVASR_ENHANCER_GGUF, then models/lavasr/lavasr-enhancer.gguf
  * (and a couple of fallbacks), then the QVAC registry.
  *

@@ -1,6 +1,6 @@
 #pragma once
 
-// QVAC-21483 — output-sample-rate resampler for the addon's enhancer path.
+// Output-sample-rate resampler for the addon's enhancer path.
 //
 // The non-enhancer path forwards `outputSampleRate` straight to the tts-cpp
 // engine (EngineOptions::output_sample_rate), which resamples with its in-tree

@@ -118,14 +118,13 @@ tts_cpp::chatterbox::EngineOptions toEngineOptions(const ChatterboxConfig& cfg) 
   if (!cfg.mecabDictPath.empty())  opts.mecab_dict_path  = cfg.mecabDictPath;
   if (!cfg.cangjieTsvPath.empty()) opts.cangjie_tsv_path = cfg.cangjieTsvPath;
 
-  // QVAC-21483 — output-frequency selection. Forward to the engine
-  // (output_sample_rate; 0 = native), which resamples (batch once / streaming
-  // per-chunk, seam-free). When the LavaSR enhancer is active the engine emits
-  // its native rate (enhancer + native streaming is rejected) and the addon
-  // resamples after enhancement in synthesize(), so pass 0 here.
+  // Output-frequency selection. Forward to the engine (output_sample_rate;
+  // 0 = native), which resamples (batch once / streaming per-chunk, seam-free).
+  // When the LavaSR enhancer is active the engine emits its native rate
+  // (enhancer + native streaming is rejected) and the addon resamples after
+  // enhancement in synthesize(), so pass 0 here.
   {
-    const bool enhancerActive =
-        !cfg.enhancerGgufPath.empty() && cfg.enhance.value_or(true);
+    const bool enhancerActive = !cfg.enhancerGgufPath.empty();
     opts.output_sample_rate =
         enhancerActive ? 0 : cfg.outputSampleRate.value_or(0);
   }
@@ -327,9 +326,9 @@ void ChatterboxModel::loadLocked() {
       engine_->gpu_unsupported() ||
       (wantsGpu && backendDevice_ == 0 && androidOffAllowlistGpuPresent());
 
-  // LavaSR enhancer: load when a GGUF path is set and enhancement isn't
-  // explicitly disabled. CPU-only neural post-process; null = disabled.
-  if (!cfg_.enhancerGgufPath.empty() && cfg_.enhance.value_or(true)) {
+  // LavaSR enhancer: load when a GGUF path is set (the path is the on switch).
+  // CPU-only neural post-process; empty path = disabled.
+  if (!cfg_.enhancerGgufPath.empty()) {
     try {
       enhancer_ = tts_cpp::lavasr::Enhancer::load(cfg_.enhancerGgufPath);
     } catch (const std::exception& e) {
@@ -458,8 +457,8 @@ ChatterboxModel::SynthesizeResult ChatterboxModel::synthesize(
       throw createTTSError(TTSErrorCode::SynthesisFailed,
                            std::string("chatterbox.lavasr: ") + e.what());
     }
-    // QVAC-21483 — honor outputSampleRate after enhancement (the enhancer emits
-    // 48 kHz; the engine's output_sample_rate was bypassed while enhancing).
+    // Honor outputSampleRate after enhancement (the enhancer emits 48 kHz; the
+    // engine's output_sample_rate was bypassed while enhancing).
     if (cfg_.outputSampleRate.has_value() && *cfg_.outputSampleRate > 0 &&
         *cfg_.outputSampleRate != result.sample_rate) {
       result.pcm = OutputResampler::resample(result.pcm, result.sample_rate,
