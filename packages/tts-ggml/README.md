@@ -236,10 +236,13 @@ python scripts/convert-lavasr-enhancer-to-gguf.py \
 
 Notes:
 
-- Works for Supertonic and Chatterbox (batch / sentence-level streaming).
-- **Not** supported with Chatterbox native chunk streaming
-  (`streamChunkTokens > 0`) — the enhancer needs the full utterance, so that
-  combination is rejected at construction.
+- Works for Supertonic and Chatterbox, on the batch path, sentence-level
+  streaming, **and** Chatterbox native chunk streaming (`streamChunkTokens > 0`).
+- For native chunk streaming the enhancer runs over a sliding window with
+  look-ahead + crossfade so each emitted chunk is bandwidth-extended seam-free.
+  This adds **~0.34 s of look-ahead latency** (inherent to the enhancer's
+  receptive field), so first-audio-out arrives a little later than un-enhanced
+  streaming.
 - The enhancer always runs at 48 kHz internally. By default the emitted audio
   is 48 kHz; set `config.outputSampleRate` to resample the enhanced output to a
   different rate (`TTSOutputChunk.sampleRate` reports the actual rate). The

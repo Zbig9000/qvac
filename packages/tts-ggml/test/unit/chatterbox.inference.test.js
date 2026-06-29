@@ -279,6 +279,23 @@ test('Chatterbox: unknown enhancer.type is rejected at construction', (t) => {
   )
 })
 
+test('Chatterbox: enhancer + streamChunkTokens forwards both (streaming enhancement)', (t) => {
+  // Previously rejected; the addon now enhances each native-streaming chunk via
+  // a sliding-window StreamingEnhancer, so both knobs must reach the addon.
+  const model = new TTSGgml({
+    files: {
+      t3Model: './models/chatterbox-t3-turbo.gguf',
+      s3genModel: './models/chatterbox-s3gen.gguf',
+      lavasrEnhancer: '/abs/enh.gguf'
+    },
+    streamChunkTokens: 25,
+    config: { language: 'en' }
+  })
+  const params = model._buildTtsParams()
+  t.is(params.streamChunkTokens, 25, 'streamChunkTokens forwarded')
+  t.is(params.lavasrEnhancerPath, '/abs/enh.gguf', 'enhancer path forwarded alongside streaming')
+})
+
 test('Chatterbox: outputSampleRate forwards to ttsParams; omitted when unset', (t) => {
   const files = {
     t3Model: './models/chatterbox-t3-turbo.gguf',

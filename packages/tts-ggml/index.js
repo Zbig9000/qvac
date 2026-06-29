@@ -435,22 +435,13 @@ class TTSGgml {
       }
     }
 
-    // The LavaSR enhancer needs the full utterance, so it is incompatible with
-    // Chatterbox native chunk streaming. Reject early (the native addon also
-    // rejects this) so a misconfig surfaces at construction with a clear error
-    // instead of emitting un-enhanced 24 kHz audio mislabeled as 48 kHz.
-    if (
-      this._engineType === ENGINE_CHATTERBOX &&
-      this._enhancerGgufPath &&
-      (this._streamChunkTokens || 0) > 0
-    ) {
-      throw new Error(
-        'tts-ggml: the LavaSR enhancer is not supported together with ' +
-        'streamChunkTokens (Chatterbox native chunk streaming) — it requires ' +
-        'the full utterance. Drop streamChunkTokens for enhanced synthesis, or ' +
-        'use sentence-level streaming (runStream() / runStreaming()).'
-      )
-    }
+    // LavaSR enhancement + Chatterbox native chunk streaming is supported: the
+    // addon runs the enhancer over a sliding window with look-ahead + crossfade
+    // so each emitted chunk is bandwidth-extended seam-free (the StreamingEnhancer
+    // in ChatterboxModel). This adds ~0.34 s of look-ahead latency — inherent to
+    // the enhancer's receptive field — so the first audio arrives a little later
+    // than un-enhanced streaming.
+
     // Default GPU off only when neither knob is set, for every engine. A
     // caller passing nGpuLayers alone keeps it (no silent conflict with the
     // JS-side default). Supertonic GPU intent now flows through to tts-cpp on

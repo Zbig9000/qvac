@@ -2,13 +2,14 @@
 
 // LavaSR enhancer integration + regression tests.
 //
-// The construct-time tests need no models and always run in CI. They pin the
-// behaviours review flagged: enhancer + native chunk streaming is rejected (it
-// would otherwise emit un-enhanced 24 kHz mislabeled as 48 kHz), and a
+// The construct-time tests need no models and always run in CI. They pin:
+// enhancer + Chatterbox native chunk streaming is now supported (constructs and
+// forwards both knobs — the addon enhances each chunk seam-free), and a
 // misconfigured enhancer can't silently become a no-op (an unknown
 // enhancer.type throws). The model-backed tests assert the enhanced output is
-// reported as 48 kHz for both engines; they are gated on the converted enhancer
-// GGUF being staged, and skip cleanly otherwise.
+// reported as 48 kHz for both engines (incl. Chatterbox native streaming);
+// they are gated on the converted enhancer GGUF being staged, and skip cleanly
+// otherwise.
 //
 // Stage the enhancer GGUF via scripts/convert-lavasr-enhancer-to-gguf.py (from
 // the public LavaSRcpp ONNX release) into models/lavasr/lavasr-enhancer.gguf,
@@ -48,20 +49,26 @@ async function runAndCollect (model, text) {
 
 // ---- Construct-time regression tests (no models, always run) ----
 
-test('Chatterbox: enhancer + streamChunkTokens is rejected at construction', (t) => {
-  t.exception(
-    () => new TTSGgml({
-      engine: TTSGgml.ENGINE_CHATTERBOX,
-      files: {
-        t3Model: './models/chatterbox-t3-turbo.gguf',
-        s3genModel: './models/chatterbox-s3gen.gguf',
-        lavasrEnhancer: './models/lavasr/lavasr-enhancer.gguf'
-      },
-      streamChunkTokens: 25,
-      config: { language: 'en' }
-    }),
-    /streamChunkTokens/,
-    'enhancer + native chunk streaming is rejected (it needs the full utterance)'
+test('Chatterbox: enhancer + streamChunkTokens constructs and forwards both', (t) => {
+  // Previously rejected; streaming enhancement is now supported, so this must
+  // construct and forward both knobs to the addon (which runs the streaming
+  // enhancer per chunk).
+  const model = new TTSGgml({
+    engine: TTSGgml.ENGINE_CHATTERBOX,
+    files: {
+      t3Model: './models/chatterbox-t3-turbo.gguf',
+      s3genModel: './models/chatterbox-s3gen.gguf',
+      lavasrEnhancer: './models/lavasr/lavasr-enhancer.gguf'
+    },
+    streamChunkTokens: 25,
+    config: { language: 'en' }
+  })
+  const params = model._buildTtsParams()
+  t.is(params.streamChunkTokens, 25, 'streamChunkTokens forwarded')
+  t.is(
+    params.lavasrEnhancerPath,
+    './models/lavasr/lavasr-enhancer.gguf',
+    'enhancer path forwarded alongside streamChunkTokens'
   )
 })
 
@@ -168,6 +175,54 @@ test('Chatterbox + LavaSR enhancer (batch) reports 48 kHz enhanced output', { ti
     const r = await runAndCollect(model, 'Chatterbox output neurally upsampled to forty-eight kilohertz.')
     t.is(r.sampleRate, 48000, 'enhanced chatterbox output reports 48 kHz')
     t.ok(r.samples > 0, 'enhanced synthesis produced audio')
+  } finally {
+    try { await model.unload() } catch (_e) {}
+  }
+})
+
+test('Chatterbox + LavaSR enhancer + native chunk streaming emits 48 kHz chunks', { timeout: 900000 }, async (t) => {
+  const baseDir = getBaseDir()
+  const enh = await ensureLavaSREnhancerGguf({ targetDir: path.join(baseDir, 'models', 'lavasr') })
+  if (!enh.success) { t.comment('LavaSR enhancer GGUF not staged; skipping.'); t.pass('skipped — no enhancer GGUF'); return }
+  const modelsDir = path.join(baseDir, 'models')
+  const dl = await ensureChatterboxModels({ targetDir: modelsDir })
+  if (!dl.success) { t.fail('Chatterbox GGUFs not available — registry fetch failed.'); return }
+  const dir = dl.targetDir || modelsDir
+
+  const model = new TTSGgml({
+    engine: TTSGgml.ENGINE_CHATTERBOX,
+    files: {
+      modelDir: dir,
+      t3Model: path.join(dir, 'chatterbox-t3-turbo.gguf'),
+      s3genModel: path.join(dir, 'chatterbox-s3gen.gguf'),
+      lavasrEnhancer: enh.path
+    },
+    referenceAudio: resolveRefWavPath({}),
+    streamChunkTokens: 25, // native chunk streaming + enhancer (the QVAC-21482 path)
+    config: { language: 'en', useGPU: false },
+    opts: { stats: true }
+  })
+  await model.load()
+  try {
+    const updates = []
+    const response = await model.run({
+      input: 'Streaming Chatterbox audio, neurally upsampled to forty-eight kilohertz, one chunk at a time.',
+      type: 'text'
+    })
+    await response.onUpdate(d => { if (d && d.outputArray) updates.push(d) }).await()
+
+    const total = updates.reduce((acc, u) => acc + u.outputArray.length, 0)
+    t.ok(updates.length >= 1, 'streamed at least one chunk event')
+    t.ok(total > 0, 'streamed enhanced audio produced samples')
+    // Every chunk that carries audio must be tagged at the enhanced 48 kHz rate
+    // (not the engine's native 24 kHz) — the mislabel this feature prevents.
+    for (const u of updates) {
+      if (u.outputArray.length > 0 && u.sampleRate != null) {
+        t.is(u.sampleRate, 48000, 'streamed enhanced chunk reports 48 kHz')
+      }
+    }
+    const isLastCount = updates.filter(u => u.isLast === true).length
+    t.ok(isLastCount <= 1, 'at most one isLast=true across streamed chunks')
   } finally {
     try { await model.unload() } catch (_e) {}
   }

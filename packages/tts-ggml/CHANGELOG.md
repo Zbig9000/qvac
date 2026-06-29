@@ -40,11 +40,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rate afterwards. Omit it to keep the engine's native rate (default, zero
   behaviour change).
 
+- **Enhancer + Chatterbox native chunk streaming.** The LavaSR enhancer now
+  works with `streamChunkTokens > 0` (previously rejected). The addon runs the
+  enhancer over a sliding window with look-ahead + crossfade, so each streamed
+  chunk is bandwidth-extended seam-free and tagged 48 kHz (or `outputSampleRate`)
+  — matching the batch result. It adds **~0.34 s of look-ahead latency**,
+  inherent to the enhancer's receptive field.
+
 ### Notes
 
-- Enhancement runs on the full utterance, so it is **rejected together with
-  Chatterbox native chunk streaming** (`streamChunkTokens > 0`) — use
-  sentence-level streaming (`runStream` / `runStreaming`) for enhanced output.
+- Enhancement works on the batch path, sentence-level streaming, and Chatterbox
+  native chunk streaming. Native-streaming enhancement adds ~0.34 s of
+  look-ahead latency.
 - When the enhancer is active it produces 48 kHz; if `outputSampleRate` is also
   set, the enhanced audio is resampled to that rate afterwards.
 

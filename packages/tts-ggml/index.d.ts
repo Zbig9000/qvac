@@ -130,8 +130,11 @@ declare interface TTSGgmlOptions {
   /**
    * LavaSR neural speech enhancement. Opt-in CPU/GGML bandwidth extension to
    * 48 kHz applied after synthesis; enabled by providing a GGUF path (here via
-   * `enhancerPath` or through `files.lavasrEnhancer`). Supported on the
-   * Supertonic engine in v1; the denoiser stage is a planned follow-up.
+   * `enhancerPath` or through `files.lavasrEnhancer`). Works for Supertonic and
+   * Chatterbox, including Chatterbox native chunk streaming
+   * (`streamChunkTokens`), where it enhances each chunk seam-free at the cost
+   * of ~0.34 s of look-ahead latency. The denoiser stage is a planned
+   * follow-up.
    */
   enhancer?: LavaSREnhancerOptions
   /** Directory the addon scans for dynamically-loaded ggml backends */

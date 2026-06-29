@@ -149,10 +149,12 @@ struct ChatterboxConfig {
   // single switch: when set, the synthesized 24 kHz PCM is bandwidth-extended
   // to 48 kHz before being returned; empty disables it (full backward compat).
   //
-  // Constraints (enforced in validateConfig): incompatible with native chunk
-  // streaming (streamChunkTokens > 0) since the enhancer needs the full
-  // utterance. The enhancer always produces 48 kHz; if `outputSampleRate` is
-  // also set the model resamples the enhanced signal to that rate afterwards.
+  // Works on both the batch path and the native chunk-streaming path
+  // (streamChunkTokens > 0): streaming enhancement runs the enhancer over a
+  // sliding window with look-ahead + crossfade (see StreamingEnhancer), adding
+  // ~0.34 s of latency. The enhancer always produces 48 kHz; if
+  // `outputSampleRate` is also set the enhanced signal is resampled to that
+  // rate afterwards.
   std::string enhancerGgufPath;
 };
 
