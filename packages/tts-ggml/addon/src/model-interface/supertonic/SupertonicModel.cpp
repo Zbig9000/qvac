@@ -43,14 +43,13 @@ tts_cpp::supertonic::EngineOptions toEngineOptions(const SupertonicConfig& cfg) 
   }
   opts.noise_npy_path = cfg.noiseNpyPath;
 
-  // QVAC-21483 — output-frequency selection. Forward the requested rate to the
-  // engine (EngineOptions::output_sample_rate; 0 = native), which resamples
-  // with its in-tree sinc. When the LavaSR enhancer is active it must receive
-  // the engine's native rate and forces 48 kHz, so the addon resamples to the
+  // Output-frequency selection. Forward the requested rate to the engine
+  // (EngineOptions::output_sample_rate; 0 = native), which resamples with its
+  // in-tree sinc. When the LavaSR enhancer is active it must receive the
+  // engine's native rate and forces 48 kHz, so the addon resamples to the
   // requested rate AFTER enhancement (see synthesize()) — pass 0 here.
   {
-    const bool enhancerActive =
-        !cfg.enhancerGgufPath.empty() && cfg.enhance.value_or(true);
+    const bool enhancerActive = !cfg.enhancerGgufPath.empty();
     opts.output_sample_rate =
         enhancerActive ? 0 : cfg.outputSampleRate.value_or(0);
   }
@@ -183,9 +182,9 @@ void SupertonicModel::loadLocked() {
   backendId_     = backendIdFromName(backendName_);
   gpuUnsupported_ = engine_->gpu_unsupported();
 
-  // LavaSR enhancer: load when a GGUF path is set and enhancement isn't
-  // explicitly disabled. CPU-only neural post-process; null = disabled.
-  if (!cfg_.enhancerGgufPath.empty() && cfg_.enhance.value_or(true)) {
+  // LavaSR enhancer: load when a GGUF path is set (the path is the on switch).
+  // CPU-only neural post-process; empty path = disabled.
+  if (!cfg_.enhancerGgufPath.empty()) {
     try {
       enhancer_ = tts_cpp::lavasr::Enhancer::load(cfg_.enhancerGgufPath);
     } catch (const std::exception& e) {
@@ -253,8 +252,8 @@ SupertonicModel::Output SupertonicModel::synthesize(const std::string& text) {
       throw createTTSError(TTSErrorCode::SynthesisFailed,
                            std::string("supertonic.lavasr: ") + e.what());
     }
-    // QVAC-21483 — honor outputSampleRate after enhancement (the enhancer emits
-    // 48 kHz; the engine's output_sample_rate was bypassed while enhancing).
+    // Honor outputSampleRate after enhancement (the enhancer emits 48 kHz; the
+    // engine's output_sample_rate was bypassed while enhancing).
     if (cfg_.outputSampleRate.has_value() && *cfg_.outputSampleRate > 0 &&
         *cfg_.outputSampleRate != result.sample_rate) {
       result.pcm = OutputResampler::resample(result.pcm, result.sample_rate,

@@ -1,7 +1,7 @@
 'use strict'
 
 /**
- * Supertonic TTS + LavaSR neural enhancement for @qvac/tts-ggml (QVAC-16579).
+ * Supertonic TTS + LavaSR neural enhancement for @qvac/tts-ggml.
  *
  * Synthesizes a single utterance with Supertonic, then opts into the LavaSR
  * enhancer: a lightweight Vocos bandwidth-extension network (ConvNeXt backbone
@@ -69,9 +69,10 @@ async function main () {
 
   const model = new TTSGgml({
     engine: TTSGgml.ENGINE_SUPERTONIC,
+    // Supplying the enhancer GGUF (files.lavasrEnhancer) is what turns
+    // enhancement on — there is no separate on/off flag.
     files: { supertonicModel, lavasrEnhancer: enhancerGguf },
     voice: voiceArg || 'F1',
-    enhancer: { type: 'lavasr', enhance: true },
     config: { language: 'en', useGPU: false },
     logger: console,
     opts: { stats: true }

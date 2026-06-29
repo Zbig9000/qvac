@@ -1,14 +1,15 @@
 #pragma once
 
-// QVAC-21483 — output-sample-rate resampler for the addon's enhancer path.
+// Output-sample-rate resampler for the addon's enhancer path.
 //
 // The non-enhancer path forwards `outputSampleRate` straight to the tts-cpp
 // engine (EngineOptions::output_sample_rate), which resamples with its in-tree
 // Kaiser sinc and keeps streaming seams correct. But the LavaSR enhancer runs
 // in the addon and always emits 48 kHz, so when it is active the requested
-// output rate must be applied here, after enhancement. Enhancement is
-// batch-only (streaming + enhancer is rejected), so a one-shot resample is
-// sufficient.
+// output rate must be applied here, after enhancement. This one-shot resample
+// of a finite buffer is used both on the batch path (whole utterance) and
+// inside StreamingEnhancer (per look-ahead window, before its crossfade), so
+// it carries no cross-call state.
 //
 // Windowed-sinc (Lanczos, a=5) — identical math to tts-cpp's lavasr DSP
 // resampler, so the two paths stay consistent.

@@ -130,9 +130,8 @@ chatterbox::ChatterboxConfig JSAdapter::buildChatterboxConfig(
   cfg.openclCacheDir = readOptionalString(configurationParams, env, "openclCacheDir");
   cfg.mecabDictPath  = readOptionalString(configurationParams, env, "mecabDictPath");
   cfg.cangjieTsvPath = readOptionalString(configurationParams, env, "cangjieTsvPath");
-  // LavaSR neural enhancement (QVAC-16579).
+  // LavaSR neural enhancement: a non-empty GGUF path turns it on.
   cfg.enhancerGgufPath = readOptionalString(configurationParams, env, "lavasrEnhancerPath");
-  cfg.enhance          = readOptionalBool(configurationParams, env, "enhance");
   return cfg;
 }
 
@@ -155,9 +154,8 @@ supertonic::SupertonicConfig JSAdapter::buildSupertonicConfig(
   cfg.noiseNpyPath      = readOptionalString(configurationParams, env, "noiseNpyPath");
   cfg.backendsDir       = readOptionalString(configurationParams, env, "backendsDir");
   cfg.openclCacheDir    = readOptionalString(configurationParams, env, "openclCacheDir");
-  // LavaSR neural enhancement (QVAC-16579).
+  // LavaSR neural enhancement: a non-empty GGUF path turns it on.
   cfg.enhancerGgufPath  = readOptionalString(configurationParams, env, "lavasrEnhancerPath");
-  cfg.enhance           = readOptionalBool(configurationParams, env, "enhance");
   return cfg;
 }
 

@@ -15,8 +15,8 @@ struct SupertonicConfig {
   std::optional<int> threads;
   std::optional<int> nGpuLayers;
   /**
-   * QVAC-21483 — desired output sample rate in Hz (8000–192000), or unset/0 to
-   * keep the engine's native rate. Forwarded to the engine
+   * Desired output sample rate in Hz (8000–192000), or unset/0 to keep the
+   * engine's native rate. Forwarded to the engine
    * (EngineOptions::output_sample_rate), which resamples the PCM. When the
    * LavaSR enhancer is active the engine emits its native rate and the model
    * resamples after enhancement instead (see SupertonicModel::synthesize); the
@@ -42,15 +42,14 @@ struct SupertonicConfig {
   std::string backendsDir;
   std::string openclCacheDir;
 
-  // LavaSR neural speech enhancement (QVAC-16579). When `enhancerGgufPath`
-  // is set and `enhance` is not explicitly false, the model loads the
-  // enhancer GGUF and bandwidth-extends the synthesized PCM to 48 kHz before
-  // returning it. Empty path disables enhancement (full backward compat).
+  // LavaSR neural speech enhancement. A non-empty `enhancerGgufPath` is the
+  // single switch: when set, the model loads the enhancer GGUF and
+  // bandwidth-extends the synthesized PCM to 48 kHz before returning it; empty
+  // disables enhancement (full backward compat).
   //
   // The enhancer always produces 48 kHz; if `outputSampleRate` is also set the
-  // model resamples the enhanced signal to that rate afterwards (QVAC-21483).
+  // model resamples the enhanced signal to that rate afterwards.
   std::string enhancerGgufPath;
-  std::optional<bool> enhance;
 };
 
 }

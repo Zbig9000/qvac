@@ -76,7 +76,7 @@ private:
 
   mutable std::mutex engineMu_;
   std::shared_ptr<tts_cpp::supertonic::Engine> engine_;
-  // LavaSR enhancer (QVAC-16579): loaded alongside the engine when
+  // LavaSR enhancer: loaded alongside the engine when
   // cfg_.enhancerGgufPath is set; null disables enhancement. Holds only
   // const weights, so it is safe to share across concurrent enhance() calls.
   std::shared_ptr<tts_cpp::lavasr::Enhancer> enhancer_;

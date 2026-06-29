@@ -1,12 +1,12 @@
 'use strict'
 
 /**
- * Chatterbox TTS + LavaSR neural enhancement for @qvac/tts-ggml (QVAC-16579).
+ * Chatterbox TTS + LavaSR neural enhancement for @qvac/tts-ggml.
  *
  * Batch synthesis with Chatterbox, then the LavaSR enhancer bandwidth-extends
- * the 24 kHz output to 48 kHz on the CPU/GGML path. Enhancement runs on the
- * full utterance (batch path) — it is not supported with native chunk
- * streaming (streamChunkTokens); use sentence-level streaming for that.
+ * the 24 kHz output to 48 kHz on the CPU/GGML path. Enhancement also works with
+ * native chunk streaming (streamChunkTokens) — the addon enhances each chunk
+ * seam-free with a small look-ahead; this example uses the batch path.
  *
  * Usage:
  *   bare examples/chatterbox-enhanced.js "text to synthesize" [path/to/reference.wav]
@@ -69,9 +69,10 @@ async function main () {
   const outputFile = path.join(__dirname, 'chatterbox-enhanced-output.wav')
 
   const model = new TTSGgml({
+    // Supplying the enhancer GGUF (files.lavasrEnhancer) is what turns
+    // enhancement on — there is no separate on/off flag.
     files: { modelDir, lavasrEnhancer: enhancerGguf },
     ...(refAudioArg ? { referenceAudio: refAudioArg } : {}),
-    enhancer: { type: 'lavasr', enhance: true },
     config: { language: 'en' },
     logger: console,
     opts: { stats: true }
