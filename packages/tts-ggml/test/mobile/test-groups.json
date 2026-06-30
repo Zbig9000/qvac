@@ -8,7 +8,9 @@
       "runChatterboxMtlTest",
       "runChatterboxSpeedTest",
       "runGpuSmokeTest",
+      "runLavasrEnhancerTest",
       "runMultipleRunsTest",
+      "runOutputSampleRateTest",
       "runSupertonicMtlTest",
       "runSupertonicTest",
       "runSupertonic3QuantTest"
@@ -22,7 +24,9 @@
       "runChatterboxMtlTest",
       "runChatterboxSpeedTest",
       "runGpuSmokeTest",
+      "runLavasrEnhancerTest",
       "runMultipleRunsTest",
+      "runOutputSampleRateTest",
       "runSupertonicMtlTest",
       "runSupertonicTest",
       "runSupertonic3QuantTest"
