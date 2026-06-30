@@ -19,8 +19,8 @@
     },
     {
       "kind": "git",
-      "baseline": "970e30b489cc621ad7b4ea2fbd08eee2d8f9da66",
-      "repository": "https://github.com/tetherto/qvac-registry-vcpkg.git",
+      "baseline": "a8851c4421991d16950ff4abaa39d9c06831f888",
+      "repository": "https://github.com/Zbig9000/qvac-registry-vcpkg.git",
       "packages": [
         "tts-cpp"
       ]
