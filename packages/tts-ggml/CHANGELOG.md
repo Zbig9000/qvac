@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Chatterbox MTL Japanese now builds with MeCab support from the published
+  registry ports.** Bumps the `tts-cpp` requirement to `2026-06-30`, links
+  `mecab::mecab` directly, and keeps the Windows `/FORCE:MULTIPLE` workaround
+  for the `mecab.lib` / `bare_delay_load.lib` `DllMain` conflict.
+- **Chatterbox MTL language coverage now includes Japanese and Italian in the
+  shared multilingual suite.** The standalone Japanese test has been folded into
+  `chatterbox-mtl.test.js`, which also keeps an explicit `zh` rejection
+  assertion until Chinese tokenizer support is enabled upstream.
 - **Chatterbox now synthesizes correctly on both ARM CPU and the ARM Mali Vulkan
   GPU.** Bumps the `tts-cpp` pin to `2026-06-26` (`qvac-ext-lib-whisper.cpp`
   master `586268bf`, PR #67), consumed from `qvac-registry-vcpkg` (#214), which
