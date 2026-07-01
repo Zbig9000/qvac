@@ -10,10 +10,6 @@ async function runAddonTest (options = {}) { // eslint-disable-line no-unused-va
   return runIntegrationModule('../integration/addon.test.js', options)
 }
 
-async function runChatterboxJaMecabTest (options = {}) { // eslint-disable-line no-unused-vars
-  return runIntegrationModule('../integration/chatterbox-ja-mecab.test.js', options)
-}
-
 async function runChatterboxKvCacheGpuTest (options = {}) { // eslint-disable-line no-unused-vars
   return runIntegrationModule('../integration/chatterbox-kv-cache-gpu.test.js', options)
 }
@@ -64,7 +60,6 @@ async function runSupertonic3QuantTest (options = {}) { // eslint-disable-line n
 
 module.exports = {
   runAddonTest,
-  runChatterboxJaMecabTest,
   runChatterboxKvCacheGpuTest,
   runChatterboxMtlTest,
   runChatterboxSpeedTest,
