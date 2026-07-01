@@ -59,7 +59,8 @@ public:
   // temporal support for the streamed output to track the batch result; the
   // LavaSR enhancer satisfies this up to the global FastLR FFT, whose residual
   // the crossfade smooths.
-  using EnhanceFn = std::function<std::vector<float>(const std::vector<float>&)>;
+  using EnhanceFn =
+      std::function<std::vector<float>(const std::vector<float>&)>;
 
   /**
    * @param fn        the one-shot enhance transform (inRate -> outRate)
@@ -74,9 +75,9 @@ public:
    * context/margin (its ConvNeXt receptive field of ~31 mel frames at hop 512,
    * 48 kHz, plus the STFT/ISTFT window) and a ~11 ms crossfade.
    */
-  explicit StreamingEnhancer(EnhanceFn fn, int inRate, int outRate,
-                             int contextIn = 8192, int marginIn = 8192,
-                             int crossfadeIn = 256)
+  explicit StreamingEnhancer(
+      EnhanceFn fn, int inRate, int outRate, int contextIn = 8192,
+      int marginIn = 8192, int crossfadeIn = 256)
       : fn_(std::move(fn)),
         ratio_(static_cast<double>(outRate) / static_cast<double>(inRate)),
         // Reduced denominator of outRate/inRate. Window/commit boundaries are
@@ -86,8 +87,7 @@ public:
         // windows align sample-for-sample even when the ratio is non-integral
         // (Q == 1 for the integer 24k->48k case, so this is a no-op there).
         alignQ_(std::max(1, inRate / std::gcd(inRate, outRate))),
-        contextIn_(std::max(0, contextIn)),
-        marginIn_(std::max(0, marginIn)),
+        contextIn_(std::max(0, contextIn)), marginIn_(std::max(0, marginIn)),
         crossfadeIn_(std::max(0, crossfadeIn)) {}
 
   /**
@@ -105,8 +105,9 @@ public:
   std::vector<float> flush() { return process(/*final=*/true); }
 
   /** One-shot convenience (batch parity): feed-all + flush. */
-  static std::vector<float> apply(const EnhanceFn& fn, const std::vector<float>& in,
-                                  int inRate, int outRate) {
+  static std::vector<float> apply(
+      const EnhanceFn& fn, const std::vector<float>& in, int inRate,
+      int outRate) {
     StreamingEnhancer s(fn, inRate, outRate);
     std::vector<float> out = s.feed(in.data(), in.size());
     const std::vector<float> tail = s.flush();
@@ -121,7 +122,8 @@ private:
   // Largest multiple of alignQ_ that is <= x (x >= 0). Snapping boundaries to
   // the grid keeps the per-window output aligned (see alignQ_).
   int64_t alignDown(int64_t x) const {
-    if (x <= 0) return 0;
+    if (x <= 0)
+      return 0;
     return x - (x % alignQ_);
   }
 
@@ -143,7 +145,8 @@ private:
     if (!finalPass && commitEnd <= heldEndIn_) {
       return {}; // no new committable input beyond what's already held
     }
-    if (commitEnd < sentIn_) commitEnd = sentIn_;
+    if (commitEnd < sentIn_)
+      commitEnd = sentIn_;
 
     // Recompute from `contextIn_` before the last sent position so the
     // re-emitted region (incl. the held crossfade span) has full left-context.
@@ -151,9 +154,10 @@ private:
     int64_t winStart = alignDown(std::max<int64_t>(0, sentIn_ - contextIn_));
     winStart = std::max(winStart, inBase_);
     const std::size_t winOff = static_cast<std::size_t>(winStart - inBase_);
-    std::vector<float> window(inBuf_.begin() + static_cast<std::ptrdiff_t>(winOff),
-                              inBuf_.end());
-    if (window.empty()) return {};
+    std::vector<float> window(
+        inBuf_.begin() + static_cast<std::ptrdiff_t>(winOff), inBuf_.end());
+    if (window.empty())
+      return {};
 
     std::vector<float> out = fn_(window);
     const std::size_t L = out.size();
@@ -169,8 +173,10 @@ private:
         std::min(held_.size(), static_cast<std::size_t>(span));
     for (std::size_t k = 0; k < xl; ++k) {
       const double w = static_cast<double>(k + 1) / static_cast<double>(xl + 1);
-      result.push_back(static_cast<float>((1.0 - w) * held_[k] +
-                                          w * out[static_cast<std::size_t>(oSent) + k]));
+      result.push_back(
+          static_cast<float>(
+              (1.0 - w) * held_[k] +
+              w * out[static_cast<std::size_t>(oSent) + k]));
     }
     // Cover any rounding drift between the two windows' lengths with the new
     // window's samples (keeps the emitted stream input-contiguous).
@@ -201,20 +207,24 @@ private:
       heldEndIn_ = sentIn_;
     }
 
-    if (!finalPass) compactInput();
+    if (!finalPass)
+      compactInput();
     return result;
   }
 
   // Drop input below the lowest absolute index the next window can read
-  // (sentIn_ - contextIn_), keeping resident memory O(context + margin + chunk).
-  // Grid-snapped so inBase_ stays a multiple of alignQ_ (the next winStart).
+  // (sentIn_ - contextIn_), keeping resident memory O(context + margin +
+  // chunk). Grid-snapped so inBase_ stays a multiple of alignQ_ (the next
+  // winStart).
   void compactInput() {
-    const int64_t keepFrom = alignDown(std::max<int64_t>(0, sentIn_ - contextIn_));
+    const int64_t keepFrom =
+        alignDown(std::max<int64_t>(0, sentIn_ - contextIn_));
     if (keepFrom > inBase_) {
       const std::size_t drop = static_cast<std::size_t>(keepFrom - inBase_);
-      inBuf_.erase(inBuf_.begin(),
-                   inBuf_.begin() + static_cast<std::ptrdiff_t>(
-                                        std::min(drop, inBuf_.size())));
+      inBuf_.erase(
+          inBuf_.begin(),
+          inBuf_.begin() +
+              static_cast<std::ptrdiff_t>(std::min(drop, inBuf_.size())));
       inBase_ = keepFrom;
     }
   }
@@ -226,13 +236,13 @@ private:
   const int marginIn_;
   const int crossfadeIn_;
 
-  std::vector<float> inBuf_;   // live raw input; inBuf_[0] == absolute inBase_
-  int64_t inBase_ = 0;         // absolute input index of inBuf_[0]
-  int64_t inTotal_ = 0;        // total raw samples fed (absolute end)
-  int64_t sentIn_ = 0;         // input index up to which output has been sent
-  int64_t heldEndIn_ = 0;      // input index up to which output is computed/held
-  std::vector<float> held_;    // output samples for [sentIn_, heldEndIn_), held
-                               // back to crossfade with the next window
+  std::vector<float> inBuf_; // live raw input; inBuf_[0] == absolute inBase_
+  int64_t inBase_ = 0;       // absolute input index of inBuf_[0]
+  int64_t inTotal_ = 0;      // total raw samples fed (absolute end)
+  int64_t sentIn_ = 0;       // input index up to which output has been sent
+  int64_t heldEndIn_ = 0;    // input index up to which output is computed/held
+  std::vector<float> held_;  // output samples for [sentIn_, heldEndIn_), held
+                             // back to crossfade with the next window
 };
 
 } // namespace qvac::ttsggml

@@ -119,8 +119,9 @@ void SupertonicModel::validateConfig(const SupertonicConfig& cfg) {
   }
   if (!cfg.enhancerGgufPath.empty() &&
       !std::filesystem::exists(cfg.enhancerGgufPath)) {
-    throw createTTSError(TTSErrorCode::ModelFileNotFound,
-                         "lavasr enhancer GGUF not found: " + cfg.enhancerGgufPath);
+    throw createTTSError(
+        TTSErrorCode::ModelFileNotFound,
+        "lavasr enhancer GGUF not found: " + cfg.enhancerGgufPath);
   }
   // Defense-in-depth: the JS layer (index.js::_validateConfig) runs the
   // same conflict check before this method is reached, so direct C++
@@ -249,15 +250,16 @@ SupertonicModel::Output SupertonicModel::synthesize(const std::string& text) {
       result.pcm = enhancer->enhance(result.pcm, result.sample_rate);
       result.sample_rate = enhancer->output_sample_rate();
     } catch (const std::exception& e) {
-      throw createTTSError(TTSErrorCode::SynthesisFailed,
-                           std::string("supertonic.lavasr: ") + e.what());
+      throw createTTSError(
+          TTSErrorCode::SynthesisFailed,
+          std::string("supertonic.lavasr: ") + e.what());
     }
     // Honor outputSampleRate after enhancement (the enhancer emits 48 kHz; the
     // engine's output_sample_rate was bypassed while enhancing).
     if (cfg_.outputSampleRate.has_value() && *cfg_.outputSampleRate > 0 &&
         *cfg_.outputSampleRate != result.sample_rate) {
-      result.pcm = OutputResampler::resample(result.pcm, result.sample_rate,
-                                             *cfg_.outputSampleRate);
+      result.pcm = OutputResampler::resample(
+          result.pcm, result.sample_rate, *cfg_.outputSampleRate);
       result.sample_rate = *cfg_.outputSampleRate;
     }
   }

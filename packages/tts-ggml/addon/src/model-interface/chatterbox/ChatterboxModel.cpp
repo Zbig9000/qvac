@@ -434,12 +434,13 @@ ChatterboxModel::SynthesizeResult ChatterboxModel::synthesize(
               std::vector<float> e =
                   enhancer->enhance(raw, CHATTERBOX_NATIVE_RATE);
               if (streamFinalRate != enhancerWorkRate) {
-                e = OutputResampler::resample(e, enhancerWorkRate,
-                                              streamFinalRate);
+                e = OutputResampler::resample(
+                    e, enhancerWorkRate, streamFinalRate);
               }
               return e;
             },
-            CHATTERBOX_NATIVE_RATE, streamFinalRate);
+            CHATTERBOX_NATIVE_RATE,
+            streamFinalRate);
       }
       result = engine->synthesize(
           text,
@@ -498,15 +499,16 @@ ChatterboxModel::SynthesizeResult ChatterboxModel::synthesize(
       result.pcm = enhancer->enhance(result.pcm, result.sample_rate);
       result.sample_rate = enhancer->output_sample_rate();
     } catch (const std::exception& e) {
-      throw createTTSError(TTSErrorCode::SynthesisFailed,
-                           std::string("chatterbox.lavasr: ") + e.what());
+      throw createTTSError(
+          TTSErrorCode::SynthesisFailed,
+          std::string("chatterbox.lavasr: ") + e.what());
     }
     // Honor outputSampleRate after enhancement (the enhancer emits 48 kHz; the
     // engine's output_sample_rate was bypassed while enhancing).
     if (cfg_.outputSampleRate.has_value() && *cfg_.outputSampleRate > 0 &&
         *cfg_.outputSampleRate != result.sample_rate) {
-      result.pcm = OutputResampler::resample(result.pcm, result.sample_rate,
-                                             *cfg_.outputSampleRate);
+      result.pcm = OutputResampler::resample(
+          result.pcm, result.sample_rate, *cfg_.outputSampleRate);
       result.sample_rate = *cfg_.outputSampleRate;
     }
   }

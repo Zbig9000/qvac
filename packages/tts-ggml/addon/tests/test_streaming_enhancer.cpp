@@ -39,11 +39,12 @@ std::vector<float> upsample2(const std::vector<float>& in) {
 // A generic (non-integer ratio) linear resampler: outRate/inRate need not be
 // integral. Approximately shift-invariant (boundary clamp), used for the
 // tolerance-based non-integer test.
-std::function<std::vector<float>(const std::vector<float>&)> linearResampler(
-    int inRate, int outRate) {
+std::function<std::vector<float>(const std::vector<float>&)>
+linearResampler(int inRate, int outRate) {
   return [inRate, outRate](const std::vector<float>& in) -> std::vector<float> {
     const std::size_t n = in.size();
-    if (n == 0) return {};
+    if (n == 0)
+      return {};
     const double ratio = static_cast<double>(outRate) / inRate;
     const auto m = static_cast<std::size_t>(std::lround(n * ratio));
     std::vector<float> out(m);
@@ -70,8 +71,8 @@ std::vector<float> sine(float freqHz, float seconds, int sr) {
 
 // Feed `in` through a StreamingEnhancer in fixed-size chunks, concatenating the
 // per-feed output plus the flush tail.
-std::vector<float> streamChunks(StreamingEnhancer& se, const std::vector<float>& in,
-                                std::size_t chunk) {
+std::vector<float> streamChunks(
+    StreamingEnhancer& se, const std::vector<float>& in, std::size_t chunk) {
   std::vector<float> out;
   for (std::size_t off = 0; off < in.size(); off += chunk) {
     const std::size_t n = std::min(chunk, in.size() - off);
@@ -91,8 +92,13 @@ TEST(StreamingEnhancer, StreamingMatchesBatchExactlyUpsample2) {
 
   // Small margins (>= the transform's 1-sample support) so the test is fast;
   // the parity property is independent of the (larger) production defaults.
-  StreamingEnhancer se(upsample2, /*inRate=*/24000, /*outRate=*/48000,
-                       /*contextIn=*/64, /*marginIn=*/64, /*crossfadeIn=*/16);
+  StreamingEnhancer se(
+      upsample2,
+      /*inRate=*/24000,
+      /*outRate=*/48000,
+      /*contextIn=*/64,
+      /*marginIn=*/64,
+      /*crossfadeIn=*/16);
   const auto streamed = streamChunks(se, in, /*chunk=*/2400);
 
   ASSERT_EQ(streamed.size(), batch.size());
@@ -118,7 +124,8 @@ TEST(StreamingEnhancer, VariableChunkSizesMatchBatch) {
   std::mt19937 rng(1234);
   std::uniform_real_distribution<float> amp(-1.0f, 1.0f);
   std::vector<float> in(24000 * 2);
-  for (auto& s : in) s = amp(rng);
+  for (auto& s : in)
+    s = amp(rng);
   const auto batch = upsample2(in);
 
   StreamingEnhancer se(upsample2, 24000, 48000, 128, 128, 32);
@@ -167,19 +174,22 @@ TEST(StreamingEnhancer, NonIntegerRatioTracksBatch) {
   StreamingEnhancer se(fn, inRate, outRate, 4096, 4096, 256);
   const auto streamed = streamChunks(se, in, /*chunk=*/8000);
 
-  ASSERT_NEAR(static_cast<double>(streamed.size()),
-              static_cast<double>(batch.size()), 4.0);
+  ASSERT_NEAR(
+      static_cast<double>(streamed.size()),
+      static_cast<double>(batch.size()),
+      4.0);
   const std::size_t cmp = std::min(streamed.size(), batch.size());
   double maxDiff = 0.0;
   for (std::size_t i = 0; i < cmp; ++i) {
     ASSERT_TRUE(std::isfinite(streamed[i]));
-    maxDiff = std::max(maxDiff, std::fabs(static_cast<double>(streamed[i] - batch[i])));
+    maxDiff = std::max(
+        maxDiff, std::fabs(static_cast<double>(streamed[i] - batch[i])));
   }
   EXPECT_LT(maxDiff, 1e-3) << "streamed resample drifts from batch";
 }
 
 TEST(StreamingEnhancer, MemoryStaysBounded) {
-  const auto in = sine(180.0f, 12.0f, 24000); // 288k input samples
+  const auto in = sine(180.0f, 12.0f, 24000);    // 288k input samples
   StreamingEnhancer se(upsample2, 24000, 48000); // 8192 context/margin
   std::vector<float> streamed;
   std::size_t maxResident = 0;

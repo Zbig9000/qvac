@@ -104,14 +104,16 @@ inline js_value_t* createInstance(js_env_t* env, js_callback_info_t* info) try {
     const bool enhanced = !cfg.enhancerGgufPath.empty();
     const int outSr = cfg.outputSampleRate.value_or(0);
     auto stm = make_unique<SupertonicModel>(std::move(cfg));
-    sampleRate = outSr > 0 ? outSr
-                           : (enhanced ? kLavasrEnhancedSampleRate : stm->sampleRate());
+    sampleRate =
+        outSr > 0 ? outSr
+                  : (enhanced ? kLavasrEnhancedSampleRate : stm->sampleRate());
     model = std::move(stm);
   } else {
     auto cfg = adapter.buildChatterboxConfig(configurationParams, env);
     const bool enhanced = !cfg.enhancerGgufPath.empty();
     const int outSr = cfg.outputSampleRate.value_or(0);
-    sampleRate = outSr > 0 ? outSr : (enhanced ? kLavasrEnhancedSampleRate : 24000);
+    sampleRate =
+        outSr > 0 ? outSr : (enhanced ? kLavasrEnhancedSampleRate : 24000);
     model = make_unique<ChatterboxModel>(std::move(cfg));
   }
 
