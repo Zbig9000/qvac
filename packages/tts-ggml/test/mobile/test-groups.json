@@ -3,7 +3,6 @@
   "ios": {
     "functional": [
       "runAddonTest",
-      "runChatterboxJaMecabTest",
       "runChatterboxKvCacheGpuTest",
       "runChatterboxMtlTest",
       "runChatterboxSpeedTest",
@@ -19,7 +18,6 @@
   "android": {
     "functional": [
       "runAddonTest",
-      "runChatterboxJaMecabTest",
       "runChatterboxKvCacheGpuTest",
       "runChatterboxMtlTest",
       "runChatterboxSpeedTest",
