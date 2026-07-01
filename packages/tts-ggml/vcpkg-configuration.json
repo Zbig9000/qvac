@@ -14,8 +14,7 @@
         "vulkan",
         "vulkan-headers",
         "vulkan-loader",
-        "spirv-headers",
-        "mecab"
+        "spirv-headers"
       ]
     }
   ]

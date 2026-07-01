@@ -35,14 +35,6 @@ configure_file(${VCPKG_INSTALLED_PATH}/tools/lint-cpp/hooks/pre-commit
                ${CMAKE_CURRENT_SOURCE_DIR}/.git/hooks/pre-commit COPYONLY)
 
 find_path(QVAC_LIB_INFERENCE_ADDON_CPP_INCLUDE_DIRS "inference-addon-cpp/ModelInterfaces.hpp")
-# tts-cpp links libmecab (Japanese preprocessing) as a PRIVATE dependency,
-# but because tts-cpp is a STATIC library that PRIVATE dep leaks into its
-# exported INTERFACE_LINK_LIBRARIES as $<LINK_ONLY:mecab::mecab>, while
-# tts-cppConfig.cmake only re-finds ggml/OpenMP (no find_dependency(mecab)).
-# Materialize the mecab::mecab imported target here (mecab is installed as a
-# transitive vcpkg dep of tts-cpp) so tts-cpp's config can resolve it. Remove
-# once tts-cpp stops leaking the target (e.g. $<BUILD_INTERFACE:mecab::mecab>).
-find_package(mecab CONFIG REQUIRED)
 find_package(tts-cpp CONFIG REQUIRED)
 # Pull in ggml directly (in addition to the transitive
 # find_package(ggml) that tts-cppConfig.cmake already does) so the
