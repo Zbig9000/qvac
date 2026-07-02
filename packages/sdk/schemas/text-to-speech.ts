@@ -130,9 +130,16 @@ export const ttsChatterboxLoadConfigSchema = ttsChatterboxRuntimeConfigSchema.ex
   // the plugin's resolveConfig and raise LegacyTtsModelDeprecatedError.
   s3genModelSrc: modelSrcInputSchema.optional(),
   referenceAudioSrc: modelSrcInputSchema.optional(),
+  // Optional LavaSR neural enhancer GGUF (Vocos bandwidth extension). Providing
+  // it is the on switch — the addon runs enhancement whenever the path is set.
+  lavasrEnhancerSrc: modelSrcInputSchema.optional(),
 });
 
-export const ttsSupertonicLoadConfigSchema = ttsSupertonicRuntimeConfigSchema;
+export const ttsSupertonicLoadConfigSchema = ttsSupertonicRuntimeConfigSchema.extend({
+  // Optional LavaSR neural enhancer GGUF (Vocos bandwidth extension). Providing
+  // it is the on switch — the addon runs enhancement whenever the path is set.
+  lavasrEnhancerSrc: modelSrcInputSchema.optional(),
+});
 
 export const ttsLoadConfigSchema = z.discriminatedUnion("ttsEngine", [
   ttsChatterboxLoadConfigSchema,

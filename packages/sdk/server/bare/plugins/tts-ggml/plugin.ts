@@ -47,15 +47,17 @@ async function resolveChatterboxConfig(
 ): Promise<ResolveResult<TtsRuntimeConfig>> {
   rejectLegacyOnnxFields(config);
 
-  const { s3genModelSrc, referenceAudioSrc, ...runtime } = config;
+  const { s3genModelSrc, referenceAudioSrc, lavasrEnhancerSrc, ...runtime } =
+    config;
   if (!s3genModelSrc) {
     throw new TtsArtifactsRequiredError();
   }
 
   const resolve = ctx.resolveModelPath;
-  const [s3genPath, referenceAudioPath] = await Promise.all([
+  const [s3genPath, referenceAudioPath, lavasrEnhancerPath] = await Promise.all([
     resolve(s3genModelSrc),
     referenceAudioSrc ? resolve(referenceAudioSrc) : Promise.resolve(undefined),
+    lavasrEnhancerSrc ? resolve(lavasrEnhancerSrc) : Promise.resolve(undefined),
   ]);
 
   return {
@@ -63,15 +65,26 @@ async function resolveChatterboxConfig(
     artifacts: {
       s3genPath,
       ...(referenceAudioPath ? { referenceAudioPath } : {}),
+      ...(lavasrEnhancerPath ? { lavasrEnhancerPath } : {}),
     },
   };
 }
 
-function resolveSupertonicConfig(
+async function resolveSupertonicConfig(
   config: TtsSupertonicLoadConfig,
+  ctx: ResolveContext,
 ): Promise<ResolveResult<TtsRuntimeConfig>> {
   rejectLegacyOnnxFields(config);
-  return Promise.resolve({ config });
+
+  const { lavasrEnhancerSrc, ...runtime } = config;
+  const lavasrEnhancerPath = lavasrEnhancerSrc
+    ? await ctx.resolveModelPath(lavasrEnhancerSrc)
+    : undefined;
+
+  return {
+    config: runtime,
+    ...(lavasrEnhancerPath ? { artifacts: { lavasrEnhancerPath } } : {}),
+  };
 }
 
 function createChatterboxModel(
@@ -83,6 +96,7 @@ function createChatterboxModel(
   const t3Model = params.modelPath;
   const s3genModel = artifacts["s3genPath"];
   const referenceAudioPath = artifacts["referenceAudioPath"];
+  const lavasrEnhancer = artifacts["lavasrEnhancerPath"];
 
   if (!t3Model || !s3genModel) {
     throw new TtsArtifactsRequiredError();
@@ -93,7 +107,12 @@ function createChatterboxModel(
 
   const model = new TTSGgml({
     engine: TTSGgml.ENGINE_CHATTERBOX,
-    files: { t3Model, s3genModel },
+    files: {
+      t3Model,
+      s3genModel,
+      // Path present ⇒ enhancement on (there is no separate on/off flag).
+      ...(lavasrEnhancer ? { lavasrEnhancer } : {}),
+    },
     ...(referenceAudioPath ? { referenceAudio: referenceAudioPath } : {}),
     ...(config.streamChunkTokens !== undefined
       ? { streamChunkTokens: config.streamChunkTokens }
@@ -123,8 +142,10 @@ function createSupertonicModel(
   modelId: string,
   config: TtsSupertonicRuntimeConfig,
   params: CreateModelParams,
+  artifacts: Record<string, string | undefined>,
 ): PluginModelResult {
   const supertonicModel = params.modelPath;
+  const lavasrEnhancer = artifacts["lavasrEnhancerPath"];
   if (!supertonicModel) {
     throw new TtsArtifactsRequiredError();
   }
@@ -134,7 +155,11 @@ function createSupertonicModel(
 
   const model = new TTSGgml({
     engine: TTSGgml.ENGINE_SUPERTONIC,
-    files: { supertonicModel },
+    files: {
+      supertonicModel,
+      // Path present ⇒ enhancement on (there is no separate on/off flag).
+      ...(lavasrEnhancer ? { lavasrEnhancer } : {}),
+    },
     voice: config.voice ?? "F1",
     ...(config.ttsSpeed !== undefined ? { speed: config.ttsSpeed } : {}),
     ...(config.ttsNumInferenceSteps !== undefined
@@ -166,7 +191,7 @@ export const ttsPlugin = definePlugin({
 
     // Same default as the former onnx-tts plugin: omitting `ttsEngine` → Chatterbox.
     if (ttsEngine === "supertonic") {
-      return resolveSupertonicConfig(cfg as TtsSupertonicLoadConfig);
+      return resolveSupertonicConfig(cfg as TtsSupertonicLoadConfig, ctx);
     }
     return resolveChatterboxConfig(cfg as TtsChatterboxLoadConfig, ctx);
   },
@@ -176,7 +201,7 @@ export const ttsPlugin = definePlugin({
     const artifacts = params.artifacts ?? {};
 
     if (config.ttsEngine === "supertonic") {
-      return createSupertonicModel(params.modelId, config, params);
+      return createSupertonicModel(params.modelId, config, params, artifacts);
     }
 
     return createChatterboxModel(

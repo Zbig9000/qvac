@@ -82,6 +82,41 @@ test("ttsConfigSchema: accepts GGML supertonic load config", (t) => {
   t.is(r.success, true);
 });
 
+test("ttsConfigSchema: accepts an optional LavaSR enhancer for chatterbox", (t) => {
+  const r = ttsConfigSchema.safeParse({
+    ttsEngine: "chatterbox",
+    language: "en",
+    s3genModelSrc: "s3:///example/s3gen.gguf",
+    lavasrEnhancerSrc: "s3:///example/lavasr-enhancer.gguf",
+  });
+  t.is(r.success, true);
+  if (r.success) {
+    t.is(r.data.lavasrEnhancerSrc, "s3:///example/lavasr-enhancer.gguf");
+  }
+});
+
+test("ttsConfigSchema: accepts an optional LavaSR enhancer for supertonic", (t) => {
+  const r = ttsConfigSchema.safeParse({
+    ttsEngine: "supertonic",
+    language: "en",
+    lavasrEnhancerSrc: "s3:///example/lavasr-enhancer.gguf",
+  });
+  t.is(r.success, true);
+  if (r.success) {
+    t.is(r.data.lavasrEnhancerSrc, "s3:///example/lavasr-enhancer.gguf");
+  }
+});
+
+test("ttsConfigSchema: accepts a model-descriptor LavaSR enhancer src", (t) => {
+  const r = ttsConfigSchema.safeParse({
+    ttsEngine: "chatterbox",
+    language: "en",
+    s3genModelSrc: "s3:///example/s3gen.gguf",
+    lavasrEnhancerSrc: { src: "s3:///example/lavasr-enhancer.gguf" },
+  });
+  t.is(r.success, true);
+});
+
 test("TTS_CHATTERBOX_LANGUAGES: exposes all 22 supported languages", (t) => {
   t.is(TTS_CHATTERBOX_LANGUAGES.length, 22);
   const expected = [
