@@ -245,8 +245,36 @@ Notes:
   streaming.
 - The enhancer always runs at 48 kHz internally. By default the emitted audio
   is 48 kHz; set `config.outputSampleRate` to resample the enhanced output to a
-  different rate (`TTSOutputChunk.sampleRate` reports the actual rate). The
-  LavaSR denoiser stage is a planned follow-up.
+  different rate (`TTSOutputChunk.sampleRate` reports the actual rate).
+
+### Denoiser (scaffold)
+
+LavaSR's first stage — the UL-UNAS **denoiser**, which cleans the signal before
+the enhancer bandwidth-extends it — is wired through the addon as a scaffold. It
+is enabled the same way as the enhancer, via `files.lavasrDenoiser` (or a
+`denoiser: { type: 'lavasr', denoiserPath }` block), and runs before the
+enhancer (rate-preserving) on the batch path for both engines:
+
+```js
+const model = new TTSGgml({
+  engine: TTSGgml.ENGINE_SUPERTONIC,
+  files: {
+    supertonicModel,
+    lavasrDenoiser: 'models/lavasr/lavasr-denoiser.gguf', // cleaned first…
+    lavasrEnhancer: 'models/lavasr/lavasr-enhancer.gguf'  // …then upsampled
+  },
+  config: { language: 'en' }
+})
+```
+
+The **tts-cpp denoiser forward is not implemented yet** (`tts_cpp::lavasr::Denoiser`,
+qvac-ext-lib-whisper.cpp PR #76 shipped only the structure/API +
+`scripts/convert-lavasr-denoiser-to-gguf.py` skeleton), so supplying a denoiser
+GGUF currently fails at load with a clear *"not yet implemented"* error; with no
+denoiser path the output is unchanged. Denoiser + Chatterbox native chunk
+streaming is rejected up front (a stateful streaming denoiser is the follow-up).
+The wiring is in place so the feature turns on with just a `tts-cpp` bump once
+the forward lands.
 
 ## Backends & GPU acceleration
 

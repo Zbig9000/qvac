@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include <tts-cpp/lavasr/denoiser.h>
 #include <tts-cpp/lavasr/enhancer.h>
 #include <tts-cpp/supertonic/engine.h>
 
@@ -123,6 +124,12 @@ void SupertonicModel::validateConfig(const SupertonicConfig& cfg) {
         TTSErrorCode::ModelFileNotFound,
         "lavasr enhancer GGUF not found: " + cfg.enhancerGgufPath);
   }
+  if (!cfg.denoiserGgufPath.empty() &&
+      !std::filesystem::exists(cfg.denoiserGgufPath)) {
+    throw createTTSError(
+        TTSErrorCode::ModelFileNotFound,
+        "lavasr denoiser GGUF not found: " + cfg.denoiserGgufPath);
+  }
   // Defense-in-depth: the JS layer (index.js::_validateConfig) runs the
   // same conflict check before this method is reached, so direct C++
   // callers are the only ones who can actually trip this branch.
@@ -197,11 +204,28 @@ void SupertonicModel::loadLocked() {
   } else {
     enhancer_.reset();
   }
+
+  // LavaSR denoiser: load when a GGUF path is set (runs before the enhancer).
+  // SCAFFOLD — tts-cpp Denoiser::load throws until the UL-UNAS forward lands
+  // (PR #76), surfacing here as a clean InitializationFailed error.
+  if (!cfg_.denoiserGgufPath.empty()) {
+    try {
+      denoiser_ = tts_cpp::lavasr::Denoiser::load(cfg_.denoiserGgufPath);
+    } catch (const std::exception& e) {
+      denoiser_.reset();
+      throw createTTSError(
+          TTSErrorCode::InitializationFailed,
+          std::string("SupertonicModel::load: lavasr denoiser: ") + e.what());
+    }
+  } else {
+    denoiser_.reset();
+  }
 }
 
 void SupertonicModel::unloadLocked() {
   engine_.reset();
   enhancer_.reset();
+  denoiser_.reset();
 }
 
 void SupertonicModel::cancel() const {
@@ -217,10 +241,12 @@ void SupertonicModel::cancel() const {
 SupertonicModel::Output SupertonicModel::synthesize(const std::string& text) {
   std::shared_ptr<tts_cpp::supertonic::Engine> engine;
   std::shared_ptr<tts_cpp::lavasr::Enhancer> enhancer;
+  std::shared_ptr<tts_cpp::lavasr::Denoiser> denoiser;
   {
     std::lock_guard lk(engineMu_);
     engine = engine_;
     enhancer = enhancer_;
+    denoiser = denoiser_;
   }
   if (!engine) {
     throw createTTSError(TTSErrorCode::InitializationFailed,
@@ -240,6 +266,20 @@ SupertonicModel::Output SupertonicModel::synthesize(const std::string& text) {
   } catch (const std::exception& e) {
     throw createTTSError(TTSErrorCode::SynthesisFailed,
                          std::string("supertonic.synthesize: ") + e.what());
+  }
+
+  // LavaSR neural denoiser (opt-in). Runs BEFORE the enhancer and preserves the
+  // sample rate (cleans the signal, no rate change). SCAFFOLD — Denoiser::load
+  // throws at load until the UL-UNAS forward lands (PR #76), so this only runs
+  // once the tts-cpp core is implemented; the wiring is in place now.
+  if (denoiser) {
+    try {
+      result.pcm = denoiser->denoise(result.pcm, result.sample_rate);
+    } catch (const std::exception& e) {
+      throw createTTSError(
+          TTSErrorCode::SynthesisFailed,
+          std::string("supertonic.lavasr-denoiser: ") + e.what());
+    }
   }
 
   // LavaSR neural bandwidth extension (opt-in). Runs on the full utterance

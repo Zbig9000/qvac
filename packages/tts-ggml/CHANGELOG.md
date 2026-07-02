@@ -34,7 +34,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `scripts/convert-lavasr-enhancer-to-gguf.py` (f32 or f16). Examples:
   `examples/supertonic-enhanced.js`, `examples/chatterbox-enhanced.js`.
   Requires the `tts-cpp` pin that ships `tts_cpp::lavasr::Enhancer`
-  (qvac-ext-lib-whisper.cpp PR #68). The denoiser stage is a planned follow-up.
+  (qvac-ext-lib-whisper.cpp PR #68). The denoiser stage is wired as a scaffold
+  (see below).
+
+- **LavaSR denoiser wiring (scaffold).** The addon now exposes the second LavaSR
+  stage — the UL-UNAS speech **denoiser**, which cleans the signal *before* the
+  enhancer bandwidth-extends it — via `files.lavasrDenoiser` (or a
+  `denoiser: { type: 'lavasr', denoiserPath }` block), mirroring the enhancer:
+
+  ```js
+  new TTSGgml({
+    engine: TTSGgml.ENGINE_SUPERTONIC,
+    files: {
+      supertonicModel,
+      lavasrDenoiser: 'lavasr-denoiser.gguf', // cleaned first…
+      lavasrEnhancer: 'lavasr-enhancer.gguf'  // …then bandwidth-extended
+    }
+  })
+  ```
+
+  The denoiser is rate-preserving and runs before the enhancer on the batch
+  path (both engines). **This is scaffold wiring:** the tts-cpp UL-UNAS forward
+  is not implemented yet (`tts_cpp::lavasr::Denoiser`, qvac-ext-lib-whisper.cpp
+  PR #76 landed only the structure/API + converter skeleton), so supplying a
+  denoiser GGUF currently fails at load with a clear *"not yet implemented"*
+  error. With no denoiser path, output is byte-identical (full backward compat).
+  Denoiser + Chatterbox native chunk streaming (`streamChunkTokens`) is rejected
+  up front — a stateful streaming denoiser is the follow-up. Requires the
+  `tts-cpp` pin `2026-07-02` (qvac-registry-vcpkg) that publishes the denoiser
+  symbols; the feature turns on with just a tts-cpp bump once the forward lands.
 
 - **Selectable output sample rate.** `outputSampleRate` (8000–192000 Hz,
   runtime config) now resamples the synthesized audio to the requested rate,

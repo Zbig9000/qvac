@@ -115,6 +115,13 @@ function normalizeGgmlFiles (files) {
     // tts-cpp/scripts/convert-lavasr-enhancer-to-gguf.py. One canonical key
     // (the alternative is enhancer.enhancerPath on the options object).
     lavasrEnhancer: firstNonEmpty(f.lavasrEnhancer),
+    // LavaSR denoiser GGUF: UL-UNAS speech denoiser that runs BEFORE the
+    // enhancer (rate-preserving), produced by
+    // tts-cpp/scripts/convert-lavasr-denoiser-to-gguf.py. One canonical key
+    // (the alternative is denoiser.denoiserPath on the options object).
+    // SCAFFOLD: the tts-cpp denoiser forward is not implemented yet (PR #76),
+    // so supplying this path currently fails at load with "not yet implemented".
+    lavasrDenoiser: firstNonEmpty(f.lavasrDenoiser),
     // Directory of the compiled MeCab/IPAdic dictionary (Japanese) and
     // the Cangjie TSV (Chinese).  The host resolves/stages these (e.g.
     // from the QVAC model registry) and passes the local paths; the
@@ -268,6 +275,7 @@ class TTSGgml {
       speed,
       noiseNpyPath,
       enhancer,
+      denoiser,
       backendsDir,
       openclCacheDir,
       mecabDictDir,
@@ -388,6 +396,26 @@ class TTSGgml {
       enhancer ? enhancer.enhancerPath : undefined
     )
 
+    // LavaSR denoiser (opt-in, mirrors the enhancer). The denoiser runs BEFORE
+    // the enhancer and is rate-preserving; it is enabled purely by supplying a
+    // GGUF path — via files.lavasrDenoiser or denoiser.denoiserPath — so there
+    // is no separate on/off flag. A provided `denoiser` block must use the
+    // supported type so a typo can't silently disable it.
+    // SCAFFOLD: the tts-cpp UL-UNAS denoiser forward is not implemented yet
+    // (qvac-ext-lib-whisper.cpp PR #76 landed only the structure/API), so
+    // supplying a denoiser path currently fails at load with a clear
+    // "not yet implemented" error. The wiring is in place so the feature turns
+    // on with just a tts-cpp bump once the forward lands.
+    if (denoiser != null && denoiser.type !== 'lavasr') {
+      throw new Error(
+        `tts-ggml: unknown denoiser.type '${denoiser.type}', expected 'lavasr'.`
+      )
+    }
+    this._denoiserGgufPath = firstNonEmpty(
+      normalizedFiles.lavasrDenoiser,
+      denoiser ? denoiser.denoiserPath : undefined
+    )
+
     // Per-platform fallback for `backendsDir` when the host didn't
     // pass one. Mirrors the qvac/packages/llm-llamacpp +
     // transcription-parakeet resolution shape
@@ -441,6 +469,25 @@ class TTSGgml {
     // in ChatterboxModel). This adds ~0.34 s of look-ahead latency — inherent to
     // the enhancer's receptive field — so the first audio arrives a little later
     // than un-enhanced streaming.
+
+    // LavaSR denoise + native chunk streaming is NOT supported yet. The UL-UNAS
+    // denoiser is causal (streaming-friendly in principle), but tts-cpp only
+    // exposes a one-shot denoise() today — a stateful streaming denoiser (GRU
+    // hidden-state carry across chunks, à la StreamingEnhancer) is the
+    // follow-up. Reject the combo up front so it can't silently drop denoising
+    // on the streaming path; batch synthesis (run/runStream/runStreaming without
+    // streamChunkTokens) applies the denoiser normally.
+    if (
+      this._denoiserGgufPath &&
+      (this._streamChunkTokens != null || this._streamFirstChunkTokens != null)
+    ) {
+      throw new Error(
+        'tts-ggml: the LavaSR denoiser is not yet supported with Chatterbox ' +
+        'native chunk streaming (streamChunkTokens / streamFirstChunkTokens). ' +
+        'Use batch synthesis, or drop the denoiser for streaming. Streaming ' +
+        'denoise is a planned follow-up (needs a stateful streaming denoiser).'
+      )
+    }
 
     // Default GPU off only when neither knob is set, for every engine. A
     // caller passing nGpuLayers alone keeps it (no silent conflict with the
@@ -851,6 +898,9 @@ class TTSGgml {
     if (this._enhancerGgufPath) {
       params.lavasrEnhancerPath = this._enhancerGgufPath
     }
+    if (this._denoiserGgufPath) {
+      params.lavasrDenoiserPath = this._denoiserGgufPath
+    }
     // Speaking-rate multiplier (1.0 = unchanged, < 1 slower, > 1 faster).
     // Chatterbox has no native rate control, so the addon applies a
     // pitch-preserving WSOLA time-stretch post-synthesis; see
@@ -890,6 +940,9 @@ class TTSGgml {
     if (this._noiseNpyPath) params.noiseNpyPath = this._noiseNpyPath
     if (this._enhancerGgufPath) {
       params.lavasrEnhancerPath = this._enhancerGgufPath
+    }
+    if (this._denoiserGgufPath) {
+      params.lavasrDenoiserPath = this._denoiserGgufPath
     }
     if (this._backendsDir) params.backendsDir = this._backendsDir
     if (this._openclCacheDir) params.openclCacheDir = this._openclCacheDir
