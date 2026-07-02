@@ -160,12 +160,10 @@ struct ChatterboxConfig {
   // LavaSR neural speech denoiser (UL-UNAS). A non-empty `denoiserGgufPath` is
   // the single switch: when set, the synthesized PCM is denoised BEFORE the
   // enhancer (rate-preserving); empty disables it (full backward compat).
-  //
-  // SCAFFOLD: tts-cpp's Denoiser::load() throws "not yet implemented" until the
-  // UL-UNAS forward lands (qvac-ext-lib-whisper.cpp PR #76 shipped only the
-  // structure/API), so a non-empty path currently fails at load. Native chunk
-  // streaming (streamChunkTokens > 0) with a denoiser is rejected up front (a
-  // stateful streaming denoiser is the follow-up) — batch only for now.
+  // The tts-cpp UL-UNAS forward is implemented in qvac-ext-lib-whisper.cpp PR
+  // #78; a non-empty path activates it once the pinned tts-cpp includes #78.
+  // Native chunk streaming (streamChunkTokens > 0) with a denoiser is rejected
+  // up front (a stateful streaming denoiser is the follow-up) — batch only.
   std::string denoiserGgufPath;
 };
 

@@ -119,8 +119,8 @@ function normalizeGgmlFiles (files) {
     // enhancer (rate-preserving), produced by
     // tts-cpp/scripts/convert-lavasr-denoiser-to-gguf.py. One canonical key
     // (the alternative is denoiser.denoiserPath on the options object).
-    // SCAFFOLD: the tts-cpp denoiser forward is not implemented yet (PR #76),
-    // so supplying this path currently fails at load with "not yet implemented".
+    // The tts-cpp UL-UNAS forward is implemented in qvac-ext-lib-whisper.cpp
+    // PR #78; a provided path activates once the pinned tts-cpp includes it.
     lavasrDenoiser: firstNonEmpty(f.lavasrDenoiser),
     // Directory of the compiled MeCab/IPAdic dictionary (Japanese) and
     // the Cangjie TSV (Chinese).  The host resolves/stages these (e.g.
@@ -401,11 +401,10 @@ class TTSGgml {
     // GGUF path — via files.lavasrDenoiser or denoiser.denoiserPath — so there
     // is no separate on/off flag. A provided `denoiser` block must use the
     // supported type so a typo can't silently disable it.
-    // SCAFFOLD: the tts-cpp UL-UNAS denoiser forward is not implemented yet
-    // (qvac-ext-lib-whisper.cpp PR #76 landed only the structure/API), so
-    // supplying a denoiser path currently fails at load with a clear
-    // "not yet implemented" error. The wiring is in place so the feature turns
-    // on with just a tts-cpp bump once the forward lands.
+    // The tts-cpp UL-UNAS denoiser forward is implemented in
+    // qvac-ext-lib-whisper.cpp PR #78 (scalar CPU port, validated bit-close to
+    // the ONNX reference); a supplied denoiser path activates at runtime once
+    // the pinned tts-cpp version includes #78.
     if (denoiser != null && denoiser.type !== 'lavasr') {
       throw new Error(
         `tts-ggml: unknown denoiser.type '${denoiser.type}', expected 'lavasr'.`

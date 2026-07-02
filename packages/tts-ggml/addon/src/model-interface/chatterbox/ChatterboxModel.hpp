@@ -145,9 +145,9 @@ private:
   std::shared_ptr<tts_cpp::lavasr::Enhancer> enhancer_;
   // LavaSR denoiser (QVAC-16579 follow-up): runs before the enhancer
   // (rate-preserving); loaded when cfg_.denoiserGgufPath is set; null disables
-  // it. SCAFFOLD — the tts-cpp forward is unimplemented, so load() throws, and
-  // denoiser + native chunk streaming is rejected in validateConfig (batch
-  // only for now).
+  // it. The tts-cpp UL-UNAS forward is implemented in qvac-ext-lib-whisper.cpp
+  // PR #78; denoiser + native chunk streaming is rejected in validateConfig
+  // (batch only — a stateful streaming denoiser is the follow-up).
   std::shared_ptr<tts_cpp::lavasr::Denoiser> denoiser_;
 
   // Rejects concurrent `process()` invocations; the outer JobRunner also

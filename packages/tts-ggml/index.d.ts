@@ -39,10 +39,9 @@ declare interface TTSGgmlFiles {
    * enhancer and is rate-preserving (the canonical way to enable denoising;
    * `denoiser.denoiserPath` is the only alternative).
    *
-   * SCAFFOLD: the tts-cpp denoiser forward is not implemented yet
-   * (qvac-ext-lib-whisper.cpp PR #76 landed only the structure/API), so
-   * supplying this path currently fails at load with "not yet implemented".
-   * The wiring is in place so it turns on with just a tts-cpp bump.
+   * The tts-cpp UL-UNAS forward is implemented in qvac-ext-lib-whisper.cpp
+   * PR #78 (scalar CPU port, validated bit-close to the ONNX reference); it
+   * activates at runtime once the pinned tts-cpp version includes #78.
    */
   lavasrDenoiser?: string
   /** Optional directory containing baked Chatterbox voice profiles. */
@@ -99,9 +98,9 @@ declare interface LavaSREnhancerOptions {
  * no separate on/off flag. The denoiser runs BEFORE the enhancer and preserves
  * the sample rate.
  *
- * SCAFFOLD: the tts-cpp denoiser forward is not implemented yet (PR #76 landed
- * only the structure/API), so supplying a path currently fails at load with
- * "not yet implemented"; not supported with Chatterbox native chunk streaming.
+ * The tts-cpp UL-UNAS forward is implemented in qvac-ext-lib-whisper.cpp PR #78
+ * (activates once the pinned tts-cpp includes it). Not supported with Chatterbox
+ * native chunk streaming (a stateful streaming denoiser is the follow-up).
  */
 declare interface LavaSRDenoiserOptions {
   type: 'lavasr'
@@ -171,12 +170,10 @@ declare interface TTSGgmlOptions {
    * providing a GGUF path (here via `denoiserPath` or through
    * `files.lavasrDenoiser`).
    *
-   * SCAFFOLD: the tts-cpp denoiser forward is not implemented yet
-   * (qvac-ext-lib-whisper.cpp PR #76 landed only the structure/API), so
-   * supplying a path currently fails at load with "not yet implemented", and
-   * it is rejected with Chatterbox native chunk streaming (a stateful streaming
-   * denoiser is the follow-up). The wiring is in place so the feature turns on
-   * with just a tts-cpp bump once the forward lands.
+   * The tts-cpp UL-UNAS forward is implemented in qvac-ext-lib-whisper.cpp
+   * PR #78 (validated bit-close to the ONNX reference); it activates at runtime
+   * once the pinned tts-cpp version includes #78. It is rejected with Chatterbox
+   * native chunk streaming (a stateful streaming denoiser is the follow-up).
    */
   denoiser?: LavaSRDenoiserOptions
   /** Directory the addon scans for dynamically-loaded ggml backends */

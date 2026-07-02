@@ -206,8 +206,9 @@ void SupertonicModel::loadLocked() {
   }
 
   // LavaSR denoiser: load when a GGUF path is set (runs before the enhancer).
-  // SCAFFOLD — tts-cpp Denoiser::load throws until the UL-UNAS forward lands
-  // (PR #76), surfacing here as a clean InitializationFailed error.
+  // The UL-UNAS forward is implemented in qvac-ext-lib-whisper.cpp PR #78; an
+  // older tts-cpp pin (pre-#78) makes Denoiser::load throw, surfacing here as a
+  // clean InitializationFailed error.
   if (!cfg_.denoiserGgufPath.empty()) {
     try {
       denoiser_ = tts_cpp::lavasr::Denoiser::load(cfg_.denoiserGgufPath);
@@ -269,9 +270,9 @@ SupertonicModel::Output SupertonicModel::synthesize(const std::string& text) {
   }
 
   // LavaSR neural denoiser (opt-in). Runs BEFORE the enhancer and preserves the
-  // sample rate (cleans the signal, no rate change). SCAFFOLD — Denoiser::load
-  // throws at load until the UL-UNAS forward lands (PR #76), so this only runs
-  // once the tts-cpp core is implemented; the wiring is in place now.
+  // sample rate (cleans the signal, no rate change). The UL-UNAS forward is
+  // implemented in qvac-ext-lib-whisper.cpp PR #78; this runs whenever a
+  // denoiser was loaded (i.e. the pinned tts-cpp includes #78).
   if (denoiser) {
     try {
       result.pcm = denoiser->denoise(result.pcm, result.sample_rate);

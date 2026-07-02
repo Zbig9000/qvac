@@ -134,8 +134,8 @@ chatterbox::ChatterboxConfig JSAdapter::buildChatterboxConfig(
   cfg.enhancerGgufPath =
       readOptionalString(configurationParams, env, "lavasrEnhancerPath");
   // LavaSR neural denoiser (runs before the enhancer): a non-empty GGUF path
-  // turns it on. SCAFFOLD — tts-cpp Denoiser::load throws until the UL-UNAS
-  // forward lands (PR #76), so a provided path currently errors at load.
+  // turns it on. The tts-cpp UL-UNAS forward is implemented in
+  // qvac-ext-lib-whisper.cpp PR #78 (activates once the pinned tts-cpp has it).
   cfg.denoiserGgufPath =
       readOptionalString(configurationParams, env, "lavasrDenoiserPath");
   return cfg;
@@ -164,8 +164,8 @@ supertonic::SupertonicConfig JSAdapter::buildSupertonicConfig(
   cfg.enhancerGgufPath =
       readOptionalString(configurationParams, env, "lavasrEnhancerPath");
   // LavaSR neural denoiser (runs before the enhancer): a non-empty GGUF path
-  // turns it on. SCAFFOLD — tts-cpp Denoiser::load throws until the UL-UNAS
-  // forward lands (PR #76), so a provided path currently errors at load.
+  // turns it on. The tts-cpp UL-UNAS forward is implemented in
+  // qvac-ext-lib-whisper.cpp PR #78 (activates once the pinned tts-cpp has it).
   cfg.denoiserGgufPath =
       readOptionalString(configurationParams, env, "lavasrDenoiserPath");
   return cfg;

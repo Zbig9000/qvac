@@ -247,11 +247,11 @@ Notes:
   is 48 kHz; set `config.outputSampleRate` to resample the enhanced output to a
   different rate (`TTSOutputChunk.sampleRate` reports the actual rate).
 
-### Denoiser (scaffold)
+### Denoiser
 
 LavaSR's first stage — the UL-UNAS **denoiser**, which cleans the signal before
-the enhancer bandwidth-extends it — is wired through the addon as a scaffold. It
-is enabled the same way as the enhancer, via `files.lavasrDenoiser` (or a
+the enhancer bandwidth-extends it — is wired through the addon. It is enabled the
+same way as the enhancer, via `files.lavasrDenoiser` (or a
 `denoiser: { type: 'lavasr', denoiserPath }` block), and runs before the
 enhancer (rate-preserving) on the batch path for both engines:
 
@@ -267,14 +267,27 @@ const model = new TTSGgml({
 })
 ```
 
-The **tts-cpp denoiser forward is not implemented yet** (`tts_cpp::lavasr::Denoiser`,
-qvac-ext-lib-whisper.cpp PR #76 shipped only the structure/API +
-`scripts/convert-lavasr-denoiser-to-gguf.py` skeleton), so supplying a denoiser
-GGUF currently fails at load with a clear *"not yet implemented"* error; with no
-denoiser path the output is unchanged. Denoiser + Chatterbox native chunk
-streaming is rejected up front (a stateful streaming denoiser is the follow-up).
-The wiring is in place so the feature turns on with just a `tts-cpp` bump once
-the forward lands.
+Convert the GGUF from the public [LavaSRcpp](https://github.com/Topping1/LavaSRcpp)
+ONNX release:
+
+```bash
+python scripts/convert-lavasr-denoiser-to-gguf.py \
+  --denoiser denoiser_core_legacy_fixed63.onnx \
+  --out models/lavasr/lavasr-denoiser.gguf --ftype f16   # or f32
+```
+
+Notes:
+
+- The UL-UNAS forward runs at 16 kHz internally (resampled in/out), so the
+  denoiser is **rate-preserving**: the emitted audio keeps the engine's sample
+  rate. With no denoiser path the output is unchanged (full backward compat).
+- Denoiser + Chatterbox native chunk streaming (`streamChunkTokens > 0`) is
+  rejected up front — a stateful streaming denoiser is the follow-up. Use batch
+  synthesis, or drop the denoiser for streaming.
+- The tts-cpp UL-UNAS forward is implemented in
+  [qvac-ext-lib-whisper.cpp#78](https://github.com/tetherto/qvac-ext-lib-whisper.cpp/pull/78)
+  (scalar CPU port, validated bit-close to the ONNX reference). It activates at
+  runtime once the `tts-cpp` pin is bumped to a version that includes #78.
 
 ## Backends & GPU acceleration
 

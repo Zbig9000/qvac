@@ -296,11 +296,11 @@ test('Chatterbox: enhancer + streamChunkTokens forwards both (streaming enhancem
   t.is(params.lavasrEnhancerPath, '/abs/enh.gguf', 'enhancer path forwarded alongside streaming')
 })
 
-// === LavaSR denoiser param forwarding (SCAFFOLD wiring) ===
+// === LavaSR denoiser param forwarding ===
 // The denoiser mirrors the enhancer: enabled purely by the presence of a GGUF
-// path, runs before the enhancer. The tts-cpp forward is not implemented yet
-// (PR #76), so at runtime a provided path errors at load — but the JS wiring
-// (path forwarding + validation) is exercised here without any model.
+// path, runs before the enhancer. The tts-cpp UL-UNAS forward is implemented in
+// qvac-ext-lib-whisper.cpp PR #78; these tests exercise the JS wiring (path
+// forwarding + validation) without loading a model.
 
 test('Chatterbox: files.lavasrDenoiser forwards lavasrDenoiserPath', (t) => {
   const files = {

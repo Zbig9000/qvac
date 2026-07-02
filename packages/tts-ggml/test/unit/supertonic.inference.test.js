@@ -286,11 +286,11 @@ test('Supertonic: no enhancer -> no enhancer params (backward compat)', (t) => {
   t.absent(params.enhance, 'no enhance flag when enhancer absent')
 })
 
-// === LavaSR denoiser param forwarding (SCAFFOLD wiring) ===
+// === LavaSR denoiser param forwarding ===
 // Mirrors the enhancer: enabled purely by a GGUF path, runs before the
-// enhancer, rate-preserving. The tts-cpp forward is not implemented yet
-// (PR #76), so at runtime a provided path errors at load — the JS wiring
-// (forwarding + validation) is what's exercised here.
+// enhancer, rate-preserving. The tts-cpp UL-UNAS forward is implemented in
+// qvac-ext-lib-whisper.cpp PR #78; these tests exercise the JS wiring
+// (path forwarding + validation) without loading a model.
 
 test('Supertonic: files.lavasrDenoiser forwards lavasrDenoiserPath', (t) => {
   const model = createMockedSupertonicModel({

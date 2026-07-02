@@ -352,8 +352,9 @@ void ChatterboxModel::loadLocked() {
   }
 
   // LavaSR denoiser: load when a GGUF path is set (runs before the enhancer).
-  // SCAFFOLD — tts-cpp Denoiser::load throws until the UL-UNAS forward lands
-  // (PR #76), surfacing here as a clean InitializationFailed error.
+  // The UL-UNAS forward is implemented in qvac-ext-lib-whisper.cpp PR #78; an
+  // older tts-cpp pin (pre-#78) makes Denoiser::load throw, surfacing here as a
+  // clean InitializationFailed error.
   if (!cfg_.denoiserGgufPath.empty()) {
     try {
       denoiser_ = tts_cpp::lavasr::Denoiser::load(cfg_.denoiserGgufPath);
@@ -531,8 +532,8 @@ ChatterboxModel::SynthesizeResult ChatterboxModel::synthesize(
   // LavaSR neural denoiser (batch path). Runs BEFORE the enhancer and preserves
   // the sample rate. Streaming + denoiser is rejected in validateConfig (a
   // stateful streaming denoiser is the follow-up), so this only applies on the
-  // batch path. SCAFFOLD — Denoiser::load throws at load until the UL-UNAS
-  // forward lands (PR #76), so this only runs once the tts-cpp core exists.
+  // batch path. The UL-UNAS forward is implemented in qvac-ext-lib-whisper.cpp
+  // PR #78; this runs whenever a denoiser was loaded.
   if (!wasStreaming && denoiser) {
     try {
       result.pcm = denoiser->denoise(result.pcm, result.sample_rate);
