@@ -286,8 +286,8 @@ Notes:
   synthesis, or drop the denoiser for streaming.
 - The tts-cpp UL-UNAS forward is implemented in
   [qvac-ext-lib-whisper.cpp#78](https://github.com/tetherto/qvac-ext-lib-whisper.cpp/pull/78)
-  (scalar CPU port, validated bit-close to the ONNX reference). It activates at
-  runtime once the `tts-cpp` pin is bumped to a version that includes #78.
+  (scalar CPU port, validated bit-close to the ONNX reference) and is active as of
+  the `tts-cpp` pin `2026-07-03#1` (this package's `vcpkg.json`).
 
 ## Backends & GPU acceleration
 

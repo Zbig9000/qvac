@@ -58,8 +58,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   validated bit-close to the ONNX reference). With no denoiser path, output is
   byte-identical (full backward compat). Denoiser + Chatterbox native chunk
   streaming (`streamChunkTokens`) is rejected up front — a stateful streaming
-  denoiser is the follow-up. Requires a `tts-cpp` pin (qvac-registry-vcpkg) that
-  includes PR #78; the feature activates at runtime with that version bump.
+  denoiser is the follow-up. Active as of the `tts-cpp` pin bump to
+  `2026-07-03#1` (qvac-registry-vcpkg), which ships the PR #78 UL-UNAS forward.
 
 - **Selectable output sample rate.** `outputSampleRate` (8000–192000 Hz,
   runtime config) now resamples the synthesized audio to the requested rate,
