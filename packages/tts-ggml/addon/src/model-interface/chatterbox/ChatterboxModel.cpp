@@ -201,13 +201,13 @@ void ChatterboxModel::validateConfig(const ChatterboxConfig& cfg) {
   // stateful streaming denoiser (à la StreamingEnhancer) is the follow-up.
   // Reject the combo up front rather than silently dropping denoising on the
   // streaming path. Defense-in-depth: index.js rejects it before we get here.
-  if (!cfg.denoiserGgufPath.empty() &&
-      cfg.streamChunkTokens.value_or(0) > 0) {
+  if (!cfg.denoiserGgufPath.empty() && cfg.streamChunkTokens.value_or(0) > 0) {
     throw StatusError(
         general_error::InvalidArgument,
         "ChatterboxModel: the LavaSR denoiser is not yet supported with native "
         "chunk streaming (streamChunkTokens > 0). Use batch synthesis, or drop "
-        "the denoiser for streaming (streaming denoise is a planned follow-up).");
+        "the denoiser for streaming (streaming denoise is a planned "
+        "follow-up).");
   }
   if (cfg.useGpu.has_value() && cfg.nGpuLayers.has_value()) {
     const bool wantsGpu = *cfg.useGpu;
