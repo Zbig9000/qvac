@@ -136,9 +136,8 @@ struct ChatterboxConfig {
    *                   kanji degrade to [UNK].
    *
    *   cangjieTsvPath: Cangjie hanzi->code TSV used for Chinese ("zh").
-   *                   zh is currently excluded from the multilingual
-   *                   tokenizer's supported_languages(), so this stays
-   *                   wired but unused until the Cangjie path is reworked.
+   *                   Required for "zh"; when empty tts-cpp throws at load
+   *                   time asking for the Cangjie5_TC TSV.
    *
    * Empty -> leave the corresponding EngineOptions field empty.
    */
