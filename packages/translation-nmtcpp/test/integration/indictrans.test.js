@@ -40,7 +40,7 @@
 // though zero translation actually happened. By exiting 1 here we make
 // "model download failed → no measurement" loud at every level (Bare
 // → Device Farm → GHA), so CI fails RED whenever the test couldn't run
-// instead of silently lying about it. See PR #1792 / QVAC-16488 thread
+// instead of silently lying about it. See PR #1792 / thread
 // for the full debugging trail.
 let _indictransUnhandledRejection = null
 if (typeof Bare !== 'undefined' && Bare.on) {
@@ -341,7 +341,7 @@ test('IndicTrans backend [CPU] - English to Hindi translation', { timeout: TEST_
 })
 
 // --------------------------------------------------------------------------
-// Synthetic platform [GPU] row — always runs on DESKTOP only (QVAC-17837)
+// Synthetic platform [GPU] row — always runs on DESKTOP only
 //
 // The per-device tests above self-skip when discoverGpuDevices() returns
 // empty, which is the desktop reality on the 4 hosted Linux runners today
@@ -354,7 +354,7 @@ test('IndicTrans backend [CPU] - English to Hindi translation', { timeout: TEST_
 //   - tags execution_provider as 'cpu (fallback)' when GPU didn't resolve,
 //     and as the real backend tag (vulkan/metal/opencl/...) when it did.
 //
-// Once Ian's GPU loader fix lands per platform (QVAC-17640 / QVAC-17880),
+// Once Ian's GPU loader fix lands per platform,
 // the same row's EP automatically flips from 'cpu (fallback)' to the real
 // backend without further CI wiring.
 //
@@ -523,7 +523,7 @@ test('IndicTrans backend comparison [Vulkan vs OpenCL]', { timeout: TEST_TIMEOUT
 })
 
 // ===========================================================================
-// Standalone IndicTrans coverage (QVAC-19836)
+// Standalone IndicTrans coverage
 //
 // The addon tests above cover EN->Hindi happy paths and CPU/GPU parity, but
 // the reverse direction, batch path, lifecycle reload, use-after-unload,

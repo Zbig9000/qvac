@@ -222,7 +222,7 @@ test('Bergamot backend [CPU] - English to Italian translation', { timeout: TEST_
 })
 
 // ===========================================================================
-// Standalone Bergamot coverage (QVAC-19836)
+// Standalone Bergamot coverage
 //
 // The pivot-bergamot suite already exercises batch, lifecycle, cancel and
 // use-after-unload, but only through the chained PivotTranslationModel — a

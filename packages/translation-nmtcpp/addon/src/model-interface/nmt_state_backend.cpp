@@ -377,7 +377,7 @@ static ggml_backend_t nmt_backend_init_gpu(const nmt_context_params& params) {
   //      device first; otherwise (and always as a fallback) pick any
   //      non-CPU device. When the guard is off, the fallback also
   //      skips OpenCL-named devices so Bergamot/IndicTrans on Adreno
-  //      830 don't hit the q4_0 transpose crash (QVAC-17790).
+  // 830 don't hit the q4_0 transpose crash.
   // Delegate to the shared selector so make_buft_list (in nmt_loader.cpp)
   // and this function agree on the same physical device — historical
   // drift between the two has caused scheduler crashes (R2-C1, R4-C2).
@@ -508,7 +508,7 @@ nmt_backend_init(const nmt_context_params& params) {
     if (nmtNameContainsCi(dev_name, "opencl")) {
       std::ostringstream oss;
       oss << "Skipping ACCEL device '" << (dev_name ? dev_name : "(null)")
-          << "' — OpenCL guard is off (QVAC-17790)";
+          << "' — OpenCL guard is off";
       QLOG(qvac_lib_inference_addon_cpp::logger::Priority::DEBUG, oss.str());
       continue;
     }

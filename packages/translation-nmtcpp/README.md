@@ -694,7 +694,7 @@ An explicit `config.gpu_backend: 'opencl'` always bypasses the `USE_OPENCL` guar
 
 | Flag | Default | Purpose |
 |------|---------|---------|
-| `USE_OPENCL` | `OFF` | When `ON`, the runtime selector prefers OpenCL over other non-CPU devices when `use_gpu` is true and `gpu_backend` is unset. Off by default because the Adreno 830 q4_0 transpose path in `ggml-opencl` aborts on NMT tensors whose second dimension isn't a multiple of 4 (see [QVAC-17790 root-cause analysis](./nmtcpp-android-opencl-crash.md)). Callers that still want OpenCL can opt in per model via `config.gpu_backend: 'opencl'` regardless of this flag. |
+| `USE_OPENCL` | `OFF` | When `ON`, the runtime selector prefers OpenCL over other non-CPU devices when `use_gpu` is true and `gpu_backend` is unset. Off by default because the Adreno 830 q4_0 transpose path in `ggml-opencl` aborts on NMT tensors whose second dimension isn't a multiple of 4 (see [root-cause analysis](./nmtcpp-android-opencl-crash.md)). Callers that still want OpenCL can opt in per model via `config.gpu_backend: 'opencl'` regardless of this flag. |
 
 ```bash
 # Default build (OpenCL not auto-selected)

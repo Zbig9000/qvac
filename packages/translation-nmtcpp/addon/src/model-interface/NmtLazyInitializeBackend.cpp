@@ -28,7 +28,7 @@ std::atomic<bool> NmtLazyInitializeBackend::g_backendsLoaded{false};
 // Forward ggml's internal log stream to QLOG so diagnostic lines
 // (Adreno detection, CL_CHECK errors, OpenCL driver info, etc.) reach
 // logcat on Android instead of silently going to stderr. Mirrors what
-// llama_log_set does in the llamacpp-llm addon. See QVAC-17790.
+// llama_log_set does in the llamacpp-llm addon.
 namespace {
 
 void nmtGgmlLogCallback(

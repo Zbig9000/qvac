@@ -11,6 +11,6 @@
     "src_lang": "hin_Deva",
     "dst_lang": "eng_Latn",
     "reference": "Hello, how are you?",
-    "notes": "validated 2026-06-01 (reverse direction, QVAC-19836)"
+    "notes": "validated 2026-06-01 (reverse direction)"
   }
 ]

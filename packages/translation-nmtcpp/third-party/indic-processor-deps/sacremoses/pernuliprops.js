@@ -13,7 +13,7 @@
  * NOT embed the file contents into the worker.bundle's virtual
  * filesystem, so `readFileSync` throws ENOENT and downstream Moses
  * tokenization silently degrades to empty Unicode tables. That
- * was the QVAC-16488 mobile IndicTrans regression.
+ * was the mobile IndicTrans regression.
  *
  * Switching to a plain `require('./data.js')` puts both platforms on
  * the most fundamental Bare module-resolution path, which works in

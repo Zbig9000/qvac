@@ -137,7 +137,7 @@ static buft_list_t make_buft_list(const nmt_context_params& params) {
   // tensor buffers live on the same device nmt_backend_init_gpu picks.
   // Repeated drift between this path and nmt_backend_init_gpu has been a
   // recurring source of scheduler crashes (R2-C1, R4-C2); the shared helper
-  // is the structural fix per QVAC-17790 round-8 R8-D1.
+  // is the structural fix per round-8 R8-D1.
   ggml_backend_dev_t selected_dev = nmtSelectGpuDevice(
       params.use_gpu, params.gpu_backend, params.gpu_device, "make_buft_list");
   if (selected_dev != nullptr) {

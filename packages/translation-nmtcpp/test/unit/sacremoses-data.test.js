@@ -1,7 +1,7 @@
 'use strict'
 
 /**
- * Regression test for QVAC-16488 — the Moses tokenizer's
+ * Regression test for the Moses tokenizer's
  * Unicode-property tables and nonbreaking-prefix lists must be
  * loadable on every platform.
  *
@@ -101,7 +101,7 @@ test('NonbreakingPrefixes: Hindi prefixes (the IndicTrans target language) are p
   const np = new NonbreakingPrefixes()
   const hiPrefixes = np.getWordsAsArray('hi')
   // Empty hi prefixes is exactly what was happening on mobile —
-  // the QVAC-16488 root cause. > 0 is enough to confirm the data
+  // the root cause. > 0 is enough to confirm the data
   // path works; the existing integration test's chrF++ assertion
   // is the quality guard.
   t.ok(hiPrefixes.length > 0, `hi nonbreaking prefixes must not be empty (got ${hiPrefixes.length})`)

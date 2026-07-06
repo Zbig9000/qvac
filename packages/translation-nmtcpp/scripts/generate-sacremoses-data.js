@@ -13,7 +13,7 @@
  * paths but does NOT embed the file contents into the worker.bundle's
  * virtual filesystem, so `readFileSync` throws `ENOENT` and the
  * Moses tokenizer silently falls back to empty Unicode tables.
- * That's the QVAC-16488 mobile IndicTrans regression.
+ * That's the mobile IndicTrans regression.
  *
  * The fix: bundle the data into a plain JS module. `require()` of a
  * relative .js file is the most fundamental Bare module-resolution
@@ -111,7 +111,7 @@ function renderModule (perluniprops, nonbreakingPrefixes) {
   lines.push('//')
   lines.push('// Inlined here (rather than read at runtime via `require.asset`)')
   lines.push('// because bare-pack --linked does not embed asset bytes into the')
-  lines.push('// mobile worker bundle. See QVAC-16488 for the full root cause.')
+  lines.push('// mobile worker bundle. See the full root cause.')
   lines.push('')
 
   lines.push('const perluniprops = {')
