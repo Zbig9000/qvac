@@ -133,7 +133,7 @@ test('OpenCL kernel cache populates on first load and persists (Android)', { tim
     // Soft-skip when OpenCL is not the active backend. This test exercises
     // OpenCL-specific plumbing (GGML_OPENCL_CACHE_DIR), which only applies
     // when the OpenCL backend is selected. Under the default USE_OPENCL=OFF
-    // build (Adreno 830 mitigation) the selector picks Vulkan on
+    // build (QVAC-17790 Adreno 830 mitigation) the selector picks Vulkan on
     // Android and the OpenCL cache dir stays empty by design. Callers that
     // want to exercise this path can set config.gpu_backend='opencl' (opt-in
     // bypass of the guard) once the upstream ggml fix for the q4_0 transpose

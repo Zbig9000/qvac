@@ -29,7 +29,7 @@ bool nmtNameContainsCi(const char* name, const std::string& needleLower);
 // init) and make_buft_list (for buffer-type assignment). Returning the same
 // dev pointer from one helper guarantees compute and tensor-buffer placement
 // agree — repeated drift between the two functions has been a maintenance
-// hazard across multiple review rounds (see round-8 R8-D1).
+// hazard across multiple review rounds (see QVAC-17790 round-8 R8-D1).
 //
 // `logPrefix` is used only for diagnostic WARN/DEBUG messages so each caller
 // can be identified in logcat (e.g. "[nmt_backend_init_gpu]" vs

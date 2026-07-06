@@ -159,7 +159,7 @@ try {
     ],
     'indictrans.quality.json': [
       { source: 'Hello, how are you?', src_lang: 'eng_Latn', dst_lang: 'hin_Deva', reference: 'नमस्ते, आप कैसे हैं?', notes: 'validated 2026-04-23 (formal register, आप)' },
-      { source: 'नमस्ते, आप कैसे हैं?', src_lang: 'hin_Deva', dst_lang: 'eng_Latn', reference: 'Hello, how are you?', notes: 'validated 2026-06-01 (reverse direction)' }
+      { source: 'नमस्ते, आप कैसे हैं?', src_lang: 'hin_Deva', dst_lang: 'eng_Latn', reference: 'Hello, how are you?', notes: 'validated 2026-06-01 (reverse direction, QVAC-19836)' }
     ],
     'pivot-bergamot.quality.json': [
       { source: 'Buenos días, ¿cómo estás hoy?', src_lang: 'es', dst_lang: 'it', reference: 'Buongiorno, come stai oggi?', notes: 'validated 2026-04-23 (informal register)' },
@@ -801,8 +801,8 @@ const CPU_SENTINEL_BACKENDS = new Set([
  *   reports `blas` in the EP column on macOS).
  * - `useGpu === true` + sentinel → `cpu (fallback)` to make it obvious in
  *   the Step Summary that the requested GPU backend wasn't available and
- *   the test ran on CPU. Once Ian's loader fix lands per platform,
- *   the same row auto-flips to the real backend
+ *   the test ran on CPU. Once Ian's loader fix lands per platform
+ *   (QVAC-17640 / QVAC-17880), the same row auto-flips to the real backend
  *   tag without further CI work.
  */
 function resolveExecutionProvider (backendName, useGpu) {

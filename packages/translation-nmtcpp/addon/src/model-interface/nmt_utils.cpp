@@ -129,7 +129,7 @@ nmtSelectGpuDevice( // NOLINT(readability-function-cognitive-complexity)
 #ifndef QVAC_NMTCPP_USE_OPENCL
     // OpenCL is opt-in via explicit gpu_backend even when the build-time
     // guard is off. Warn loudly because the guard exists specifically to
-    // mitigate the Adreno 830 q4_0 transpose abort; callers
+    // mitigate the Adreno 830 q4_0 transpose abort (QVAC-17790); callers
     // bypassing it must accept the risk.
     if (gpuBackendLower.find("opencl") != std::string::npos) {
       std::ostringstream oss;
