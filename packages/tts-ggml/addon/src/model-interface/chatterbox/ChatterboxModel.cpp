@@ -337,18 +337,26 @@ void ChatterboxModel::loadLocked() {
       (wantsGpu && backendDevice_ == 0 && androidOffAllowlistGpuPresent());
 
   // LavaSR enhancer: load when a GGUF path is set (the path is the on switch).
-  // CPU-only neural post-process; empty path = disabled.
+  // Neural post-process; empty path = disabled.  The ConvNeXt backbone + spec
+  // head run on the GPU when the engine does (Vulkan/Metal/CUDA/OpenCL), else
+  // on the scalar CPU core.
   if (!cfg_.enhancerGgufPath.empty()) {
+    tts_cpp::lavasr::EnhancerOptions enhOpts;
+    enhOpts.use_gpu = wantsGpu;
     try {
-      enhancer_ = tts_cpp::lavasr::Enhancer::load(cfg_.enhancerGgufPath);
+      enhancer_ = tts_cpp::lavasr::Enhancer::load(cfg_.enhancerGgufPath, enhOpts);
     } catch (const std::exception& e) {
       enhancer_.reset();
       throw createTTSError(
           TTSErrorCode::InitializationFailed,
           std::string("ChatterboxModel::load: lavasr enhancer: ") + e.what());
     }
+    enhancerBackendDevice_ = backendDeviceCode(enhancer_->backend_device());
+    enhancerBackendId_     = backendIdFromName(enhancer_->backend_name());
   } else {
     enhancer_.reset();
+    enhancerBackendDevice_ = -1;
+    enhancerBackendId_     = -1;
   }
 
   // LavaSR denoiser: load when a GGUF path is set (runs before the enhancer).
@@ -665,6 +673,10 @@ qvac_lib_inference_addon_cpp::RuntimeStats ChatterboxModel::runtimeStats() const
   stats.emplace_back("backendDevice", static_cast<int64_t>(backendDevice_));
   stats.emplace_back("backendId",     static_cast<int64_t>(backendId_));
   stats.emplace_back("gpuUnsupported", static_cast<int64_t>(gpuUnsupported_));
+  stats.emplace_back("enhancerBackendDevice",
+                     static_cast<int64_t>(enhancerBackendDevice_));
+  stats.emplace_back("enhancerBackendId",
+                     static_cast<int64_t>(enhancerBackendId_));
   return stats;
 }
 

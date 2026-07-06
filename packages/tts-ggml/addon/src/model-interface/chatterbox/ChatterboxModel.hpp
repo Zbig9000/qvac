@@ -167,6 +167,14 @@ private:
   bool gpuUnsupported_ = false;
   std::string backendName_ = "CPU";
 
+  // LavaSR enhancer backend, surfaced in runtimeStats so a host / GPU smoke
+  // test can confirm the enhancer network actually engaged the GPU (it uses the
+  // same useGPU/nGpuLayers switch as the engine).  -1 = no enhancer loaded;
+  // 0 = CPU scalar core; 1 = GPU.  The id mirrors backendId_
+  // (0=CPU,1=Metal,2=CUDA,3=Vulkan,4=OpenCL,99=other).
+  int enhancerBackendDevice_ = -1;
+  int enhancerBackendId_ = -1;
+
   mutable std::atomic_bool cancelRequested_{false};
 };
 
