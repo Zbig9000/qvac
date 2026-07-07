@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.34.0] - 2026-07-06
+
+### Changed
+
+- `qvac-fabric` dependency bumped `9341.1.3` → `9341.1.4` (Qwen3-VL grid selection rewrite + CPU CLIP vision-encoder weight repacking into the i8mm/AVX2 buffer, ~1807ms → ~1114ms CPU vision-encode on Pixel 9 Pro; no API change for this package).
+
+
 ## [0.33.0] - 2026-07-07
 
 This release extends reasoning-block KV compaction to hybrid and recurrent SSM models such as Qwen3.5. It also makes reasoning compaction the default behavior for reasoning-capable models, with stricter failure handling so callers do not accidentally continue from cache state that still contains internal thinking traces.
