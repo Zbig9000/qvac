@@ -225,9 +225,12 @@ test('Supertonic + LavaSR enhancer reports 48 kHz enhanced output', { timeout: 6
     t.ok(r.samples > 0, 'enhanced synthesis produced audio')
     // useGPU:false -> the enhancer runs on the ggml-CPU backend (a CPU device),
     // and the enhancer-specific backend stat must reflect that (0 = CPU, not
-    // -1 = unset; and not 1 = GPU).
-    if (r.stats) t.is(r.stats.enhancerBackendDevice, 0, 'useGPU:false -> enhancer on CPU (enhancerBackendDevice=0)')
-    if (r.stats) t.is(r.stats.enhancerBackendId, 0, 'useGPU:false -> enhancer backendId=0 (CPU)')
+    // -1 = unset; and not 1 = GPU).  The model was constructed with stats:true,
+    // so a missing stats object is itself a regression: assert it loudly instead
+    // of guarding (a guard would let a stats regression pass silently).
+    t.ok(r.stats, 'runtimeStats returned (constructed with stats:true)')
+    t.is(r.stats.enhancerBackendDevice, 0, 'useGPU:false -> enhancer on CPU (enhancerBackendDevice=0)')
+    t.is(r.stats.enhancerBackendId, 0, 'useGPU:false -> enhancer backendId=0 (CPU)')
   } finally {
     try { await model.unload() } catch (_e) {}
   }

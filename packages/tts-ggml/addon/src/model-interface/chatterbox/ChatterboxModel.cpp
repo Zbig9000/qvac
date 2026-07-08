@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <tts-cpp/chatterbox/engine.h>
@@ -17,6 +18,7 @@
 #include "addon/TTSErrors.hpp"
 #include "inference-addon-cpp/Errors.hpp"
 #include "model-interface/BackendUtils.hpp"
+#include "model-interface/EnhancerLoader.hpp"
 #include "model-interface/OutputResampler.hpp"
 #include "model-interface/StreamingEnhancer.hpp"
 #include "model-interface/chatterbox/TimeStretch.hpp"
@@ -336,32 +338,20 @@ void ChatterboxModel::loadLocked() {
       engine_->gpu_unsupported() ||
       (wantsGpu && backendDevice_ == 0 && androidOffAllowlistGpuPresent());
 
-  // LavaSR enhancer: load when a GGUF path is set (the path is the on switch).
-  // Neural post-process; empty path = disabled.  The ConvNeXt backbone + spec
-  // head run on the GPU when the engine does (Vulkan/Metal/CUDA/OpenCL), else
-  // on the scalar CPU core.
-  if (!cfg_.enhancerGgufPath.empty()) {
-    tts_cpp::lavasr::EnhancerOptions enhOpts;
-    // Track the engine's *resolved* device, not the requested switch: if the
-    // engine fell back to CPU (gpu_unsupported / off-allowlist), keep the
-    // enhancer on CPU too instead of forcing it onto the GPU.
-    enhOpts.use_gpu = (backendDevice_ == 1);
-    try {
-      enhancer_ =
-          tts_cpp::lavasr::Enhancer::load(cfg_.enhancerGgufPath, enhOpts);
-    } catch (const std::exception& e) {
-      enhancer_.reset();
-      throw createTTSError(
-          TTSErrorCode::InitializationFailed,
-          std::string("ChatterboxModel::load: lavasr enhancer: ") + e.what());
-    }
-    enhancerBackendDevice_ = backendDeviceCode(enhancer_->backend_device());
-    enhancerBackendId_ = backendIdFromName(enhancer_->backend_name());
-  } else {
-    enhancer_.reset();
-    enhancerBackendDevice_ = -1;
-    enhancerBackendId_ = -1;
-  }
+  // LavaSR enhancer: load when a GGUF path is set (empty path = disabled).
+  // Neural post-process; the ConvNeXt backbone + spec head run on the GPU when
+  // the engine does (Vulkan/Metal/CUDA/OpenCL), else on the scalar CPU core.
+  // Pass the engine's *resolved* device, not the requested switch: if the
+  // engine fell back to CPU (gpu_unsupported / off-allowlist), keep the
+  // enhancer on CPU too instead of forcing it onto the GPU. Shared with
+  // Supertonic via loadEnhancer so the two loaders can't drift.
+  LoadedEnhancer loaded = loadEnhancer(
+      cfg_.enhancerGgufPath,
+      backendDevice_ == kBackendDeviceGpu,
+      "ChatterboxModel::load: lavasr enhancer: ");
+  enhancer_ = std::move(loaded.enhancer);
+  enhancerBackendDevice_ = loaded.backendDevice;
+  enhancerBackendId_ = loaded.backendId;
 
   // LavaSR denoiser: load when a GGUF path is set (runs before the enhancer).
   // The UL-UNAS forward is implemented in qvac-ext-lib-whisper.cpp PR #78; an
