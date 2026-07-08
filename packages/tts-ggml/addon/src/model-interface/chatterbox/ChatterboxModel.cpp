@@ -344,7 +344,8 @@ void ChatterboxModel::loadLocked() {
     tts_cpp::lavasr::EnhancerOptions enhOpts;
     enhOpts.use_gpu = wantsGpu;
     try {
-      enhancer_ = tts_cpp::lavasr::Enhancer::load(cfg_.enhancerGgufPath, enhOpts);
+      enhancer_ =
+          tts_cpp::lavasr::Enhancer::load(cfg_.enhancerGgufPath, enhOpts);
     } catch (const std::exception& e) {
       enhancer_.reset();
       throw createTTSError(
@@ -352,11 +353,11 @@ void ChatterboxModel::loadLocked() {
           std::string("ChatterboxModel::load: lavasr enhancer: ") + e.what());
     }
     enhancerBackendDevice_ = backendDeviceCode(enhancer_->backend_device());
-    enhancerBackendId_     = backendIdFromName(enhancer_->backend_name());
+    enhancerBackendId_ = backendIdFromName(enhancer_->backend_name());
   } else {
     enhancer_.reset();
     enhancerBackendDevice_ = -1;
-    enhancerBackendId_     = -1;
+    enhancerBackendId_ = -1;
   }
 
   // LavaSR denoiser: load when a GGUF path is set (runs before the enhancer).
@@ -673,10 +674,10 @@ qvac_lib_inference_addon_cpp::RuntimeStats ChatterboxModel::runtimeStats() const
   stats.emplace_back("backendDevice", static_cast<int64_t>(backendDevice_));
   stats.emplace_back("backendId",     static_cast<int64_t>(backendId_));
   stats.emplace_back("gpuUnsupported", static_cast<int64_t>(gpuUnsupported_));
-  stats.emplace_back("enhancerBackendDevice",
-                     static_cast<int64_t>(enhancerBackendDevice_));
-  stats.emplace_back("enhancerBackendId",
-                     static_cast<int64_t>(enhancerBackendId_));
+  stats.emplace_back(
+      "enhancerBackendDevice", static_cast<int64_t>(enhancerBackendDevice_));
+  stats.emplace_back(
+      "enhancerBackendId", static_cast<int64_t>(enhancerBackendId_));
   return stats;
 }
 
