@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] - 2026-07-08
+
+### Added
+
+- **LavaSR enhancer GPU acceleration.** The enhancer's ConvNeXt backbone + ISTFT
+  spectral head now run through a ggml compute graph, so the 48 kHz
+  bandwidth-extension executes on the GPU whenever the model is constructed with
+  the GPU enabled (the same `useGPU` / `nGpuLayers` config the engine already
+  honors) — Vulkan on Windows/Linux, with the graph written to be Metal-ready for
+  macOS/iOS. Off the GPU the graph runs on the ggml-CPU backend (materially
+  faster than the previous scalar core), and the scalar core is retained as the
+  correctness oracle and fallback. The companion denoiser continues to run on the
+  CPU (its recurrent architecture doesn't map efficiently to a ggml GPU graph).
+  Bumps the `tts-cpp` requirement to `2026-07-07#1` (qvac-ext-lib-whisper.cpp
+  PR #82); the `vulkan` feature already pulls the GPU-enabled `tts-cpp`.
+- **Enhancer backend surfaced in `runtimeStats()`.** Both the Chatterbox and
+  Supertonic models now report `enhancerBackendDevice` (`-1` none / `0` CPU /
+  `1` GPU) and `enhancerBackendId` (the ggml backend id, mirroring the engine's
+  `backendId`, e.g. `3` for Vulkan), so hosts can confirm where the enhancer
+  actually ran.
+
 ## [0.4.2] - 2026-07-08
 
 ### Fixed
