@@ -17,6 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Supertonic models now report `enhancerBackendDevice` (`-1` none / `0` CPU /
   `1` GPU) and `enhancerBackendId` (the ggml backend id, e.g. `3` for Vulkan),
   so hosts can confirm where the enhancer actually ran.
+- **Quantized LavaSR enhancer GGUFs (`q8_0` / `q5_0` / `q4_0`).**
+  `convert-lavasr-enhancer-to-gguf.py --ftype` now accepts the block-quant tiers
+  in addition to `f32`/`f16`, block-quantizing only the large ConvNeXt
+  `pwconv1`/`pwconv2` and spec-head matmul weights via the shared
+  `should_quantize` policy (so it can't drift from `requantize-gguf.py`). The
+  loader dequantizes to F32 at load (dequant-at-load), so the forward math is
+  unchanged — `q4_0` is ~15 % of the F32 GGUF (8.5 MB vs 55.9 MB) and `q8_0` is
+  near-lossless at ~half the F16 size. Covered by the new always-on
+  `test-lavasr-enhancer-quant` unit test (QVAC-21906).
 
 ## [0.4.2] - 2026-07-08
 

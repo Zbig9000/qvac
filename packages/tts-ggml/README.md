@@ -231,8 +231,39 @@ public [LavaSRcpp](https://github.com/Topping1/LavaSRcpp) ONNX release:
 ```bash
 python scripts/convert-lavasr-enhancer-to-gguf.py \
   --backbone enhancer_backbone.onnx --spec-head enhancer_spec_head.onnx \
-  --out models/lavasr/lavasr-enhancer.gguf --ftype f16   # or f32
+  --out models/lavasr/lavasr-enhancer.gguf \
+  --ftype f16   # f32 | f16 | q8_0 | q5_0 | q4_0
 ```
+
+#### Quantization
+
+`--ftype` accepts `f32`, `f16` and the block-quant tiers `q8_0` / `q5_0` /
+`q4_0`. Only the enhancer supports quantization (the denoiser is already
+<1 MB). Quantization is **dequant-at-load**: the block-quant tiers shrink the
+*file on disk*, but `enhancer_gguf.cpp` dequantizes every tensor back to F32 in
+RAM, so the CPU/GGML forward math is byte-for-byte the same code path as F32 —
+there is no quantized-kernel graph to maintain. Only the 17 large 2-D matmul
+weights (the 8 ConvNeXt blocks' `pwconv1`/`pwconv2` and the spec-head `Linear`,
+~97 % of the parameters) are block-quantized; they route through the same
+`should_quantize` policy `requantize-gguf.py` uses, so the one-step converter
+and the requantizer can't drift. The K=7 conv kernels (not block-aligned) stay
+F16, and all LayerNorm scales, biases and per-block layer-scale `gamma` stay
+F32.
+
+| `--ftype` | GGUF size | vs F32 | vs F16 | fidelity vs F32 (cosine, real/imag) |
+| --------- | --------- | ------ | ------ | ----------------------------------- |
+| `f32`     | 55.9 MB   | 100 %  | 200 %  | 1.0 / 1.0 (baseline)                |
+| `f16`     | 28.1 MB   | 50 %   | 100 %  | ≈1.0 / ≈1.0                         |
+| `q8_0`    | 15.3 MB   | 27 %   | 54 %   | ≈0.9996 / ≈0.9994 (near-lossless)   |
+| `q4_0`    | 8.5 MB    | 15 %   | 30 %   | ≈0.90 / ≈0.88                       |
+
+(Sizes are exact for the current enhancer; f32/f16 GGUFs are byte-identical to
+the published registry artifacts. Fidelity is a synthetic-input sanity check —
+cosine similarity of the real/imag spectra vs the F32 GGUF, measured end-to-end
+mel → backbone → spec head. `q8_0` is effectively lossless at ~half the F16
+size; `q4_0` is the smallest and preserves the spectral shape but is the least
+faithful; `q5_0` sits between the two.) The GGUF-load round-trip is covered by
+the always-on `test-lavasr-enhancer-quant` C++ unit test.
 
 Notes:
 
