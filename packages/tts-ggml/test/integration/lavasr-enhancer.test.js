@@ -227,6 +227,7 @@ test('Supertonic + LavaSR enhancer reports 48 kHz enhanced output', { timeout: 6
     // and the enhancer-specific backend stat must reflect that (0 = CPU, not
     // -1 = unset; and not 1 = GPU).
     if (r.stats) t.is(r.stats.enhancerBackendDevice, 0, 'useGPU:false -> enhancer on CPU (enhancerBackendDevice=0)')
+    if (r.stats) t.is(r.stats.enhancerBackendId, 0, 'useGPU:false -> enhancer backendId=0 (CPU)')
   } finally {
     try { await model.unload() } catch (_e) {}
   }

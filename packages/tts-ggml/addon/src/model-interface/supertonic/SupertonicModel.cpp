@@ -195,11 +195,11 @@ void SupertonicModel::loadLocked() {
   // head run on the GPU when the engine does (Vulkan/Metal/CUDA/OpenCL), else
   // on the scalar CPU core.
   if (!cfg_.enhancerGgufPath.empty()) {
-    const bool wantsGpu = cfg_.nGpuLayers.has_value()
-                              ? (*cfg_.nGpuLayers != 0)
-                              : cfg_.useGpu.value_or(false);
     tts_cpp::lavasr::EnhancerOptions enhOpts;
-    enhOpts.use_gpu = wantsGpu;
+    // Track the engine's *resolved* device, not the requested switch: if the
+    // engine fell back to CPU, keep the enhancer on CPU too instead of forcing
+    // it onto the GPU.
+    enhOpts.use_gpu = (backendDevice_ == 1);
     try {
       enhancer_ =
           tts_cpp::lavasr::Enhancer::load(cfg_.enhancerGgufPath, enhOpts);

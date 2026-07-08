@@ -342,7 +342,10 @@ void ChatterboxModel::loadLocked() {
   // on the scalar CPU core.
   if (!cfg_.enhancerGgufPath.empty()) {
     tts_cpp::lavasr::EnhancerOptions enhOpts;
-    enhOpts.use_gpu = wantsGpu;
+    // Track the engine's *resolved* device, not the requested switch: if the
+    // engine fell back to CPU (gpu_unsupported / off-allowlist), keep the
+    // enhancer on CPU too instead of forcing it onto the GPU.
+    enhOpts.use_gpu = (backendDevice_ == 1);
     try {
       enhancer_ =
           tts_cpp::lavasr::Enhancer::load(cfg_.enhancerGgufPath, enhOpts);
