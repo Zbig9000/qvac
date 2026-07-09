@@ -28,8 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     encoder never read. Removes the now-dead encoder-begin callback plumbing.
   - Net: Vulkan end-to-end wall time drops ~9.75× (237 ms → 24 ms on an RTX 5090;
     now 6.2× faster than CPU) with byte-identical transcription output (WER
-    unchanged at 6.00%). Adds two bit-level correctness GTests (the projection
-    test runs enough timesteps to exercise the threaded band split).
+    unchanged at 6.00%). Regression coverage: two bit-level correctness GTests
+    (the projection test runs enough timesteps to exercise the threaded band
+    split) plus a Vulkan-desktop end-to-end WER regression test that pins every
+    fixture to its recorded good result on the `use_gpu=true` path.
 
 ## [0.4.1] - 2026-07-03
 
