@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-07-09
+
+### Changed
+
+- Optimized desktop BCI inference (QVAC-21702). Three behaviour- and
+  API-preserving changes to the native preprocessing + whisper hand-off:
+  - `NeuralProcessor::applyDayProjection` — reordered the `T×nf×nf` day/month
+    projection matmul so the reduction dimension is the outer loop and the inner
+    loop walks the weight matrix and output contiguously. The previous order
+    strode the weights by `nf` floats per step (cache-hostile, unvectorizable)
+    and dominated the whole pipeline (~200 ms for T=910, nf=512); the reordered
+    loop auto-vectorizes (~17× faster at `-O3`).
+  - `NeuralProcessor::gaussianSmooth` — accumulate channel-contiguously so the
+    innermost loop is unit-stride and vectorizes.
+  - `BCIModel::process` — inject the neural mel up-front with `whisper_set_mel`
+    and call `whisper_full(..., n_samples=0)`, skipping the redundant ~13 ms
+    512-bin STFT that whisper otherwise computed over 30 s of dummy silence the
+    encoder never read. Removes the now-dead encoder-begin callback plumbing.
+  - Net: Vulkan end-to-end wall time drops ~6.8× (237 ms → 35 ms on an RTX 5090;
+    now 4.5× faster than CPU) with byte-identical transcription output (WER
+    unchanged at 6.00%). Adds two bit-level reorder-correctness GTests.
+
 ## [0.4.1] - 2026-07-03
 
 ### Fixed
