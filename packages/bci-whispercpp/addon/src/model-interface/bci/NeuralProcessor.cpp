@@ -5,6 +5,8 @@
 #include <cstring>
 #include <fstream>
 #include <stdexcept>
+#include <thread>
+#include <vector>
 
 #include "addon/BCIErrors.hpp"
 #include "inference-addon-cpp/Logger.hpp"
@@ -14,6 +16,40 @@ namespace qvac_lib_inference_addon_bci {
 namespace {
 constexpr size_t K_HEADER_BYTES = 8;
 constexpr uint32_t K_EMBEDDER_MAGIC = 0x42434945;
+
+// Below this many timesteps, thread spawn/join dominates the actual work, so
+// the per-timestep loops run serially.
+constexpr uint32_t K_MIN_PARALLEL_TIMESTEPS = 64;
+// Cap worker threads: the projection is memory-bandwidth bound past a handful
+// of cores, and this runs before whisper's own threaded encode/decode.
+constexpr unsigned K_MAX_PREPROC_THREADS = 8;
+
+// Run `body(begin, end)` over disjoint sub-ranges of [0, n) on a few threads
+// (workers + the calling thread). Every element of the range is handled by
+// exactly one invocation, so callers whose per-index work is independent get a
+// result identical to the serial loop for any thread count. Serial fallback
+// for small n keeps the fast path allocation-free.
+template <typename Body>
+void parallelForTimesteps(uint32_t n, const Body& body) {
+  unsigned hw = std::thread::hardware_concurrency();
+  unsigned nThreads = (hw == 0) ? 1U : std::min(hw, K_MAX_PREPROC_THREADS);
+  if (nThreads <= 1 || n < K_MIN_PARALLEL_TIMESTEPS) {
+    body(0U, n);
+    return;
+  }
+  nThreads = std::min<unsigned>(nThreads, n);
+  const uint32_t chunk = (n + nThreads - 1) / nThreads;
+  std::vector<std::thread> workers;
+  workers.reserve(nThreads - 1);
+  for (unsigned t = 1; t < nThreads; ++t) {
+    const uint32_t begin = std::min(n, t * chunk);
+    const uint32_t end = std::min(n, begin + chunk);
+    if (begin >= end) break;
+    workers.emplace_back([&body, begin, end]() { body(begin, end); });
+  }
+  body(0U, std::min(n, chunk));
+  for (auto& w : workers) w.join();
+}
 
 // Kernel-trim threshold used by gaussianSmooth: values below this are
 // considered numerically negligible and trimmed from the ends of the kernel
@@ -253,22 +289,31 @@ std::vector<float> NeuralProcessor::applyDayProjection(
   // cost of the whole pipeline (~200 ms for T=910, nf=512, dwarfing the
   // Vulkan encode). Each output element is still accumulated over d in
   // ascending order, so the result is numerically identical; the compiler
-  // now auto-vectorizes the k-loop (~17x faster at -O3).
+  // now auto-vectorizes the k-loop.
+  //
+  // Timesteps are independent, so the outer t-loop is split across threads.
+  // Even vectorized this projection is ~12 ms single-threaded for T=910 —
+  // larger than the whole Vulkan encode — so parallelizing it is the biggest
+  // remaining CPU-side win. Each thread owns a disjoint band of output rows
+  // and only reads the shared (already-materialized) W/bias, so the result is
+  // identical to the serial version for any thread count.
   std::vector<float> output(static_cast<size_t>(numTimesteps) * nf);
-  for (uint32_t t = 0; t < numTimesteps; ++t) {
-    float* out = &output[static_cast<size_t>(t) * nf];
-    const float* feat = &features[static_cast<size_t>(t) * numChannels];
-    for (uint32_t k = 0; k < nf; ++k) out[k] = bias[k];
-    for (uint32_t d = 0; d < nf; ++d) {
-      const float a = feat[d];
-      const float* w = &W[static_cast<size_t>(d) * nf];
-      for (uint32_t k = 0; k < nf; ++k) out[k] += a * w[k];
+  parallelForTimesteps(numTimesteps, [&](uint32_t tBegin, uint32_t tEnd) {
+    for (uint32_t t = tBegin; t < tEnd; ++t) {
+      float* out = &output[static_cast<size_t>(t) * nf];
+      const float* feat = &features[static_cast<size_t>(t) * numChannels];
+      for (uint32_t k = 0; k < nf; ++k) out[k] = bias[k];
+      for (uint32_t d = 0; d < nf; ++d) {
+        const float a = feat[d];
+        const float* w = &W[static_cast<size_t>(d) * nf];
+        for (uint32_t k = 0; k < nf; ++k) out[k] += a * w[k];
+      }
+      for (uint32_t k = 0; k < nf; ++k) {
+        const float s = out[k];
+        out[k] = s / (1.0F + std::abs(s));
+      }
     }
-    for (uint32_t k = 0; k < nf; ++k) {
-      const float s = out[k];
-      out[k] = s / (1.0F + std::abs(s));
-    }
-  }
+  });
 
   return output;
 }

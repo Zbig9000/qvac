@@ -320,7 +320,10 @@ TEST(NeuralProcessor, GaussianSmoothMatchesNaiveReference) {
 TEST(NeuralProcessor, DayProjectionMatchesNaiveReference) {
   const uint32_t nf = 8;
   const uint32_t r = 3;
-  const uint32_t T = 5;
+  // > K_MIN_PARALLEL_TIMESTEPS so the multi-threaded band split is exercised;
+  // the naive reference is single-threaded, so this also checks the parallel
+  // projection is bit-for-bit identical to the serial math.
+  const uint32_t T = 200;
 
   std::vector<float> dayA(static_cast<size_t>(nf) * r);
   std::vector<float> dayB(static_cast<size_t>(r) * nf);
