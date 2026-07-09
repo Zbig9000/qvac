@@ -237,33 +237,49 @@ python scripts/convert-lavasr-enhancer-to-gguf.py \
 
 #### Quantization
 
-`--ftype` accepts `f32`, `f16` and the block-quant tiers `q8_0` / `q5_0` /
-`q4_0`. Only the enhancer supports quantization (the denoiser is already
-<1 MB). Quantization is **dequant-at-load**: the block-quant tiers shrink the
-*file on disk*, but `enhancer_gguf.cpp` dequantizes every tensor back to F32 in
-RAM, so the CPU/GGML forward math is byte-for-byte the same code path as F32 —
-there is no quantized-kernel graph to maintain. Only the 17 large 2-D matmul
-weights (the 8 ConvNeXt blocks' `pwconv1`/`pwconv2` and the spec-head `Linear`,
-~97 % of the parameters) are block-quantized; they route through the same
-`should_quantize` policy `requantize-gguf.py` uses, so the one-step converter
-and the requantizer can't drift. The K=7 conv kernels (not block-aligned) stay
-F16, and all LayerNorm scales, biases and per-block layer-scale `gamma` stay
-F32.
+Only the enhancer supports quantization (the denoiser is already <1 MB).
+Quantization is **dequant-at-load**: the block-quant tiers shrink the *file on
+disk*, but `enhancer_gguf.cpp` dequantizes every tensor back to F32 in RAM, so
+the CPU/GGML forward math is byte-for-byte the same code path as F32 — there is
+no quantized-kernel graph to maintain. Only the 17 large 2-D matmul weights (the
+8 ConvNeXt blocks' `pwconv1`/`pwconv2` and the spec-head `Linear`, ~97 % of the
+parameters) are quantized; the K=7 conv kernels stay F16, and all LayerNorm
+scales, biases and per-block layer-scale `gamma` stay F32.
 
-| `--ftype` | GGUF size | vs F32 | vs F16 | fidelity vs F32 (cosine, real/imag) |
-| --------- | --------- | ------ | ------ | ----------------------------------- |
-| `f32`     | 55.9 MB   | 100 %  | 200 %  | 1.0 / 1.0 (baseline)                |
-| `f16`     | 28.1 MB   | 50 %   | 100 %  | ≈1.0 / ≈1.0                         |
-| `q8_0`    | 15.3 MB   | 27 %   | 54 %   | ≈0.9996 / ≈0.9994 (near-lossless)   |
-| `q4_0`    | 8.5 MB    | 15 %   | 30 %   | ≈0.90 / ≈0.88                       |
+Two producers, because the Python `gguf` library can only *emit* the legacy
+tiers:
 
-(Sizes are exact for the current enhancer; f32/f16 GGUFs are byte-identical to
-the published registry artifacts. Fidelity is a synthetic-input sanity check —
-cosine similarity of the real/imag spectra vs the F32 GGUF, measured end-to-end
-mel → backbone → spec head. `q8_0` is effectively lossless at ~half the F16
-size; `q4_0` is the smallest and preserves the spectral shape but is the least
-faithful; `q5_0` sits between the two.) The GGUF-load round-trip is covered by
-the always-on `test-lavasr-enhancer-quant` C++ unit test.
+- **Legacy tiers `q8_0` / `q5_0` / `q4_0`** — pass `--ftype` to the converter
+  above, or requantize an existing GGUF with `scripts/requantize-gguf.py`. Both
+  share one `should_quantize` policy so they can't drift.
+- **K-quants `q6_K` / `q5_K` / `q4_K`** — the Python lib can't quantize these,
+  so use the C++ tool from tts-cpp (`lavasr-requantize <in.gguf> <out.gguf>
+  <q6_K|q5_K|q4_K>`), which quantizes the same 17 tensors via
+  `ggml_quantize_chunk`. The loader reads them with no code change (its
+  dequant-at-load path is generic over any ggml quant type).
+
+| tier   | GGUF size | vs F32 | vs F16 | bits/wt | cos vs F32 (real / imag) |
+| ------ | --------- | ------ | ------ | ------- | ------------------------ |
+| `f32`  | 55.9 MB   | 100 %  | 199 %  | 32      | 1.000 / 1.000 (baseline) |
+| `f16`  | 28.1 MB   | 50 %   | 100 %  | 16      | ≈1.000 / ≈1.000          |
+| `q8_0` | 15.3 MB   | 27 %   | 54 %   | 8.5     | 0.998 / 0.997            |
+| `q6_K` | 12.0 MB   | 21 %   | 43 %   | 6.6     | 0.969 / 0.967            |
+| `q5_K` | 10.2 MB   | 18 %   | 36 %   | 5.5     | 0.889 / 0.897            |
+| `q4_K` | 8.5 MB    | 15 %   | 30 %   | 4.5     | 0.621 / 0.601            |
+| `q4_0` | 8.5 MB    | 15 %   | 30 %   | 4.5     | 0.612 / 0.593            |
+
+Sizes are exact for the current enhancer; f32/f16 GGUFs are byte-identical to
+the published registry artifacts. Fidelity is the cosine similarity of the
+real/imag spectra vs the F32 GGUF on a realistic log-mel (T=512), i.e. pure
+quantization error (the F32/F16/`q8_0` GGUFs also match the ONNX golden in
+`test-lavasr-enhancer-gguf`). **Guidance:** `q8_0` is near-lossless; **`q6_K`
+is the sweet spot** below it (≈43 % of F16, still 0.97 cos); `q5_K` is
+noticeably degraded; and **4-bit (`q4_K`/`q4_0`) is quite lossy on this model**
+— the spec-head `exp()` reconstruction amplifies low-bit error, and at 4 bits
+the K-quant super-block scaling barely helps (same 8.5 MB as `q4_0`). Don't ship
+a sub-`q8_0` tier without a real-audio A/B; `q6_K` is the recommended small tier.
+The GGUF-load round-trip for every tier (incl. the K-quants) is covered by the
+always-on `test-lavasr-enhancer-quant` C++ unit test.
 
 Notes:
 

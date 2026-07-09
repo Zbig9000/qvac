@@ -26,6 +26,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unchanged — `q4_0` is ~15 % of the F32 GGUF (8.5 MB vs 55.9 MB) and `q8_0` is
   near-lossless at ~half the F16 size. Covered by the new always-on
   `test-lavasr-enhancer-quant` unit test (QVAC-21906).
+- **K-quant LavaSR enhancer GGUFs (`q6_K` / `q5_K` / `q4_K`).** The loader's
+  dequant-at-load path is generic, so K-quants load with no code change; the
+  Python `gguf` lib can't *emit* them, so a C++ producer (`lavasr-requantize` in
+  tts-cpp, via `ggml_quantize_chunk`) quantizes the same 17 matmul tensors.
+  `q6_K` (12.0 MB, 21 % of F32, ~0.97 cos vs F32) is the recommended small tier;
+  `q8_0` remains near-lossless. 4-bit (`q4_K`/`q4_0`) is quite lossy on this
+  enhancer (~0.6 cos — the spec-head `exp()` amplifies low-bit error), so a
+  sub-`q8_0` tier should get a real-audio A/B before shipping. The README quant
+  table has the full size/fidelity ladder (QVAC-21906).
 
 ## [0.4.2] - 2026-07-08
 
