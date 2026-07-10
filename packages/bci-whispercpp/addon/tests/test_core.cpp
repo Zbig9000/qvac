@@ -53,10 +53,9 @@ void fillDeterministic(std::vector<float>& v, uint32_t seed) {
 // Layout mirrors NeuralProcessor::loadEmbedderWeights exactly (1 day, 1
 // month, conv blocks empty since the GGML model owns them at runtime).
 std::string writeSyntheticEmbedder(
-    uint32_t nf, uint32_t r,
-    const std::vector<float>& dayA, const std::vector<float>& dayB,
-    const std::vector<float>& dayBias, const std::vector<float>& monthW,
-    const std::vector<float>& monthBias) {
+    uint32_t nf, uint32_t r, const std::vector<float>& dayA,
+    const std::vector<float>& dayB, const std::vector<float>& dayBias,
+    const std::vector<float>& monthW, const std::vector<float>& monthBias) {
   const auto path =
       (std::filesystem::temp_directory_path() / "bci_synth_embedder.bin")
           .string();
@@ -67,28 +66,30 @@ std::string writeSyntheticEmbedder(
   auto floats = [&](const std::vector<float>& v) {
     u32(static_cast<uint32_t>(v.size()));
     if (!v.empty()) {
-      f.write(reinterpret_cast<const char*>(v.data()),
-              static_cast<std::streamsize>(v.size() * sizeof(float)));
+      f.write(
+          reinterpret_cast<const char*>(v.data()),
+          static_cast<std::streamsize>(v.size() * sizeof(float)));
     }
   };
-  u32(0x42434945U);  // magic 'EICB'
-  u32(1U);           // version
-  u32(nf);           // numFeatures
-  u32(nf);           // embedDim (skipped by loader)
-  u32(3U);           // kernelSize1 (skipped)
-  u32(3U);           // kernelSize2 (skipped)
-  u32(2U);           // stride2 (skipped)
-  u32(1U);           // numDays
-  u32(1U);           // numMonths
-  u32(r);            // r
-  floats({});        // conv1 weight (skipped)
-  floats({});        // conv1 bias (skipped)
-  floats({});        // conv2 weight (skipped)
-  floats({});        // conv2 bias (skipped)
+  u32(0x42434945U); // magic 'EICB'
+  u32(1U);          // version
+  u32(nf);          // numFeatures
+  u32(nf);          // embedDim (skipped by loader)
+  u32(3U);          // kernelSize1 (skipped)
+  u32(3U);          // kernelSize2 (skipped)
+  u32(2U);          // stride2 (skipped)
+  u32(1U);          // numDays
+  u32(1U);          // numMonths
+  u32(r);           // r
+  floats({});       // conv1 weight (skipped)
+  floats({});       // conv1 bias (skipped)
+  floats({});       // conv2 weight (skipped)
+  floats({});       // conv2 bias (skipped)
   const std::vector<int32_t> sessionToDay{0};
   u32(static_cast<uint32_t>(sessionToDay.size()));
-  f.write(reinterpret_cast<const char*>(sessionToDay.data()),
-          static_cast<std::streamsize>(sessionToDay.size() * sizeof(int32_t)));
+  f.write(
+      reinterpret_cast<const char*>(sessionToDay.data()),
+      static_cast<std::streamsize>(sessionToDay.size() * sizeof(int32_t)));
   floats(dayA);
   floats(dayB);
   floats(dayBias);
@@ -261,10 +262,8 @@ TEST(NeuralProcessor, PassthroughModeSkipsPreprocessing) {
   EXPECT_FLOAT_EQ(result[1 * nFrames + 0], originalData[0 * C + 1]);
 }
 
-// Regression guard for the QVAC-21702 gaussianSmooth loop reorder: the
-// optimized channel-contiguous convolution must be numerically identical to
-// an independent channel-outer naive reference. Locks the reorder so a future
-// change that alters the math (not just the traversal) is caught.
+// gaussianSmooth must stay numerically identical to an independent
+// channel-outer naive reference, guarding the vectorized loop reorder.
 TEST(NeuralProcessor, GaussianSmoothMatchesNaiveReference) {
   const uint32_t T = 40;
   const uint32_t C = 6;
@@ -284,12 +283,16 @@ TEST(NeuralProcessor, GaussianSmoothMatchesNaiveReference) {
     kernel[i] = std::exp(-0.5F * (x * x) / (kernelStd * kernelStd));
     ksum += kernel[i];
   }
-  for (auto& k : kernel) k /= ksum;
+  for (auto& k : kernel)
+    k /= ksum;
   int start = 0;
   int end = kernelSize - 1;
-  while (start < end && kernel[start] < 0.01F) ++start;
-  while (end > start && kernel[end] < 0.01F) --end;
-  const std::vector<float> trimK(kernel.begin() + start, kernel.begin() + end + 1);
+  while (start < end && kernel[start] < 0.01F)
+    ++start;
+  while (end > start && kernel[end] < 0.01F)
+    --end;
+  const std::vector<float> trimK(
+      kernel.begin() + start, kernel.begin() + end + 1);
   const int kn = static_cast<int>(trimK.size());
   const int halfK = kn / 2;
 
@@ -299,7 +302,8 @@ TEST(NeuralProcessor, GaussianSmoothMatchesNaiveReference) {
       float s = 0.0F;
       for (int k = 0; k < kn; ++k) {
         const int srcT = static_cast<int>(t) + k - halfK;
-        if (srcT < 0 || srcT >= static_cast<int>(T)) continue;
+        if (srcT < 0 || srcT >= static_cast<int>(T))
+          continue;
         s += trimK[k] * data[static_cast<size_t>(srcT) * C + c];
       }
       reference[static_cast<size_t>(t) * C + c] = s;
@@ -314,15 +318,13 @@ TEST(NeuralProcessor, GaussianSmoothMatchesNaiveReference) {
   }
 }
 
-// Regression guard for the QVAC-21702 day-projection matmul reorder: the
-// cache-friendly d-outer/k-inner accumulation must equal a naive per-output
-// dot product over the fully-materialized (dayA·dayB + month) weight matrix.
+// applyDayProjection must equal a naive per-output dot product over the
+// materialized (dayA·dayB + month) weight matrix, guarding the reorder.
 TEST(NeuralProcessor, DayProjectionMatchesNaiveReference) {
   const uint32_t nf = 8;
   const uint32_t r = 3;
-  // > K_MIN_PARALLEL_TIMESTEPS so the multi-threaded band split is exercised;
-  // the naive reference is single-threaded, so this also checks the parallel
-  // projection is bit-for-bit identical to the serial math.
+  // T exceeds the internal parallel threshold, so the threaded band split runs
+  // against the single-threaded reference.
   const uint32_t T = 200;
 
   std::vector<float> dayA(static_cast<size_t>(nf) * r);
@@ -352,7 +354,8 @@ TEST(NeuralProcessor, DayProjectionMatchesNaiveReference) {
   for (uint32_t i = 0; i < nf; ++i) {
     for (uint32_t j = 0; j < nf; ++j) {
       float s = 0.0F;
-      for (uint32_t k = 0; k < r; ++k) s += dayA[i * r + k] * dayB[k * nf + j];
+      for (uint32_t k = 0; k < r; ++k)
+        s += dayA[i * r + k] * dayB[k * nf + j];
       W[i * nf + j] = s + monthW[i * nf + j];
     }
     bias[i] = dayBias[i] + monthBias[i];
@@ -361,13 +364,14 @@ TEST(NeuralProcessor, DayProjectionMatchesNaiveReference) {
   for (uint32_t t = 0; t < T; ++t) {
     for (uint32_t k = 0; k < nf; ++k) {
       float s = bias[k];
-      for (uint32_t d = 0; d < nf; ++d) s += features[t * nf + d] * W[d * nf + k];
+      for (uint32_t d = 0; d < nf; ++d)
+        s += features[t * nf + d] * W[d * nf + k];
       reference[t * nf + k] = s / (1.0F + std::abs(s));
     }
   }
 
-  const auto actual =
-      processor.applyDayProjection(features, T, /*numChannels=*/nf, /*dayIdx=*/0);
+  const auto actual = processor.applyDayProjection(
+      features, T, /*numChannels=*/nf, /*dayIdx=*/0);
   ASSERT_EQ(actual.size(), reference.size());
   for (size_t i = 0; i < reference.size(); ++i) {
     EXPECT_NEAR(actual[i], reference[i], 1e-5F) << "mismatch at index " << i;

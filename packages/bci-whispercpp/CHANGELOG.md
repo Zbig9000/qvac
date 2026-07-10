@@ -5,33 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.2] - 2026-07-09
+## [Unreleased]
 
 ### Changed
 
-- Optimized desktop BCI inference (QVAC-21702). Three behaviour- and
-  API-preserving changes to the native preprocessing + whisper hand-off:
-  - `NeuralProcessor::applyDayProjection` — reordered the `T×nf×nf` day/month
-    projection matmul so the reduction dimension is the outer loop and the inner
-    loop walks the weight matrix and output contiguously. The previous order
-    strode the weights by `nf` floats per step (cache-hostile, unvectorizable)
-    and dominated the whole pipeline (~200 ms for T=910, nf=512); the reordered
-    loop auto-vectorizes (~17× faster at `-O3`). Timesteps are independent, so
-    the projection is additionally split across worker threads (~12 ms → ~2 ms
-    for T=910); each thread owns disjoint output rows and reads shared,
-    already-materialized weights, so the result stays bit-identical.
-  - `NeuralProcessor::gaussianSmooth` — accumulate channel-contiguously so the
-    innermost loop is unit-stride and vectorizes.
-  - `BCIModel::process` — inject the neural mel up-front with `whisper_set_mel`
-    and call `whisper_full(..., n_samples=0)`, skipping the redundant ~13 ms
-    512-bin STFT that whisper otherwise computed over 30 s of dummy silence the
-    encoder never read. Removes the now-dead encoder-begin callback plumbing.
-  - Net: Vulkan end-to-end wall time drops ~9.75× (237 ms → 24 ms on an RTX 5090;
-    now 6.2× faster than CPU) with byte-identical transcription output (WER
-    unchanged at 6.00%). Regression coverage: two bit-level correctness GTests
-    (the projection test runs enough timesteps to exercise the threaded band
-    split) plus a Vulkan-desktop end-to-end WER regression test that pins every
-    fixture to its recorded good result on the `use_gpu=true` path.
+- Faster desktop neural-signal preprocessing on the GPU (Vulkan) and CPU paths. Public API and transcription output are unchanged.
 
 ## [0.4.1] - 2026-07-03
 

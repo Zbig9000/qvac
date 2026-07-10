@@ -89,6 +89,9 @@ private:
       const BCIConfig& oldCfg, const BCIConfig& newCfg);
   void resetContext();
   void loadEmbedderIfNeeded();
+  int injectNeuralMelAndRunWhisper(
+      const std::vector<float>& melFeatures, int melFrames, int melBins,
+      whisper_full_params& params);
 
   BCIConfig cfg_;
   NeuralProcessor neuralProcessor_;

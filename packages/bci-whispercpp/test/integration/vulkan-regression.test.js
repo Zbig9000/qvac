@@ -1,25 +1,9 @@
 'use strict'
 
-// Vulkan-desktop accuracy regression for bci-whispercpp (QVAC-21702).
-//
-// The QVAC-21702 optimizations — day-projection matmul reorder + threading,
-// gaussian-smooth reorder, and the dummy-audio mel skip — are all designed to
-// be output-preserving. The C++ unit tests (test_core.cpp) lock the
-// preprocessing math bit-for-bit against naive references; this integration
-// test is the end-to-end backstop: it runs the real GGML model on the GPU path
-// (Vulkan on Linux/Windows desktop) and asserts every fixture still transcribes
-// AT LEAST AS WELL as the WER recorded in the fixture manifest — i.e. the
-// optimizations did not regress transcription quality.
-//
-// The existing "[BCI] WER measurement across all test samples" check only
-// guards avgWER < 0.5 (a liveness bound). This one is the strict quality gate.
-//
-// use_gpu=true selects Vulkan on desktop; on a runner with no GPU it falls back
-// to CPU (the addon logs the active backend; we also print backendId here). The
-// preprocessing under test runs on the CPU either way and is identical, so the
-// WER bound holds regardless of backend. Set QVAC_BCI_WER_RELAX=1 to downgrade a
-// WER-bound miss to a warning (e.g. an exotic GPU whose kernels round
-// differently than the reference machine).
+// End-to-end accuracy regression for the desktop GPU (Vulkan) path: every
+// fixture must transcribe at least as well as the WER recorded in the manifest.
+// Runs with use_gpu=true and falls back to CPU where no GPU is present. Set
+// QVAC_BCI_WER_RELAX=1 to downgrade a bound miss to a warning.
 
 const fs = require('bare-fs')
 const os = require('bare-os')
@@ -39,10 +23,7 @@ const hasModel = fs.existsSync(MODEL_PATH)
 
 const RELAX = os.hasEnv('QVAC_BCI_WER_RELAX') && os.getEnv('QVAC_BCI_WER_RELAX') === '1'
 
-// The manifest stores bci_wer rounded to 4 decimals, so allow a tiny tolerance
-// on the per-sample bound. It is still far below the ~0.1–0.2 WER cost of a
-// single extra word error on these short utterances, so any real transcription
-// regression trips the guard.
+// Tolerance for the 4-decimal bci_wer stored in the manifest.
 const WER_TOL = 1e-4
 
 function backendIdToName (id) {
@@ -63,13 +44,44 @@ function assertNoRegression (t, name, wer, bound) {
   }
 }
 
-test('[BCI][Vulkan-desktop] transcription accuracy has not regressed (QVAC-21702)',
+function pickTwoDistinctSamples (samples) {
+  for (let i = 0; i < samples.length; i++) {
+    for (let j = i + 1; j < samples.length; j++) {
+      if (samples[i].expected_text !== samples[j].expected_text) {
+        return [samples[i], samples[j]]
+      }
+    }
+  }
+  return null
+}
+
+async function transcribeSampleOnGpu (sample) {
+  const dayIdx = typeof sample.day_idx === 'number' ? sample.day_idx : -1
+  const bci = new BCIWhispercpp({
+    files: { model: MODEL_PATH, embedder: EMBEDDER_PATH },
+    opts: { stats: true }
+  }, {
+    whisperConfig: { language: 'en', temperature: 0.0 },
+    miscConfig: { caption_enabled: false },
+    contextParams: { use_gpu: true },
+    bciConfig: dayIdx >= 0 ? { day_idx: dayIdx } : undefined
+  })
+  try {
+    await bci.load()
+    const response = await bci.transcribeFile(getSamplePath(sample.file))
+    const output = await response.await()
+    return flattenSegments(output).map(s => s.text).join('').trim()
+  } finally {
+    await bci.destroy()
+  }
+}
+
+test('[BCI][Vulkan-desktop] transcription accuracy has not regressed',
   { skip: !hasModel, timeout: 180000 }, async (t) => {
     t.ok(manifest.samples.length > 0, 'Manifest must contain at least one sample')
     t.comment('Platform: ' + label + '   Model: ' + MODEL_PATH)
 
-    // Group by day_idx so one loaded context serves all its samples (the day
-    // projection is materialized/cached per day). Mirrors the addon WER test.
+    // Group by day_idx so one loaded context serves all its samples.
     const byDay = new Map()
     for (const sample of manifest.samples) {
       const key = typeof sample.day_idx === 'number' ? sample.day_idx : -1
@@ -118,10 +130,9 @@ test('[BCI][Vulkan-desktop] transcription accuracy has not regressed (QVAC-21702
     }
 
     t.comment('Active backend: backendId=' + backendId + ' (' + backendIdToName(backendId) + ')')
-    // When the GPU path actually engaged on desktop, confirm it is the Vulkan
-    // (or CUDA) backend this ticket targets — not a silent CPU fallback dressed
-    // up as GPU. A genuine CPU fallback (backendId 0, e.g. NO_GPU CI) is allowed
-    // here; the dedicated gpu-smoke test owns the "must engage GPU" gate.
+    // On desktop, a GPU that engaged must be Vulkan/CUDA, not a mislabelled
+    // fallback. Genuine CPU fallback (backendId 0) is allowed; gpu-smoke owns
+    // the "must engage GPU" gate.
     if ((platform === 'linux' || platform === 'win32') && backendId !== null && backendId !== 0) {
       t.ok(backendId === 3 || backendId === 2,
         'desktop GPU path should be Vulkan(3) or CUDA(2), got ' + backendIdToName(backendId))
@@ -136,4 +147,26 @@ test('[BCI][Vulkan-desktop] transcription accuracy has not regressed (QVAC-21702
     t.comment('Average WER: ' + (avg * 100).toFixed(2) + '%  (recorded reference avg ' +
       (refAvg * 100).toFixed(2) + '%)')
     assertNoRegression(t, 'average', avg, refAvg)
+  })
+
+// Focused guard for the neural-mel hand-off (whisper_set_mel + whisper_full with
+// zero PCM samples). A skipped injection would run whisper on an empty/stale mel
+// and produce no text; an ignored injection would collapse different inputs to
+// the same output. Both failure modes are caught here.
+test('[BCI][Vulkan-desktop] neural mel is injected and consumed by whisper',
+  { skip: !hasModel, timeout: 180000 }, async (t) => {
+    const pair = pickTwoDistinctSamples(manifest.samples)
+    t.ok(pair, 'Manifest must contain two fixtures with different expected text')
+    if (!pair) return
+
+    const [first, second] = pair
+    const firstText = await transcribeSampleOnGpu(first)
+    const secondText = await transcribeSampleOnGpu(second)
+    t.comment('[' + first.file + '] -> ' + JSON.stringify(firstText))
+    t.comment('[' + second.file + '] -> ' + JSON.stringify(secondText))
+
+    t.ok(firstText.length > 0 && secondText.length > 0,
+      'Both fixtures produce non-empty text (mel was injected up-front)')
+    t.not(firstText, secondText,
+      'Distinct neural inputs produce distinct transcriptions (mel is consumed)')
   })

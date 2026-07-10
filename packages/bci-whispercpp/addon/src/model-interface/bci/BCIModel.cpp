@@ -498,6 +498,23 @@ void BCIModel::warmup() {
                static_cast<int>(silentAudio.size()));
 }
 
+int BCIModel::injectNeuralMelAndRunWhisper(
+    const std::vector<float>& melFeatures, int melFrames, int melBins,
+    whisper_full_params& params) {
+  const int melStatus =
+      whisper_set_mel(ctx_.get(), melFeatures.data(), melFrames, melBins);
+  if (melStatus != 0) {
+    const std::string melError =
+        "whisper_set_mel rejected neural mel features (status " +
+        std::to_string(melStatus) + ")";
+    QLOG(qvac_lib_inference_addon_cpp::logger::Priority::ERROR, melError);
+    throw qvac_errors::bci_error::makeStatus(
+        qvac_errors::bci_error::Code::InvalidNeuralSignal,
+        "Failed to inject neural mel features into whisper state");
+  }
+  return whisper_full(ctx_.get(), params, nullptr, 0);
+}
+
 void BCIModel::process(const Input& rawNeuralData) {
   if (ctx_ == nullptr) {
     throw std::runtime_error("BCI Whisper context is not initialized — call load() first");
@@ -551,16 +568,8 @@ void BCIModel::process(const Input& rawNeuralData) {
   params.abort_callback = shouldAbortWhisper;
   params.abort_callback_user_data = &cancelRequested_;
 
-  // Inject the neural-signal mel features directly into the whisper state and
-  // run whisper with n_samples=0. whisper_full only computes the log-mel
-  // spectrogram when n_samples>0 (src/whisper.cpp:
-  // `if (n_samples > 0) whisper_pcm_to_mel_with_state(...)`), so passing 0
-  // skips the ~13 ms 512-bin STFT over dummy silence that the model never
-  // consumes — the encoder reads the injected neural mel instead. seek_end is
-  // derived from the injected mel length via whisper_n_len_from_state.
-  whisper_set_mel(ctx_.get(), melFeatures.data(), melFrames, melBins);
-
-  int result = whisper_full(ctx_.get(), params, nullptr, 0);
+  const int result =
+      injectNeuralMelAndRunWhisper(melFeatures, melFrames, melBins, params);
 
   const auto endTime = std::chrono::steady_clock::now();
   totalWallMs_ +=

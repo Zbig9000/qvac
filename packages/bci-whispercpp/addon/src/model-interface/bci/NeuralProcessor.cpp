@@ -17,38 +17,93 @@ namespace {
 constexpr size_t K_HEADER_BYTES = 8;
 constexpr uint32_t K_EMBEDDER_MAGIC = 0x42434945;
 
-// Below this many timesteps, thread spawn/join dominates the actual work, so
-// the per-timestep loops run serially.
 constexpr uint32_t K_MIN_PARALLEL_TIMESTEPS = 64;
-// Cap worker threads: the projection is memory-bandwidth bound past a handful
-// of cores, and this runs before whisper's own threaded encode/decode.
 constexpr unsigned K_MAX_PREPROC_THREADS = 8;
 
-// Run `body(begin, end)` over disjoint sub-ranges of [0, n) on a few threads
-// (workers + the calling thread). Every element of the range is handled by
-// exactly one invocation, so callers whose per-index work is independent get a
-// result identical to the serial loop for any thread count. Serial fallback
-// for small n keeps the fast path allocation-free.
-template <typename Body>
-void parallelForTimesteps(uint32_t n, const Body& body) {
-  unsigned hw = std::thread::hardware_concurrency();
-  unsigned nThreads = (hw == 0) ? 1U : std::min(hw, K_MAX_PREPROC_THREADS);
-  if (nThreads <= 1 || n < K_MIN_PARALLEL_TIMESTEPS) {
-    body(0U, n);
-    return;
+unsigned resolveTimestepWorkerCount(uint32_t numTimesteps) {
+  const unsigned hardware = std::thread::hardware_concurrency();
+  const unsigned capped =
+      (hardware == 0) ? 1U : std::min(hardware, K_MAX_PREPROC_THREADS);
+  if (capped <= 1 || numTimesteps < K_MIN_PARALLEL_TIMESTEPS) {
+    return 1U;
   }
-  nThreads = std::min<unsigned>(nThreads, n);
-  const uint32_t chunk = (n + nThreads - 1) / nThreads;
+  return std::min<unsigned>(capped, numTimesteps);
+}
+
+template <typename Body>
+void spawnTimestepWorkers(
+    uint32_t numTimesteps, uint32_t chunk, unsigned numThreads,
+    const Body& body) {
   std::vector<std::thread> workers;
-  workers.reserve(nThreads - 1);
-  for (unsigned t = 1; t < nThreads; ++t) {
-    const uint32_t begin = std::min(n, t * chunk);
-    const uint32_t end = std::min(n, begin + chunk);
-    if (begin >= end) break;
+  workers.reserve(numThreads - 1);
+  for (unsigned t = 1; t < numThreads; ++t) {
+    const uint32_t begin = std::min(numTimesteps, t * chunk);
+    const uint32_t end = std::min(numTimesteps, begin + chunk);
+    if (begin >= end) {
+      break;
+    }
     workers.emplace_back([&body, begin, end]() { body(begin, end); });
   }
-  body(0U, std::min(n, chunk));
-  for (auto& w : workers) w.join();
+  body(0U, std::min(numTimesteps, chunk));
+  for (auto& worker : workers) {
+    worker.join();
+  }
+}
+
+template <typename Body>
+void forEachTimestepBand(uint32_t numTimesteps, const Body& body) {
+  const unsigned numThreads = resolveTimestepWorkerCount(numTimesteps);
+  if (numThreads <= 1) {
+    body(0U, numTimesteps);
+    return;
+  }
+  const uint32_t chunk = (numTimesteps + numThreads - 1) / numThreads;
+  spawnTimestepWorkers(numTimesteps, chunk, numThreads, body);
+}
+
+void addScaledRow(float* out, const float* src, float scale, uint32_t count) {
+  for (uint32_t i = 0; i < count; ++i) {
+    out[i] += src[i] * scale;
+  }
+}
+
+void copyRow(float* out, const float* src, uint32_t count) {
+  for (uint32_t i = 0; i < count; ++i) {
+    out[i] = src[i];
+  }
+}
+
+void applySoftsignRow(float* out, uint32_t count) {
+  for (uint32_t i = 0; i < count; ++i) {
+    const float value = out[i];
+    out[i] = value / (1.0F + std::abs(value));
+  }
+}
+
+void projectTimestepRow(
+    float* out, const float* features, const std::vector<float>& projectionW,
+    const std::vector<float>& projectionBias, uint32_t nf) {
+  copyRow(out, projectionBias.data(), nf);
+  for (uint32_t d = 0; d < nf; ++d) {
+    const float* weightRow = &projectionW[static_cast<size_t>(d) * nf];
+    addScaledRow(out, weightRow, features[d], nf);
+  }
+  applySoftsignRow(out, nf);
+}
+
+void smoothTimestepRow(
+    float* out, const std::vector<float>& data, uint32_t numTimesteps,
+    uint32_t numChannels, const std::vector<float>& kernel, int halfK,
+    uint32_t t) {
+  const int kernelTaps = static_cast<int>(kernel.size());
+  for (int k = 0; k < kernelTaps; ++k) {
+    const int srcT = static_cast<int>(t) + k - halfK;
+    if (srcT < 0 || srcT >= static_cast<int>(numTimesteps)) {
+      continue;
+    }
+    const float* src = &data[static_cast<size_t>(srcT) * numChannels];
+    addScaledRow(out, src, kernel[k], numChannels);
+  }
 }
 
 // Kernel-trim threshold used by gaussianSmooth: values below this are
@@ -199,24 +254,10 @@ std::vector<float> NeuralProcessor::gaussianSmooth(
   std::vector<float> trimK(kernel.begin() + start, kernel.begin() + end + 1);
   const int halfK = static_cast<int>(trimK.size()) / 2;
 
-  // Accumulate channel-contiguously: for each output timestep t, walk the
-  // (trimmed) kernel taps and add each contributing source row across all
-  // channels at once. The innermost loop over c is unit-stride in both the
-  // source and the result, so it vectorizes; the previous channel-outer
-  // order strode memory by numChannels on every kernel tap. Each output
-  // element is still summed over the kernel in ascending order, so the
-  // result is numerically identical.
-  const int kn = static_cast<int>(trimK.size());
   std::vector<float> result(data.size(), 0.0F);
   for (uint32_t t = 0; t < numTimesteps; ++t) {
     float* out = &result[static_cast<size_t>(t) * numChannels];
-    for (int k = 0; k < kn; ++k) {
-      const int srcT = static_cast<int>(t) + k - halfK;
-      if (srcT < 0 || srcT >= static_cast<int>(numTimesteps)) continue;
-      const float w = trimK[k];
-      const float* src = &data[static_cast<size_t>(srcT) * numChannels];
-      for (uint32_t c = 0; c < numChannels; ++c) out[c] += src[c] * w;
-    }
+    smoothTimestepRow(out, data, numTimesteps, numChannels, trimK, halfK, t);
   }
   return result;
 }
@@ -275,43 +316,15 @@ std::vector<float> NeuralProcessor::applyDayProjection(
     cachedDayIdx_ = di;
   }
 
-  const auto& W = cachedProjectionW_;
-  const auto& bias = cachedProjectionBias_;
+  const auto& projectionW = cachedProjectionW_;
+  const auto& projectionBias = cachedProjectionBias_;
 
-  // Python: output[t,k] = softsign(sum_d(features[t,d] * W[d,k]) + bias[k])
-  // i.e. output = features @ W + bias (right-multiply by W).
-  //
-  // Hoisting the reduction dimension d to the outer loop turns this into a
-  // sequence of rank-1 updates whose innermost loop walks k contiguously in
-  // both W (W[d*nf + k]) and output (out[t*nf + k]). The previous
-  // k-outer/d-inner order strode W by nf floats every step — cache-hostile
-  // and unvectorizable — which made this O(T*nf*nf) projection the dominant
-  // cost of the whole pipeline (~200 ms for T=910, nf=512, dwarfing the
-  // Vulkan encode). Each output element is still accumulated over d in
-  // ascending order, so the result is numerically identical; the compiler
-  // now auto-vectorizes the k-loop.
-  //
-  // Timesteps are independent, so the outer t-loop is split across threads.
-  // Even vectorized this projection is ~12 ms single-threaded for T=910 —
-  // larger than the whole Vulkan encode — so parallelizing it is the biggest
-  // remaining CPU-side win. Each thread owns a disjoint band of output rows
-  // and only reads the shared (already-materialized) W/bias, so the result is
-  // identical to the serial version for any thread count.
   std::vector<float> output(static_cast<size_t>(numTimesteps) * nf);
-  parallelForTimesteps(numTimesteps, [&](uint32_t tBegin, uint32_t tEnd) {
+  forEachTimestepBand(numTimesteps, [&](uint32_t tBegin, uint32_t tEnd) {
     for (uint32_t t = tBegin; t < tEnd; ++t) {
       float* out = &output[static_cast<size_t>(t) * nf];
       const float* feat = &features[static_cast<size_t>(t) * numChannels];
-      for (uint32_t k = 0; k < nf; ++k) out[k] = bias[k];
-      for (uint32_t d = 0; d < nf; ++d) {
-        const float a = feat[d];
-        const float* w = &W[static_cast<size_t>(d) * nf];
-        for (uint32_t k = 0; k < nf; ++k) out[k] += a * w[k];
-      }
-      for (uint32_t k = 0; k < nf; ++k) {
-        const float s = out[k];
-        out[k] = s / (1.0F + std::abs(s));
-      }
+      projectTimestepRow(out, feat, projectionW, projectionBias, nf);
     }
   });
 
