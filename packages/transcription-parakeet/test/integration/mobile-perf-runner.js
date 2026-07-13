@@ -117,7 +117,10 @@ async function recordReclaimAfterUnload (teardownLabel, rssAfterLoadBytes, peakR
     peakRssBytes,
     rssAfterUnloadBytes: readRssBytes()
   })
-  recordParakeetStats(teardownLabel, {}, { reclaimedMb: summary.reclaimedMb })
+  recordParakeetStats(teardownLabel, {}, {
+    reclaimedMb: summary.reclaimedMb,
+    rssAfterLoadMb: bytesToMb(rssAfterLoadBytes, 2)
+  })
   console.log('   Reclaimed after unload: ' + summary.reclaimedMb + 'MB')
 }
 

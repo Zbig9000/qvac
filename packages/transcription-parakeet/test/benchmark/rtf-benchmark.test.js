@@ -35,10 +35,8 @@ const {
 const {
   readRssBytes,
   createMemorySampler,
-  buildMemorySummary,
   bytesToMb,
-  meanOfPositive,
-  maxOfPositive,
+  summarizeRunMemory,
   RECLAIM_SETTLE_MS
 } = require('../integration/memory-usage.js')
 
@@ -257,18 +255,11 @@ async function reclaimAfterUnload (model) {
 }
 
 async function measureMemory (model, allResults, rssBeforeLoad, rssAfterLoad) {
-  const avgRssBytes = meanOfPositive(allResults.map(result => result.avgRssBytes)) || rssAfterLoad
-  const peakRssBytes = maxOfPositive(allResults.map(result => result.peakRssBytes), rssAfterLoad)
-  const sampleCount = allResults.reduce((sum, result) => sum + (result.rssSampleCount || 0), 0)
   const rssAfterUnload = await reclaimAfterUnload(model)
-
-  return buildMemorySummary({
+  return summarizeRunMemory(allResults, {
     rssBeforeLoadBytes: rssBeforeLoad,
     rssAfterLoadBytes: rssAfterLoad,
-    avgRssBytes,
-    peakRssBytes,
-    rssAfterUnloadBytes: rssAfterUnload,
-    sampleCount
+    rssAfterUnloadBytes: rssAfterUnload
   })
 }
 

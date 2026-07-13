@@ -7,10 +7,11 @@ const {
   createMemorySampler,
   summarizeSamples,
   meanOfPositive,
-  maxOfPositive,
+  maxWithFloor,
   computeReclaim,
   bytesToMb,
-  buildMemorySummary
+  buildMemorySummary,
+  summarizeRunMemory
 } = require('../integration/memory-usage.js')
 
 test('summarizeSamples returns zeros for empty input', (t) => {
@@ -32,10 +33,10 @@ test('meanOfPositive averages only positive samples and defaults empty to zero',
   t.is(meanOfPositive([0, -1]), 0)
 })
 
-test('maxOfPositive returns the peak while respecting the provided floor', (t) => {
-  t.is(maxOfPositive([10, 40, 25]), 40)
-  t.is(maxOfPositive([10, 40, 25], 100), 100)
-  t.is(maxOfPositive([], 64), 64)
+test('maxWithFloor returns the peak while respecting the provided floor', (t) => {
+  t.is(maxWithFloor([10, 40, 25]), 40)
+  t.is(maxWithFloor([10, 40, 25], 100), 100)
+  t.is(maxWithFloor([], 64), 64)
 })
 
 test('bytesToMb converts and rounds using the shared constant', (t) => {
@@ -109,6 +110,52 @@ test('reclaimedMb uses the after-load baseline, not peak, so desktop and mobile 
   })
   t.is(summary.reclaimedMb, 50, 'reclaimed is afterLoad - afterUnload (200 - 150)')
   t.is(summary.reclaimedFromPeakMb, 350, 'peak-based reclaim stays a distinct field (500 - 150)')
+})
+
+test('summarizeRunMemory weights the average by each run sample count', (t) => {
+  const summary = summarizeRunMemory(
+    [
+      { avgRssBytes: 100 * BYTES_PER_MB, peakRssBytes: 120 * BYTES_PER_MB, rssSampleCount: 1 },
+      { avgRssBytes: 200 * BYTES_PER_MB, peakRssBytes: 260 * BYTES_PER_MB, rssSampleCount: 3 }
+    ],
+    {
+      rssAfterLoadBytes: 200 * BYTES_PER_MB,
+      rssAfterUnloadBytes: 130 * BYTES_PER_MB
+    }
+  )
+  // Sample-count-weighted: (100*1 + 200*3) / 4 = 175, not the mean-of-means 150.
+  t.is(summary.avgRssMb, 175)
+  t.is(summary.peakRssMb, 260)
+  t.is(summary.sampleCount, 4)
+  t.is(summary.reclaimedMb, 70)
+})
+
+test('summarizeRunMemory falls back to the after-load footprint without samples', (t) => {
+  const empty = summarizeRunMemory([], {
+    rssAfterLoadBytes: 150 * BYTES_PER_MB,
+    rssAfterUnloadBytes: 90 * BYTES_PER_MB
+  })
+  t.is(empty.avgRssMb, 150)
+  t.is(empty.peakRssMb, 150)
+  t.is(empty.sampleCount, 0)
+  t.is(empty.reclaimedMb, 60)
+
+  const zeroCounts = summarizeRunMemory([{ avgRssBytes: 0, peakRssBytes: 0, rssSampleCount: 0 }], {
+    rssAfterLoadBytes: 150 * BYTES_PER_MB
+  })
+  t.is(zeroCounts.avgRssMb, 150)
+})
+
+test('summarizeRunMemory floors the peak at the after-load footprint', (t) => {
+  const summary = summarizeRunMemory(
+    [{ avgRssBytes: 90 * BYTES_PER_MB, peakRssBytes: 95 * BYTES_PER_MB, rssSampleCount: 5 }],
+    {
+      rssAfterLoadBytes: 180 * BYTES_PER_MB,
+      rssAfterUnloadBytes: 100 * BYTES_PER_MB
+    }
+  )
+  t.is(summary.avgRssMb, 90)
+  t.is(summary.peakRssMb, 180)
 })
 
 test('readRssBytes reports a positive resident set size on the bare runtime', (t) => {

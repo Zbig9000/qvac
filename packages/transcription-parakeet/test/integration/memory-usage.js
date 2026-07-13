@@ -84,7 +84,7 @@ function meanOfPositive (values) {
   return sumValues(positives) / positives.length
 }
 
-function maxOfPositive (values, floor) {
+function maxWithFloor (values, floor) {
   const list = Array.isArray(values) ? values : []
   return list.reduce((current, value) => (value > current ? value : current), floor || 0)
 }
@@ -183,6 +183,58 @@ function buildMemorySummary (input) {
   }
 }
 
+function toRunResults (runResults) {
+  return Array.isArray(runResults) ? runResults : []
+}
+
+// Sample-count-weighted mean so runs that contributed more RSS samples carry
+// proportionally more weight; a plain mean-of-means would skew the average when
+// runs have different sample counts.
+function collectWeightedRss (runResults) {
+  return toRunResults(runResults).reduce((acc, result) => {
+    const avg = result && result.avgRssBytes
+    const count = result && result.rssSampleCount
+    if (isPositiveNumber(avg) && isPositiveNumber(count)) {
+      acc.weightedSum += avg * count
+      acc.totalCount += count
+    }
+    return acc
+  }, { weightedSum: 0, totalCount: 0 })
+}
+
+function weightedMeanBytes (runResults) {
+  const { weightedSum, totalCount } = collectWeightedRss(runResults)
+  return totalCount > 0 ? weightedSum / totalCount : 0
+}
+
+function sumSampleCounts (runResults) {
+  return toRunResults(runResults).reduce(
+    (total, result) => total + (isPositiveNumber(result && result.rssSampleCount) ? result.rssSampleCount : 0),
+    0
+  )
+}
+
+function peakBytesSamples (runResults) {
+  return toRunResults(runResults).map(result => result && result.peakRssBytes)
+}
+
+// Aggregates per-run RSS samplers into a single memory summary. Kept pure (no
+// model/timer access) so the weighting, the after-load fallback and the peak
+// floor are unit-testable; the live gc + settle-then-sample orchestration stays
+// in the benchmark harness.
+function summarizeRunMemory (runResults, context) {
+  const ctx = context || {}
+  const rssAfterLoadBytes = toBytes(ctx.rssAfterLoadBytes)
+  return buildMemorySummary({
+    rssBeforeLoadBytes: ctx.rssBeforeLoadBytes,
+    rssAfterLoadBytes,
+    avgRssBytes: weightedMeanBytes(runResults) || rssAfterLoadBytes,
+    peakRssBytes: maxWithFloor(peakBytesSamples(runResults), rssAfterLoadBytes),
+    rssAfterUnloadBytes: ctx.rssAfterUnloadBytes,
+    sampleCount: sumSampleCounts(runResults)
+  })
+}
+
 module.exports = {
   BYTES_PER_MB,
   DEFAULT_SAMPLE_INTERVAL_MS,
@@ -191,9 +243,10 @@ module.exports = {
   createMemorySampler,
   summarizeSamples,
   meanOfPositive,
-  maxOfPositive,
+  maxWithFloor,
   computeReclaim,
   roundTo,
   bytesToMb,
-  buildMemorySummary
+  buildMemorySummary,
+  summarizeRunMemory
 }

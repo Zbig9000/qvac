@@ -69,6 +69,7 @@ try {
             total_time_ms: null,
             avg_rss_mb: null,
             peak_rss_mb: null,
+            rss_after_load_mb: null,
             reclaimed_mb: null
           }, metrics),
           input: (extra && extra.input) || null,
@@ -165,7 +166,10 @@ function roundToTwo (value) {
  *                           tokensPerSecond, encoderMs, decoderMs,
  *                           totalWallMs, ... }
  * @param {Object} [extra] - Optional { wallMs, output, executionProvider,
- *                            avgRssMb, peakRssMb, reclaimedMb } overrides.
+ *                            avgRssMb, peakRssMb, rssAfterLoadMb, reclaimedMb }
+ *                            overrides. rssAfterLoadMb lets the aggregator floor
+ *                            the mobile peak at the post-activation footprint,
+ *                            matching the desktop peak floor.
  */
 function recordParakeetStats (label, stats, extra) {
   if (!stats || typeof stats !== 'object') return
@@ -210,6 +214,7 @@ function recordParakeetStats (label, stats, extra) {
     total_time_ms: totalTimeMs,
     avg_rss_mb: roundToTwo(extra && extra.avgRssMb),
     peak_rss_mb: roundToTwo(extra && extra.peakRssMb),
+    rss_after_load_mb: roundToTwo(extra && extra.rssAfterLoadMb),
     reclaimed_mb: roundToTwo(extra && extra.reclaimedMb)
   }, {
     execution_provider: ep,

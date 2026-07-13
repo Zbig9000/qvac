@@ -292,6 +292,7 @@ function normalizeMobileRecords (report, sourceFile) {
         wallMs: [],
         avgRss: [],
         peakRss: [],
+        afterLoadRss: [],
         reclaimed: []
       })
     }
@@ -311,6 +312,7 @@ function normalizeMobileRecords (report, sourceFile) {
     if (typeof metrics.wall_time_ms === 'number') group.wallMs.push(metrics.wall_time_ms)
     if (typeof metrics.avg_rss_mb === 'number') group.avgRss.push(metrics.avg_rss_mb)
     if (typeof metrics.peak_rss_mb === 'number') group.peakRss.push(metrics.peak_rss_mb)
+    if (typeof metrics.rss_after_load_mb === 'number') group.afterLoadRss.push(metrics.rss_after_load_mb)
     if (typeof metrics.reclaimed_mb === 'number') group.reclaimed.push(metrics.reclaimed_mb)
   }
 
@@ -334,7 +336,11 @@ function normalizeMobileRecords (report, sourceFile) {
       p95: percentile(values.rtf, 95),
       wallMs: mean(values.wallMs),
       avgRssMb: mean(values.avgRss),
-      peakRssMb: maxFinite(values.peakRss),
+      // Floor the mobile peak at the recorded post-activation footprint so it is
+      // computed on the same basis as the desktop peak (which buildMemorySummary
+      // clamps to rssAfterLoad); a run whose sampler missed the true peak can't
+      // then report below the load footprint.
+      peakRssMb: maxFinite(values.peakRss.concat(values.afterLoadRss)),
       reclaimedMb: maxFinite(values.reclaimed),
       notes
     })
@@ -684,5 +690,6 @@ module.exports = {
   normalizeManualRecord,
   normalizeMobileRecords,
   renderMarkdown,
+  renderHtml,
   buildCoverage
 }
