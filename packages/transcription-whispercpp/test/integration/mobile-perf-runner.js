@@ -15,12 +15,31 @@ const {
   isMobile,
   recordWhisperStats
 } = require('./helpers.js')
+const {
+  readRssBytes,
+  createMemorySampler,
+  bytesToMb
+} = require('./memory-usage.js')
 
 const platform = detectPlatform()
 const { modelsDir } = getTestPaths()
 const NUM_TRANSCRIPTIONS = 3
 const SAMPLE_RATE = 16000
 const NO_GPU = proc.env && proc.env.NO_GPU === 'true'
+const RECLAIM_SETTLE_MS = 250
+
+async function recordReclaimAfterUnload (modelLabel, epLabel, peakRssBytes) {
+  if (typeof global.gc === 'function') {
+    try { global.gc() } catch (_) {}
+  }
+  await new Promise(resolve => setTimeout(resolve, RECLAIM_SETTLE_MS))
+  const rssAfterUnload = readRssBytes()
+  const reclaimedBytes = peakRssBytes > rssAfterUnload ? peakRssBytes - rssAfterUnload : 0
+  recordWhisperStats(modelLabel + ' ' + epLabel + ' mobile-perf teardown', {}, {
+    reclaimedMb: bytesToMb(reclaimedBytes, 2)
+  })
+  console.log('   Reclaimed after unload: ' + bytesToMb(reclaimedBytes, 2) + 'MB')
+}
 
 function getTimeMs () {
   const [sec, nsec] = proc.hrtime()
@@ -66,6 +85,7 @@ async function runMobilePerfCase (t, opts) {
 
   const loggerBinding = setupJsLogger(binding)
   let model = null
+  let peakRssBytes = 0
 
   try {
     console.log('\n' + '='.repeat(60))
@@ -112,7 +132,9 @@ async function runMobilePerfCase (t, opts) {
     const loadStart = getTimeMs()
     model = new TranscriptionWhispercpp(constructorArgs, config)
     await model._load()
-    console.log('   Model loaded in ' + (getTimeMs() - loadStart).toFixed(0) + 'ms\n')
+    const rssAfterLoad = readRssBytes()
+    peakRssBytes = rssAfterLoad
+    console.log('   Model loaded in ' + (getTimeMs() - loadStart).toFixed(0) + 'ms (RSS ' + bytesToMb(rssAfterLoad, 1) + 'MB)\n')
 
     const timings = []
     let statsCount = 0
@@ -122,8 +144,12 @@ async function runMobilePerfCase (t, opts) {
       const runStartTime = getTimeMs()
 
       const audioStream = createAudioStream(samplePath)
+      const memSampler = createMemorySampler()
+      memSampler.start()
       const response = await model.run(audioStream)
       await response.await()
+      const runMemory = memSampler.stop()
+      if (runMemory.peakBytes > peakRssBytes) peakRssBytes = runMemory.peakBytes
 
       const runTime = getTimeMs() - runStartTime
       timings.push(runTime)
@@ -134,6 +160,7 @@ async function runMobilePerfCase (t, opts) {
 
       console.log('   Time: ' + runTime.toFixed(0) + 'ms')
       console.log('   Segments: ' + segments.length)
+      console.log('   Memory: avg ' + bytesToMb(runMemory.avgBytes, 1) + 'MB, peak ' + bytesToMb(runMemory.peakBytes, 1) + 'MB')
       console.log('   Text preview: "' + runText.substring(0, 80) + (runText.length > 80 ? '...' : '') + '"')
 
       if (jobStats) {
@@ -141,7 +168,9 @@ async function runMobilePerfCase (t, opts) {
         lastStats = jobStats
         recordWhisperStats(modelLabel + ' ' + epLabel + ' mobile-perf run ' + run, jobStats, {
           wallMs: runTime,
-          output: runText
+          output: runText,
+          avgRssMb: bytesToMb(runMemory.avgBytes, 2),
+          peakRssMb: bytesToMb(runMemory.peakBytes, 2)
         })
         if (typeof jobStats.realTimeFactor === 'number') {
           console.log('   RTF: ' + jobStats.realTimeFactor.toFixed(4))
@@ -215,6 +244,9 @@ async function runMobilePerfCase (t, opts) {
           await model.dispose()
         }
         console.log('   Instance destroyed')
+        if (peakRssBytes > 0) {
+          await recordReclaimAfterUnload(modelLabel, epLabel, peakRssBytes)
+        }
       } catch (err) {
         console.log('   Instance destroy error: ' + err.message)
       }
