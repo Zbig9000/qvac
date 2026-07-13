@@ -18,7 +18,9 @@ const {
 const {
   readRssBytes,
   createMemorySampler,
-  bytesToMb
+  bytesToMb,
+  buildMemorySummary,
+  RECLAIM_SETTLE_MS
 } = require('./memory-usage.js')
 
 const platform = detectPlatform()
@@ -26,19 +28,21 @@ const { modelsDir } = getTestPaths()
 const NUM_TRANSCRIPTIONS = 3
 const SAMPLE_RATE = 16000
 const NO_GPU = proc.env && proc.env.NO_GPU === 'true'
-const RECLAIM_SETTLE_MS = 250
 
-async function recordReclaimAfterUnload (modelLabel, epLabel, peakRssBytes) {
+async function recordReclaimAfterUnload (modelLabel, epLabel, rssAfterLoadBytes, peakRssBytes) {
   if (typeof global.gc === 'function') {
     try { global.gc() } catch (_) {}
   }
   await new Promise(resolve => setTimeout(resolve, RECLAIM_SETTLE_MS))
-  const rssAfterUnload = readRssBytes()
-  const reclaimedBytes = peakRssBytes > rssAfterUnload ? peakRssBytes - rssAfterUnload : 0
-  recordWhisperStats(modelLabel + ' ' + epLabel + ' mobile-perf teardown', {}, {
-    reclaimedMb: bytesToMb(reclaimedBytes, 2)
+  const summary = buildMemorySummary({
+    rssAfterLoadBytes,
+    peakRssBytes,
+    rssAfterUnloadBytes: readRssBytes()
   })
-  console.log('   Reclaimed after unload: ' + bytesToMb(reclaimedBytes, 2) + 'MB')
+  recordWhisperStats(modelLabel + ' ' + epLabel + ' mobile-perf teardown', {}, {
+    reclaimedMb: summary.reclaimedMb
+  })
+  console.log('   Reclaimed after unload: ' + summary.reclaimedMb + 'MB')
 }
 
 function getTimeMs () {
@@ -85,6 +89,7 @@ async function runMobilePerfCase (t, opts) {
 
   const loggerBinding = setupJsLogger(binding)
   let model = null
+  let rssAfterLoadBytes = 0
   let peakRssBytes = 0
 
   try {
@@ -132,9 +137,9 @@ async function runMobilePerfCase (t, opts) {
     const loadStart = getTimeMs()
     model = new TranscriptionWhispercpp(constructorArgs, config)
     await model._load()
-    const rssAfterLoad = readRssBytes()
-    peakRssBytes = rssAfterLoad
-    console.log('   Model loaded in ' + (getTimeMs() - loadStart).toFixed(0) + 'ms (RSS ' + bytesToMb(rssAfterLoad, 1) + 'MB)\n')
+    rssAfterLoadBytes = readRssBytes()
+    peakRssBytes = rssAfterLoadBytes
+    console.log('   Model loaded in ' + (getTimeMs() - loadStart).toFixed(0) + 'ms (RSS ' + bytesToMb(rssAfterLoadBytes, 1) + 'MB)\n')
 
     const timings = []
     let statsCount = 0
@@ -245,7 +250,7 @@ async function runMobilePerfCase (t, opts) {
         }
         console.log('   Instance destroyed')
         if (peakRssBytes > 0) {
-          await recordReclaimAfterUnload(modelLabel, epLabel, peakRssBytes)
+          await recordReclaimAfterUnload(modelLabel, epLabel, rssAfterLoadBytes, peakRssBytes)
         }
       } catch (err) {
         console.log('   Instance destroy error: ' + err.message)

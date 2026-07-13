@@ -1,14 +1,14 @@
 'use strict'
 
-// Resident-set-size (RSS) sampling shared by the desktop RTF benchmark
-// (test/benchmark/rtf-benchmark.test.js) and the mobile perf runner
-// (test/integration/mobile-perf-runner.js). RSS is read from the Bare runtime
-// so average / peak / reclaimed figures stay comparable across models,
-// platforms and quantizations, and it sidesteps the getrusage maxRSS unit
-// mismatch between linux (kilobytes) and darwin (bytes).
+// RSS is sampled from the Bare runtime rather than getrusage(2) maxRSS, whose
+// units differ by OS (linux reports kilobytes, darwin bytes) and would make
+// cross-platform memory figures incomparable.
 
 const BYTES_PER_MB = 1024 * 1024
 const DEFAULT_SAMPLE_INTERVAL_MS = 25
+// Delay after unload before sampling reclaimed RSS, giving the allocator a
+// chance to return freed pages to the OS.
+const RECLAIM_SETTLE_MS = 250
 
 function isPositiveNumber (value) {
   return typeof value === 'number' && Number.isFinite(value) && value > 0
@@ -76,6 +76,17 @@ function summarizeSamples (samples) {
     peakBytes: maxValue(values),
     minBytes: minValue(values)
   }
+}
+
+function meanOfPositive (values) {
+  const positives = filterPositive(values)
+  if (positives.length === 0) return 0
+  return sumValues(positives) / positives.length
+}
+
+function maxOfPositive (values, floor) {
+  const list = Array.isArray(values) ? values : []
+  return list.reduce((current, value) => (value > current ? value : current), floor || 0)
 }
 
 function scheduleSample (state) {
@@ -175,10 +186,14 @@ function buildMemorySummary (input) {
 module.exports = {
   BYTES_PER_MB,
   DEFAULT_SAMPLE_INTERVAL_MS,
+  RECLAIM_SETTLE_MS,
   readRssBytes,
   createMemorySampler,
   summarizeSamples,
+  meanOfPositive,
+  maxOfPositive,
   computeReclaim,
+  roundTo,
   bytesToMb,
   buildMemorySummary
 }

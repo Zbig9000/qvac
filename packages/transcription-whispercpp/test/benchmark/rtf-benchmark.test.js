@@ -27,7 +27,11 @@ const {
 const {
   readRssBytes,
   createMemorySampler,
-  buildMemorySummary
+  buildMemorySummary,
+  bytesToMb,
+  meanOfPositive,
+  maxOfPositive,
+  RECLAIM_SETTLE_MS
 } = require('../integration/memory-usage.js')
 
 const platform = detectPlatform()
@@ -36,7 +40,6 @@ const { modelsDir, audioPath, samplesDir } = getTestPaths()
 const SAMPLE_RATE = 16000
 const RTF_RESULTS_DIR = path.resolve(__dirname, '../../benchmarks/results')
 const RESULT_MARKER = 'QVAC_RTF_REPORT::'
-const RECLAIM_SETTLE_MS = 250
 
 function getEnvBoolean (name, fallback) {
   const value = process.env[name]
@@ -186,16 +189,6 @@ async function runSingleBenchmark (model, samplePath) {
   }
 }
 
-function meanOfPositive (values) {
-  const positives = values.filter(value => value > 0)
-  if (positives.length === 0) return 0
-  return positives.reduce((sum, value) => sum + value, 0) / positives.length
-}
-
-function maxOfPositive (values, floor) {
-  return values.reduce((current, value) => (value > current ? value : current), floor || 0)
-}
-
 async function reclaimAfterUnload (model) {
   try { await model.unload() } catch {}
   if (typeof global.gc === 'function') {
@@ -296,7 +289,7 @@ test('RTF benchmark: collect whisper real-time factor on CI device', { timeout: 
     await model._load()
     const loadMs = getTimeMs() - loadStart
     const rssAfterLoad = readRssBytes()
-    console.log(`Model loaded in ${loadMs.toFixed(0)}ms (RSS ${(rssAfterLoad / (1024 * 1024)).toFixed(1)}MB)\n`)
+    console.log(`Model loaded in ${loadMs.toFixed(0)}ms (RSS ${bytesToMb(rssAfterLoad, 1)}MB)\n`)
 
     for (let i = 0; i < benchmarkSettings.numWarmup; i++) {
       console.log(`[warmup ${i + 1}/${benchmarkSettings.numWarmup}]`)

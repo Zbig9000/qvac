@@ -6,6 +6,8 @@ const {
   readRssBytes,
   createMemorySampler,
   summarizeSamples,
+  meanOfPositive,
+  maxOfPositive,
   computeReclaim,
   bytesToMb,
   buildMemorySummary
@@ -22,6 +24,18 @@ test('summarizeSamples ignores non-positive samples and aggregates the rest', (t
   t.is(summary.avgBytes, 20)
   t.is(summary.peakBytes, 30)
   t.is(summary.minBytes, 10)
+})
+
+test('meanOfPositive averages only positive samples and defaults empty to zero', (t) => {
+  t.is(meanOfPositive([10, 30, 0, -5, 20, null]), 20)
+  t.is(meanOfPositive([]), 0)
+  t.is(meanOfPositive([0, -1]), 0)
+})
+
+test('maxOfPositive returns the peak while respecting the provided floor', (t) => {
+  t.is(maxOfPositive([10, 40, 25]), 40)
+  t.is(maxOfPositive([10, 40, 25], 100), 100)
+  t.is(maxOfPositive([], 64), 64)
 })
 
 test('bytesToMb converts and rounds using the shared constant', (t) => {
@@ -85,6 +99,16 @@ test('buildMemorySummary reports zero when unload does not free memory', (t) => 
     rssAfterUnloadBytes: 130 * BYTES_PER_MB
   })
   t.is(summary.reclaimedMb, 0)
+})
+
+test('reclaimedMb uses the after-load baseline, not peak, so desktop and mobile agree', (t) => {
+  const summary = buildMemorySummary({
+    rssAfterLoadBytes: 200 * BYTES_PER_MB,
+    peakRssBytes: 500 * BYTES_PER_MB,
+    rssAfterUnloadBytes: 150 * BYTES_PER_MB
+  })
+  t.is(summary.reclaimedMb, 50, 'reclaimed is afterLoad - afterUnload (200 - 150)')
+  t.is(summary.reclaimedFromPeakMb, 350, 'peak-based reclaim stays a distinct field (500 - 150)')
 })
 
 test('readRssBytes reports a positive resident set size on the bare runtime', (t) => {

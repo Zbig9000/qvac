@@ -1,21 +1,6 @@
 'use strict'
 
-/**
- * Unit tests for the whisper perf-report memory normalizers in
- * scripts/perf-report/aggregate-whisper-rtf.js.
- *
- * Covers the memory reporting added to the whisper RTF benchmark:
- *   1. Desktop rows surface avg / peak / reclaimed RSS from summary.memory.
- *   2. Desktop rows without a memory block render as n/a (NaN), not 0.
- *   3. Mobile rows aggregate avg (mean), peak (max) and reclaimed (max)
- *      across per-run and teardown entries, ignoring the teardown's null RTF.
- *   4. The markdown table exposes the memory columns.
- *
- * Pure-function code paths only — no fixtures on disk.
- *
- * Run locally:
- *   node --test scripts/perf-report/__tests__/aggregate-whisper-rtf.test.js
- */
+// Unit tests for the memory normalizers in aggregate-whisper-rtf.js.
 
 const test = require('node:test')
 const assert = require('node:assert/strict')

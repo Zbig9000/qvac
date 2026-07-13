@@ -5,6 +5,7 @@ const os = require('bare-os')
 const process = require('bare-process')
 const { Readable } = require('bare-stream')
 const TranscriptionWhispercpp = require('../../index.js')
+const { roundTo } = require('./memory-usage.js')
 
 const platform = os.platform()
 const arch = os.arch()
@@ -140,6 +141,10 @@ function _scheduleReportWrite () {
   process.on('exit', _flushPerfReport)
 }
 
+function roundToTwo (value) {
+  return typeof value === 'number' && Number.isFinite(value) ? roundTo(value, 2) : null
+}
+
 /**
  * Record a whisper inference stats row through the shared perf reporter.
  *
@@ -153,12 +158,6 @@ function _scheduleReportWrite () {
  * @param {Object} [extra] - Optional { wallMs, output, executionProvider,
  *                            avgRssMb, peakRssMb, reclaimedMb } overrides.
  */
-function roundToTwo (value) {
-  return typeof value === 'number' && Number.isFinite(value)
-    ? Math.round(value * 100) / 100
-    : null
-}
-
 function recordWhisperStats (label, stats, extra) {
   if (!stats || typeof stats !== 'object') return
   const epOverride = extra && extra.executionProvider
