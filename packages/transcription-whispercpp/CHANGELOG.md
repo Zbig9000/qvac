@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Removed
+
+- **Breaking:** the `detect_language` whisper config parameter. It was
+  contradictory with `language: "auto"` (which already drives auto-detection
+  and forces `detect_language` off), and handler ordering meant
+  `detect_language: true` always threw. Use `language: "auto"` for
+  auto-detection; callers that still pass `detect_language` now receive a
+  validation error.
+
+### Added
+
+- `WhisperInterface.finishStreaming()` resets streaming state (clears the
+  active job and returns to `LISTENING`) through a public method, so the SDK
+  layer no longer mutates private fields or a hardcoded state string.
+- The `max_initial_ts` and `no_speech_thold` whisper parameters are now
+  accepted by the JS config validator, so their existing native handlers can
+  be reached.
+
+### Fixed
+
+- `whisperConfig.max_seconds` is stripped before validation, so passing it no
+  longer throws `max_seconds is not a valid parameter for whisperConfig`; it
+  still derives `duration_ms`.
+- Removed an unexplained 1 ms blocking sleep on the inference thread from the
+  new-segment callback.
+
+### Changed
+
+- Consolidated scattered streaming/VAD defaults into named configuration
+  objects, and split large C++/JS functions (and their inlined loops) into
+  smaller named helpers per the team coding standards. These are internal
+  refactors with no public API change.
+
 ## [0.12.0] - 2026-07-14
 
 ### Fixed
