@@ -59,8 +59,7 @@ const {
 const {
   readRssBytes,
   createMemorySampler,
-  buildMemorySummary,
-  meanOfPositive,
+  summarizeRunMemory,
   bytesToMb,
   RECLAIM_SETTLE_MS
 } = require('../utils/memory-usage')
@@ -572,20 +571,16 @@ test('RTF benchmark: GGML TTS on CI device', { timeout: 1800000 }, async (t) => 
     const noisy = stddevOverMean > 0.15
     const activeBackend = observedBackendId !== null ? backendIdToName(observedBackendId) : ''
 
-    // --- Memory: finalize avg/peak across runs, then unload to measure the
-    // RSS the allocator returns to the OS. Unloading here (not in finally) lets
-    // the report + artifact carry the reclaimed figure.
-    const avgRssBytes = meanOfPositive(runs.map(r => r.avgRssBytes)) || rssAfterLoad
-    const rssSampleCount = runs.reduce((sum, r) => sum + (r.rssSampleCount || 0), 0)
+    // --- Memory: unload here (not in finally) to measure the RSS the allocator
+    // returns to the OS, then fold the per-run sampler records into the summary.
+    // The cross-run aggregation (sample-weighted average, peak floor, fallback)
+    // lives in the pure summarizeRunMemory helper so it is unit-tested.
     const rssAfterUnload = await reclaimAfterUnload(model)
     model = null
-    const memorySummary = buildMemorySummary({
+    const memorySummary = summarizeRunMemory(runs, {
       rssBeforeLoadBytes: rssBeforeLoad,
       rssAfterLoadBytes: rssAfterLoad,
-      avgRssBytes,
-      peakRssBytes,
-      rssAfterUnloadBytes: rssAfterUnload,
-      sampleCount: rssSampleCount
+      rssAfterUnloadBytes: rssAfterUnload
     })
 
     console.log('\n' + '='.repeat(70))

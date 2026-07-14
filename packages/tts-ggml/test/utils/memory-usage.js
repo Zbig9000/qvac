@@ -78,15 +78,26 @@ function summarizeSamples (samples) {
   }
 }
 
-function meanOfPositive (values) {
-  const positives = filterPositive(values)
-  if (positives.length === 0) return 0
-  return sumValues(positives) / positives.length
-}
-
-function maxOfPositive (values, floor) {
+// Returns the largest value, never dropping below `floor`. It does not filter
+// non-positive samples (that is the caller's concern); the name reflects the
+// floor-only behavior.
+function maxWithFloor (values, floor) {
   const list = Array.isArray(values) ? values : []
   return list.reduce((current, value) => (value > current ? value : current), floor || 0)
+}
+
+// Sample-count-weighted mean of per-run averages. Each run already carries the
+// mean of its own samples plus how many it collected, so weighting by that
+// count recovers the true overall mean; a plain mean-of-means would skew toward
+// runs that happened to collect fewer samples.
+function weightedMeanBytes (runs) {
+  const weighted = (Array.isArray(runs) ? runs : []).filter(
+    run => run && isPositiveNumber(run.avgRssBytes) && isPositiveNumber(run.rssSampleCount)
+  )
+  if (weighted.length === 0) return 0
+  const totalCount = weighted.reduce((sum, run) => sum + run.rssSampleCount, 0)
+  const weightedSum = weighted.reduce((sum, run) => sum + run.avgRssBytes * run.rssSampleCount, 0)
+  return totalCount > 0 ? weightedSum / totalCount : 0
 }
 
 function scheduleSample (state) {
@@ -183,6 +194,29 @@ function buildMemorySummary (input) {
   }
 }
 
+// Fold the per-run sampler records collected by the benchmark harness
+// (`{ avgRssBytes, peakRssBytes, rssSampleCount }`) plus the surrounding
+// load/unload footprints into a single memory summary. Kept pure so the
+// weighting, the empty-runs fallback to the post-load footprint, and the peak
+// floor are all unit-testable without a live model; the harness keeps only the
+// unload+gc+settle orchestration.
+function summarizeRunMemory (runs, context) {
+  const list = Array.isArray(runs) ? runs : []
+  const ctx = context || {}
+  const rssAfterLoadBytes = toBytes(ctx.rssAfterLoadBytes)
+  const avgRssBytes = weightedMeanBytes(list) || rssAfterLoadBytes
+  const peakRssBytes = maxWithFloor(list.map(run => (run && run.peakRssBytes) || 0), rssAfterLoadBytes)
+  const sampleCount = list.reduce((sum, run) => sum + ((run && run.rssSampleCount) || 0), 0)
+  return buildMemorySummary({
+    rssBeforeLoadBytes: ctx.rssBeforeLoadBytes,
+    rssAfterLoadBytes,
+    avgRssBytes,
+    peakRssBytes,
+    rssAfterUnloadBytes: ctx.rssAfterUnloadBytes,
+    sampleCount
+  })
+}
+
 module.exports = {
   BYTES_PER_MB,
   DEFAULT_SAMPLE_INTERVAL_MS,
@@ -190,10 +224,10 @@ module.exports = {
   readRssBytes,
   createMemorySampler,
   summarizeSamples,
-  meanOfPositive,
-  maxOfPositive,
+  maxWithFloor,
   computeReclaim,
   roundTo,
   bytesToMb,
-  buildMemorySummary
+  buildMemorySummary,
+  summarizeRunMemory
 }
