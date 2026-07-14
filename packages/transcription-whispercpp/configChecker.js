@@ -75,7 +75,7 @@ const SAFE_SUPPRESS_REGEX = /^[^()]*$/
  * @param {Object} configObject - the configuration object to check
  * @returns {void}
  */
-function checkConfig (configObject) {
+function checkConfig(configObject) {
   validateRequiredSections(configObject)
   validateMiscConfigKeys(configObject.miscConfig)
   validateWhisperConfigKeys(configObject.whisperConfig)
@@ -84,7 +84,7 @@ function checkConfig (configObject) {
   validateSuppressRegex(configObject.whisperConfig.suppress_regex)
 }
 
-function validateRequiredSections (configObject) {
+function validateRequiredSections(configObject) {
   for (const section of REQUIRED_SECTIONS) {
     if (!configObject[section]) {
       throw new Error(`${section} object is required`)
@@ -92,7 +92,7 @@ function validateRequiredSections (configObject) {
   }
 }
 
-function assertKnownKeys (values, allowedKeys, sectionName) {
+function assertKnownKeys(values, allowedKeys, sectionName) {
   for (const key of Object.keys(values)) {
     if (!allowedKeys.includes(key)) {
       throw new Error(`${key} is not a valid parameter for ${sectionName}`)
@@ -100,26 +100,26 @@ function assertKnownKeys (values, allowedKeys, sectionName) {
   }
 }
 
-function validateMiscConfigKeys (miscConfig) {
+function validateMiscConfigKeys(miscConfig) {
   assertKnownKeys(miscConfig, MISC_PARAM_KEYS, 'miscConfig')
 }
 
-function validateWhisperConfigKeys (whisperConfig) {
+function validateWhisperConfigKeys(whisperConfig) {
   assertKnownKeys(whisperConfig, WHISPER_CONFIG_KEYS, 'whisperConfig')
 }
 
-function validateVadParamsKeys (vadParams) {
+function validateVadParamsKeys(vadParams) {
   if (!vadParams) {
     return
   }
   assertKnownKeys(vadParams, VAD_PARAM_KEYS, 'vadParams')
 }
 
-function validateContextParamsKeys (contextParams) {
+function validateContextParamsKeys(contextParams) {
   assertKnownKeys(contextParams, CONTEXT_PARAM_KEYS, 'contextParams')
 }
 
-function validateSuppressRegex (pattern) {
+function validateSuppressRegex(pattern) {
   if (typeof pattern !== 'string') {
     return
   }

@@ -9,15 +9,17 @@ const { WhisperInterface } = require('../../whisper')
 const process = require('bare-process')
 global.process = process
 
-function createModel (whisperConfig) {
+function createModel(whisperConfig) {
   TranscriptionWhispercpp.prototype.validateModelFiles = () => undefined
 
   const args = { files: { model: 'ggml-tiny.bin' } }
   const model = new TranscriptionWhispercpp(args, { whisperConfig })
 
   let resolveCaptured
-  const captured = new Promise(resolve => { resolveCaptured = resolve })
-  model._createAddon = configurationParams => {
+  const captured = new Promise((resolve) => {
+    resolveCaptured = resolve
+  })
+  model._createAddon = (configurationParams) => {
     resolveCaptured(configurationParams)
     return new WhisperInterface(new MockedBinding(), configurationParams, () => {}, transitionCb)
   }
@@ -48,7 +50,11 @@ test('reload strips max_seconds and derives duration_ms', async (t) => {
   await model.reload({ whisperConfig: { max_seconds: 15 } })
 
   t.absent(reloadConfig.whisperConfig.max_seconds, 'max_seconds must not reach the addon on reload')
-  t.is(reloadConfig.whisperConfig.duration_ms, 15000, 'reload duration_ms should be derived from max_seconds')
+  t.is(
+    reloadConfig.whisperConfig.duration_ms,
+    15000,
+    'reload duration_ms should be derived from max_seconds'
+  )
 })
 
 test('_load rejects detect_language in whisperConfig', async (t) => {

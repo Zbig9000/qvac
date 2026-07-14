@@ -3,7 +3,7 @@
 const test = require('brittle')
 const { checkConfig } = require('../../configChecker')
 
-function baseConfig (whisperConfig = {}) {
+function baseConfig(whisperConfig = {}) {
   return {
     whisperConfig: { language: 'en', ...whisperConfig },
     contextParams: { model: 'ggml-tiny.bin' },
@@ -11,7 +11,7 @@ function baseConfig (whisperConfig = {}) {
   }
 }
 
-function assertThrows (t, fn, pattern, message) {
+function assertThrows(t, fn, pattern, message) {
   try {
     fn()
     t.fail(message)
