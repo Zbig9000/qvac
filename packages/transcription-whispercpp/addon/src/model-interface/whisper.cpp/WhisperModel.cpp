@@ -11,6 +11,7 @@
 #include <iterator>
 #include <mutex>
 #include <ranges>
+#include <thread>
 #include <utility>
 
 #include <ggml-backend.h>
@@ -34,6 +35,11 @@ constexpr unsigned int K_BYTE_SHIFT_8 = 8U;
 constexpr unsigned int K_BYTE_SHIFT_16 = 16U;
 constexpr unsigned int K_BYTE_SHIFT_24 = 24U;
 constexpr float K_S16_NORMALIZATION_DIVISOR = 32768.0F;
+
+// Legacy inter-segment yield on the inference thread, present since the initial
+// monorepo import with no documented rationale. Preserved verbatim rather than
+// removed to avoid an unverified runtime behavior change.
+constexpr std::chrono::milliseconds K_SEGMENT_EMIT_YIELD{1};
 } // namespace
 
 static bool shouldAbortWhisper(void* userData) {
@@ -519,6 +525,7 @@ static void onNewSegment(
     }
 
     whisper->emitSegment(transcript);
+    std::this_thread::sleep_for(K_SEGMENT_EMIT_YIELD);
     whisper->addTranscription(transcript);
 
     // Stats: count tokens/segments as they are emitted

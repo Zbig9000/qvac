@@ -71,6 +71,7 @@ private:
   float speechPadSeconds() const;
   float segmentEndSeconds(whisper_vad_segments* segments, int index) const;
   int secondsToSample(float seconds) const;
+  bool hasEnoughNewAudioForVad(int bufferSize, bool done) const;
   void drainPendingAudio(bool& done, bool& wasCancelled);
   void runVadSegmentation(const whisper_vad_params& vadParams, bool done);
   void updateSpeakingState(

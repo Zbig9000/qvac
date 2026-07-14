@@ -17,7 +17,7 @@ struct VadSegmentsDeleter {
 using VadSegmentsPtr = std::unique_ptr<whisper_vad_segments, VadSegmentsDeleter>;
 
 // whisper.cpp VAD segment timestamps are reported in centiseconds.
-constexpr float kCentisecondsToSeconds = 0.01F;
+constexpr float K_CENTISECONDS_TO_SECONDS = 0.01F;
 } // namespace
 
 namespace qvac_lib_inference_addon_whisper {
@@ -205,11 +205,17 @@ float StreamingProcessor::speechPadSeconds() const {
 float StreamingProcessor::segmentEndSeconds(
     whisper_vad_segments* segments, int index) const {
   return whisper_vad_segments_get_segment_t1(segments, index) *
-         kCentisecondsToSeconds;
+         K_CENTISECONDS_TO_SECONDS;
 }
 
 int StreamingProcessor::secondsToSample(float seconds) const {
   return static_cast<int>(seconds * static_cast<float>(config_.sampleRate));
+}
+
+bool StreamingProcessor::hasEnoughNewAudioForVad(
+    int bufferSize, bool done) const {
+  const int newSamplesSinceLastRun = bufferSize - bufferSizeAtLastVadRun_;
+  return newSamplesSinceLastRun >= config_.vadRunIntervalSamples || done;
 }
 
 void StreamingProcessor::drainPendingAudio(bool& done, bool& wasCancelled) {
@@ -269,7 +275,7 @@ void StreamingProcessor::dispatchCompleteSegments(
   for (int i = 0; i <= lastComplete; i++) {
     const float t0S =
         whisper_vad_segments_get_segment_t0(segments, i) *
-        kCentisecondsToSeconds;
+        K_CENTISECONDS_TO_SECONDS;
     const float t1S = segmentEndSeconds(segments, i);
     const int startSample = std::max(0, secondsToSample(t0S));
     const int endSample = std::min(secondsToSample(t1S), bufferSize);
@@ -313,12 +319,7 @@ void StreamingProcessor::runVadSegmentation(
     const whisper_vad_params& vadParams, bool done) {
   const int bufferSize = static_cast<int>(processBuffer_.size());
 
-  // Only run VAD when enough new audio has arrived since the last run.
-  const bool shouldRunVad =
-      (bufferSize - bufferSizeAtLastVadRun_) >=
-          config_.vadRunIntervalSamples ||
-      done;
-  if (!shouldRunVad || bufferSize <= 0) {
+  if (!hasEnoughNewAudioForVad(bufferSize, done) || bufferSize <= 0) {
     return;
   }
 

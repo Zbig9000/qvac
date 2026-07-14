@@ -30,8 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `whisperConfig.max_seconds` is stripped before validation, so passing it no
   longer throws `max_seconds is not a valid parameter for whisperConfig`; it
   still derives `duration_ms`.
-- Removed an unexplained 1 ms blocking sleep on the inference thread from the
-  new-segment callback.
+- `reload()` now applies the instance `contextParams` and `miscConfig` through
+  the same configuration builder as `_load()`, instead of only setting the
+  model path and a default caption flag. Previously configured context/misc
+  settings are retained on reload rather than dropped.
 
 ### Changed
 

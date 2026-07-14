@@ -70,3 +70,31 @@ test('_load rejects detect_language in whisperConfig', async (t) => {
     )
   }
 })
+
+test('reload retains instance contextParams and miscConfig', async (t) => {
+  TranscriptionWhispercpp.prototype.validateModelFiles = () => undefined
+
+  const args = { files: { model: 'ggml-tiny.bin' } }
+  const model = new TranscriptionWhispercpp(args, {
+    whisperConfig: { language: 'en' },
+    contextParams: { gpu_device: 2 },
+    miscConfig: { caption_enabled: true }
+  })
+  model._createAddon = (configurationParams) =>
+    new WhisperInterface(new MockedBinding(), configurationParams, () => {}, transitionCb)
+
+  await model.load()
+
+  let reloadConfig = null
+  const origReload = model.addon.reload.bind(model.addon)
+  model.addon.reload = (cfg) => {
+    reloadConfig = cfg
+    return origReload(cfg)
+  }
+
+  await model.reload({ whisperConfig: { language: 'es' } })
+
+  t.is(reloadConfig.contextParams.gpu_device, 2, 'reload retains instance contextParams')
+  t.ok(reloadConfig.contextParams.model, 'reload contextParams still includes the model path')
+  t.is(reloadConfig.miscConfig.caption_enabled, true, 'reload retains instance miscConfig')
+})
