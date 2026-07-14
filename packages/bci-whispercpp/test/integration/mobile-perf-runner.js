@@ -13,10 +13,10 @@ const {
 } = require('./helpers.js')
 const {
   readRssBytes,
+  settleAndReadRss,
   createMemorySampler,
   bytesToMb,
-  buildMemorySummary,
-  RECLAIM_SETTLE_MS
+  buildMemorySummary
 } = require('./memory-usage.js')
 
 const { platform } = detectPlatform()
@@ -29,14 +29,11 @@ function getTimeMs () {
 }
 
 async function recordReclaimAfterUnload (teardownLabel, rssAfterLoadBytes, peakRssBytes) {
-  if (typeof global.gc === 'function') {
-    try { global.gc() } catch (_) {}
-  }
-  await new Promise(resolve => setTimeout(resolve, RECLAIM_SETTLE_MS))
+  const rssAfterUnloadBytes = await settleAndReadRss()
   const summary = buildMemorySummary({
     rssAfterLoadBytes,
     peakRssBytes,
-    rssAfterUnloadBytes: readRssBytes()
+    rssAfterUnloadBytes
   })
   recordBciStats(teardownLabel, {}, {
     reclaimedMb: summary.reclaimedMb,

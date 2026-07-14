@@ -3,7 +3,9 @@
 const test = require('brittle')
 const {
   BYTES_PER_MB,
+  RECLAIM_SETTLE_MS,
   readRssBytes,
+  settleAndReadRss,
   createMemorySampler,
   summarizeSamples,
   meanOfPositive,
@@ -161,6 +163,13 @@ test('summarizeRunMemory floors the peak at the after-load footprint', (t) => {
 test('readRssBytes reports a positive resident set size on the bare runtime', (t) => {
   const rss = readRssBytes()
   t.ok(rss > 0, 'RSS should be a positive byte count')
+})
+
+test('settleAndReadRss waits for the settle delay then samples RSS', async (t) => {
+  const startedAt = Date.now()
+  const rss = await settleAndReadRss()
+  t.ok(rss > 0, 'reclaim probe should return a positive byte count')
+  t.ok(Date.now() - startedAt >= RECLAIM_SETTLE_MS, 'should settle before sampling')
 })
 
 test('createMemorySampler collects live samples between start and stop', async (t) => {

@@ -28,10 +28,10 @@ const {
 } = require('../integration/helpers.js')
 const {
   readRssBytes,
+  settleAndReadRss,
   createMemorySampler,
   bytesToMb,
-  summarizeRunMemory,
-  RECLAIM_SETTLE_MS
+  summarizeRunMemory
 } = require('../integration/memory-usage.js')
 
 const { label: platformLabel, platform: platformName, arch: archName } = detectPlatform()
@@ -157,11 +157,7 @@ async function runSingleBenchmark (bci, samplePath) {
 
 async function reclaimAfterUnload (bci) {
   try { if (bci) await bci.destroy() } catch (_) { /* ignore */ }
-  if (typeof global.gc === 'function') {
-    try { global.gc() } catch (_) { /* ignore */ }
-  }
-  await new Promise(resolve => setTimeout(resolve, RECLAIM_SETTLE_MS))
-  return readRssBytes()
+  return settleAndReadRss()
 }
 
 async function measureMemory (bci, allResults, rssBeforeLoad, rssAfterLoad) {
