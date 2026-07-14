@@ -285,7 +285,16 @@ test('BCI throughput benchmark: collect runtime stats on CI device', { timeout: 
         rtf: rtfStats,
         memory: memorySummary
       },
-      runs: allResults.map((r, i) => ({ iteration: i + 1, wallMs: r.wallMs, tokensPerSecond: r.tokensPerSecond, totalTimeSec: r.totalTimeSec, realTimeFactor: r.realTimeFactor }))
+      runs: allResults.map((r, i) => ({
+        iteration: i + 1,
+        wallMs: r.wallMs,
+        tokensPerSecond: r.tokensPerSecond,
+        totalTimeSec: r.totalTimeSec,
+        realTimeFactor: r.realTimeFactor,
+        avgRssBytes: r.avgRssBytes,
+        peakRssBytes: r.peakRssBytes,
+        rssSampleCount: r.rssSampleCount
+      }))
     }
 
     if (!fs.existsSync(RTF_RESULTS_DIR)) fs.mkdirSync(RTF_RESULTS_DIR, { recursive: true })
