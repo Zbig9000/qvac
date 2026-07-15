@@ -5,24 +5,6 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Changed
-
-- Applied the team coding standards to the package. Split the oversized C++/JS
-  functions and their inlined loops into smaller named helpers
-  (`ParakeetModel::load`, `openStreamingSession`, `runStreamingProcess`,
-  `JSAdapter::loadFromJSObject`, `startStreaming`, and `parakeet.js`'s
-  `append` / `_addonOutputCallback`), and removed narration comments and
-  decorative section banners.
-- Consolidated the int16-to-float32 PCM conversion (previously duplicated four
-  times) into a single `pcmS16ToFloat32` helper on each side, adding a new
-  `lib/audio.js` module for the JS conversions.
-- Replaced magic numbers with named constants and a backend-id enum, and moved
-  the streaming/AOSC defaults to a single source of truth in `ParakeetConfig`
-  so the JS layer no longer duplicates them. These are internal refactors with
-  no public API change.
-
 ## [0.10.0] - 2026-07-14
 
 ### Fixed

@@ -128,9 +128,7 @@ public:
     return backend_description_;
   }
   int                 getStreamingChunkMs() const {
-    return cfg_.streamingChunkMs > 0
-               ? cfg_.streamingChunkMs
-               : ParakeetConfig::DEFAULT_STREAMING_CHUNK_MS;
+    return cfg_.streamingChunkMs > 0 ? cfg_.streamingChunkMs : 1000;
   }
   int                 getStreamingHistoryMs() const {
     return cfg_.streamingHistoryMs > 0

@@ -41,13 +41,12 @@ TEST(ParakeetStreamingConfig, DefaultsUseNamedConstants) {
       ParakeetConfig::DEFAULT_STREAMING_SPK_CACHE_UPDATE_PERIOD);
 }
 
-TEST(ParakeetStreamingGetters, FallBackToConfigDefaultsOnNonPositiveValues) {
+TEST(ParakeetStreamingGetters, FallBackToBuiltInDefaultsOnNonPositiveValues) {
   ParakeetConfig c = makeCpuTestConfig();
   c.streamingChunkMs = 0;
   c.streamingHistoryMs = -1;
   ParakeetModel m(c);
-  EXPECT_EQ(
-      m.getStreamingChunkMs(), ParakeetConfig::DEFAULT_STREAMING_CHUNK_MS);
+  EXPECT_EQ(m.getStreamingChunkMs(), 1000);
   EXPECT_EQ(
       m.getStreamingHistoryMs(), ParakeetConfig::DEFAULT_STREAMING_HISTORY_MS);
 }

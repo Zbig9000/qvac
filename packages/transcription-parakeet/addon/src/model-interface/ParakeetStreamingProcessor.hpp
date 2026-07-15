@@ -44,7 +44,7 @@ class ParakeetStreamingProcessor {
 public:
   struct Config {
     int sampleRate = 16000;
-    int chunkMs = ParakeetConfig::DEFAULT_STREAMING_CHUNK_MS;
+    int chunkMs = 1000;
     int historyMs = ParakeetConfig::DEFAULT_STREAMING_HISTORY_MS;
     bool emitPartials = true;
     bool emitEnergyVad = false;
