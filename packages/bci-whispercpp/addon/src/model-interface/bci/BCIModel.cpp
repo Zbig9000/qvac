@@ -137,8 +137,10 @@ namespace {
 constexpr int K_NO_GPU_DEVICE = -1;
 
 std::string toLowerCopy(std::string value) {
-  std::transform(value.begin(), value.end(), value.begin(),
-                 [](unsigned char c) { return std::tolower(c); });
+  std::transform(
+      value.begin(), value.end(), value.begin(), [](unsigned char c) {
+        return std::tolower(c);
+      });
   return value;
 }
 
@@ -541,9 +543,10 @@ void BCIModel::warnIfDayIdxOutOfRange(int dayIdx) const {
   }
   const int maxDay = static_cast<int>(neuralProcessor_.getNumDays()) - 1;
   if (maxDay >= 0 && (dayIdx < 0 || dayIdx > maxDay)) {
-    QLOG(qvac_lib_inference_addon_cpp::logger::Priority::WARNING,
-         "day_idx " + std::to_string(dayIdx) + " is outside [0, " +
-             std::to_string(maxDay) + "]; it will be clamped");
+    QLOG(
+        qvac_lib_inference_addon_cpp::logger::Priority::WARNING,
+        "day_idx " + std::to_string(dayIdx) + " is outside [0, " +
+            std::to_string(maxDay) + "]; it will be clamped");
   }
 }
 
@@ -596,9 +599,10 @@ void BCIModel::process(const Input& rawNeuralData) {
   ensureContextInitialized();
   throwIfCancelled();
 
-  QLOG(qvac_lib_inference_addon_cpp::logger::Priority::DEBUG,
-       "Processing neural signal (" +
-           std::to_string(rawNeuralData.size()) + " bytes)");
+  QLOG(
+      qvac_lib_inference_addon_cpp::logger::Priority::DEBUG,
+      "Processing neural signal (" + std::to_string(rawNeuralData.size()) +
+          " bytes)");
 
   const int dayIdx = resolveDayIdx();
   warnIfDayIdxOutOfRange(dayIdx);

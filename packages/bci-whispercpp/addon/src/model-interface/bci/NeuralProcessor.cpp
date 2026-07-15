@@ -210,7 +210,8 @@ struct WeightsReader {
   uint32_t u32() {
     uint32_t value = 0;
     in.read(reinterpret_cast<char*>(&value), sizeof(value));
-    if (!in) failed = true;
+    if (!in)
+      failed = true;
     return value;
   }
 
@@ -220,7 +221,8 @@ struct WeightsReader {
       in.read(
           reinterpret_cast<char*>(data.data()),
           static_cast<std::streamsize>(count * sizeof(float)));
-      if (!in) failed = true;
+      if (!in)
+        failed = true;
     }
     return data;
   }
@@ -231,7 +233,8 @@ struct WeightsReader {
       in.read(
           reinterpret_cast<char*>(data.data()),
           static_cast<std::streamsize>(count * sizeof(int32_t)));
-      if (!in) failed = true;
+      if (!in)
+        failed = true;
     }
     return data;
   }
@@ -267,7 +270,8 @@ bool skipConvWeights(WeightsReader& reader) {
   return !reader.failed;
 }
 
-void readDayWeights(WeightsReader& reader, NeuralProcessor::EmbedderWeights& w) {
+void readDayWeights(
+    WeightsReader& reader, NeuralProcessor::EmbedderWeights& w) {
   w.dayAs.resize(w.numDays);
   w.dayBs.resize(w.numDays);
   w.dayBiases.resize(w.numDays);
@@ -275,7 +279,8 @@ void readDayWeights(WeightsReader& reader, NeuralProcessor::EmbedderWeights& w) 
     w.dayAs[i] = reader.lengthPrefixedFloats();
     w.dayBs[i] = reader.lengthPrefixedFloats();
     w.dayBiases[i] = reader.lengthPrefixedFloats();
-    if (reader.failed) return;
+    if (reader.failed)
+      return;
   }
 }
 
@@ -286,7 +291,8 @@ void readMonthWeights(
   for (uint32_t i = 0; i < w.numMonths; ++i) {
     w.monthWeights[i] = reader.lengthPrefixedFloats();
     w.monthBiases[i] = reader.lengthPrefixedFloats();
-    if (reader.failed) return;
+    if (reader.failed)
+      return;
   }
 }
 
@@ -362,21 +368,27 @@ NeuralProcessor::NeuralProcessor() = default;
 
 bool NeuralProcessor::loadEmbedderWeights(const std::string& path) {
   std::ifstream f(path, std::ios::binary);
-  if (!f.is_open()) return false;
+  if (!f.is_open())
+    return false;
 
   WeightsReader reader{f};
-  if (!readEmbedderHeader(reader, weights_)) return false;
-  if (!skipConvWeights(reader)) return false;
+  if (!readEmbedderHeader(reader, weights_))
+    return false;
+  if (!skipConvWeights(reader))
+    return false;
 
   const uint32_t sessionCount = reader.u32();
   weights_.sessionToDayMap = reader.ints(sessionCount);
-  if (reader.failed) return false;
+  if (reader.failed)
+    return false;
 
   readDayWeights(reader, weights_);
-  if (reader.failed) return false;
+  if (reader.failed)
+    return false;
 
   readMonthWeights(reader, weights_);
-  if (reader.failed) return false;
+  if (reader.failed)
+    return false;
 
   if (!dayWeightsHaveExpectedSizes(weights_) ||
       !monthWeightsHaveExpectedSizes(weights_)) {
@@ -436,7 +448,8 @@ void NeuralProcessor::rebuildDayProjectionCache(
       !weights_.monthWeights[monthIdx].empty();
   if (hasMonth) {
     addInPlace(
-        cachedProjectionW_, weights_.monthWeights[monthIdx],
+        cachedProjectionW_,
+        weights_.monthWeights[monthIdx],
         static_cast<size_t>(nf) * nf);
   }
 
@@ -470,8 +483,14 @@ std::vector<float> NeuralProcessor::applyDayProjection(
   std::vector<float> output(static_cast<size_t>(numTimesteps) * nf);
   forEachTimestepBand(numTimesteps, [&](uint32_t tBegin, uint32_t tEnd) {
     projectTimestepBand(
-        output, features, projectionW, projectionBias, tBegin, tEnd,
-        numChannels, nf);
+        output,
+        features,
+        projectionW,
+        projectionBias,
+        tBegin,
+        tEnd,
+        numChannels,
+        nf);
   });
 
   return output;
@@ -491,7 +510,10 @@ std::vector<float> NeuralProcessor::processToMel(
   }
 
   const std::vector<float> smoothed = gaussianSmooth(
-      features, numTimesteps, numChannels, K_SMOOTH_KERNEL_STD,
+      features,
+      numTimesteps,
+      numChannels,
+      K_SMOOTH_KERNEL_STD,
       K_SMOOTH_KERNEL_SIZE);
 
   uint32_t projChannels = numChannels;
