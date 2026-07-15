@@ -105,10 +105,13 @@ test('reclaimedMb uses the after-load baseline, not peak, so desktop and mobile 
 })
 
 test('summarizeRunMemory weights the average by each run sample count', (t) => {
-  const summary = summarizeRunMemory([
-    { avgRssBytes: 100 * BYTES_PER_MB, peakRssBytes: 120 * BYTES_PER_MB, rssSampleCount: 1 },
-    { avgRssBytes: 200 * BYTES_PER_MB, peakRssBytes: 260 * BYTES_PER_MB, rssSampleCount: 3 }
-  ], { rssAfterLoadBytes: 50 * BYTES_PER_MB, rssAfterUnloadBytes: 40 * BYTES_PER_MB })
+  const summary = summarizeRunMemory(
+    [
+      { avgRssBytes: 100 * BYTES_PER_MB, peakRssBytes: 120 * BYTES_PER_MB, rssSampleCount: 1 },
+      { avgRssBytes: 200 * BYTES_PER_MB, peakRssBytes: 260 * BYTES_PER_MB, rssSampleCount: 3 }
+    ],
+    { rssAfterLoadBytes: 50 * BYTES_PER_MB, rssAfterUnloadBytes: 40 * BYTES_PER_MB }
+  )
   t.is(summary.avgRssMb, 175, 'weighted mean (100*1 + 200*3)/4, not the 150 mean-of-means')
   t.is(summary.peakRssMb, 260)
   t.is(summary.sampleCount, 4)
@@ -127,20 +130,24 @@ test('summarizeRunMemory falls back to the post-load footprint when no samples e
 })
 
 test('summarizeRunMemory floors the peak at the post-load footprint', (t) => {
-  const summary = summarizeRunMemory([
-    { avgRssBytes: 150 * BYTES_PER_MB, peakRssBytes: 150 * BYTES_PER_MB, rssSampleCount: 4 }
-  ], { rssAfterLoadBytes: 200 * BYTES_PER_MB, rssAfterUnloadBytes: 190 * BYTES_PER_MB })
+  const summary = summarizeRunMemory(
+    [{ avgRssBytes: 150 * BYTES_PER_MB, peakRssBytes: 150 * BYTES_PER_MB, rssSampleCount: 4 }],
+    { rssAfterLoadBytes: 200 * BYTES_PER_MB, rssAfterUnloadBytes: 190 * BYTES_PER_MB }
+  )
   t.is(summary.avgRssMb, 150)
   t.is(summary.peakRssMb, 200, 'peak below the loaded footprint is clamped up to it')
   t.is(summary.reclaimedMb, 10)
 })
 
 test('summarizeRunMemory ignores runs that collected no samples', (t) => {
-  const summary = summarizeRunMemory([
-    { avgRssBytes: 100 * BYTES_PER_MB, peakRssBytes: 120 * BYTES_PER_MB, rssSampleCount: 2 },
-    { avgRssBytes: 0, peakRssBytes: 0, rssSampleCount: 0 },
-    { avgRssBytes: 300 * BYTES_PER_MB, peakRssBytes: 320 * BYTES_PER_MB, rssSampleCount: 2 }
-  ], { rssAfterLoadBytes: 50 * BYTES_PER_MB, rssAfterUnloadBytes: 30 * BYTES_PER_MB })
+  const summary = summarizeRunMemory(
+    [
+      { avgRssBytes: 100 * BYTES_PER_MB, peakRssBytes: 120 * BYTES_PER_MB, rssSampleCount: 2 },
+      { avgRssBytes: 0, peakRssBytes: 0, rssSampleCount: 0 },
+      { avgRssBytes: 300 * BYTES_PER_MB, peakRssBytes: 320 * BYTES_PER_MB, rssSampleCount: 2 }
+    ],
+    { rssAfterLoadBytes: 50 * BYTES_PER_MB, rssAfterUnloadBytes: 30 * BYTES_PER_MB }
+  )
   t.is(summary.avgRssMb, 200, 'weighted mean of the two sampled runs (100*2 + 300*2)/4')
   t.is(summary.peakRssMb, 320)
   t.is(summary.sampleCount, 4)

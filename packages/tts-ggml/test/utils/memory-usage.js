@@ -10,11 +10,11 @@ const DEFAULT_SAMPLE_INTERVAL_MS = 25
 // chance to return freed pages to the OS.
 const RECLAIM_SETTLE_MS = 250
 
-function isPositiveNumber (value) {
+function isPositiveNumber(value) {
   return typeof value === 'number' && Number.isFinite(value) && value > 0
 }
 
-function readRssFromBareOs () {
+function readRssFromBareOs() {
   try {
     const usage = require('bare-os').memoryUsage()
     return usage && isPositiveNumber(usage.rss) ? usage.rss : 0
@@ -23,7 +23,7 @@ function readRssFromBareOs () {
   }
 }
 
-function resolveProcess () {
+function resolveProcess() {
   if (globalThis.process && typeof globalThis.process.memoryUsage === 'function') {
     return globalThis.process
   }
@@ -35,7 +35,7 @@ function resolveProcess () {
   }
 }
 
-function readRssFromProcess () {
+function readRssFromProcess() {
   try {
     const proc = resolveProcess()
     const usage = proc && proc.memoryUsage()
@@ -45,27 +45,27 @@ function readRssFromProcess () {
   }
 }
 
-function readRssBytes () {
+function readRssBytes() {
   return readRssFromBareOs() || readRssFromProcess()
 }
 
-function filterPositive (samples) {
+function filterPositive(samples) {
   return (Array.isArray(samples) ? samples : []).filter(isPositiveNumber)
 }
 
-function sumValues (values) {
+function sumValues(values) {
   return values.reduce((total, value) => total + value, 0)
 }
 
-function maxValue (values) {
+function maxValue(values) {
   return values.reduce((current, value) => (value > current ? value : current), values[0])
 }
 
-function minValue (values) {
+function minValue(values) {
   return values.reduce((current, value) => (value < current ? value : current), values[0])
 }
 
-function summarizeSamples (samples) {
+function summarizeSamples(samples) {
   const values = filterPositive(samples)
   if (values.length === 0) {
     return { count: 0, avgBytes: 0, peakBytes: 0, minBytes: 0 }
@@ -81,7 +81,7 @@ function summarizeSamples (samples) {
 // Returns the largest value, never dropping below `floor`. It does not filter
 // non-positive samples (that is the caller's concern); the name reflects the
 // floor-only behavior.
-function maxWithFloor (values, floor) {
+function maxWithFloor(values, floor) {
   const list = Array.isArray(values) ? values : []
   return list.reduce((current, value) => (value > current ? value : current), floor || 0)
 }
@@ -90,9 +90,9 @@ function maxWithFloor (values, floor) {
 // mean of its own samples plus how many it collected, so weighting by that
 // count recovers the true overall mean; a plain mean-of-means would skew toward
 // runs that happened to collect fewer samples.
-function weightedMeanBytes (runs) {
+function weightedMeanBytes(runs) {
   const weighted = (Array.isArray(runs) ? runs : []).filter(
-    run => run && isPositiveNumber(run.avgRssBytes) && isPositiveNumber(run.rssSampleCount)
+    (run) => run && isPositiveNumber(run.avgRssBytes) && isPositiveNumber(run.rssSampleCount)
   )
   if (weighted.length === 0) return 0
   const totalCount = weighted.reduce((sum, run) => sum + run.rssSampleCount, 0)
@@ -100,7 +100,7 @@ function weightedMeanBytes (runs) {
   return totalCount > 0 ? weightedSum / totalCount : 0
 }
 
-function scheduleSample (state) {
+function scheduleSample(state) {
   state.timer = setTimeout(() => {
     if (!state.running) return
     collectSample(state)
@@ -111,20 +111,20 @@ function scheduleSample (state) {
   }
 }
 
-function collectSample (state) {
+function collectSample(state) {
   const rss = readRssBytes()
   if (rss > 0) state.samples.push(rss)
   return rss
 }
 
-function startSampler (state) {
+function startSampler(state) {
   if (state.running) return
   state.running = true
   collectSample(state)
   scheduleSample(state)
 }
 
-function stopSampler (state) {
+function stopSampler(state) {
   state.running = false
   if (state.timer) {
     clearTimeout(state.timer)
@@ -134,7 +134,7 @@ function stopSampler (state) {
   return summarizeSamples(state.samples)
 }
 
-function createMemorySampler (options) {
+function createMemorySampler(options) {
   const state = {
     intervalMs: (options && options.intervalMs) || DEFAULT_SAMPLE_INTERVAL_MS,
     samples: [],
@@ -145,15 +145,17 @@ function createMemorySampler (options) {
     start: () => startSampler(state),
     stop: () => stopSampler(state),
     sampleOnce: () => collectSample(state),
-    get samples () { return state.samples }
+    get samples() {
+      return state.samples
+    }
   }
 }
 
-function toBytes (value) {
+function toBytes(value) {
   return isPositiveNumber(value) ? value : 0
 }
 
-function computeReclaim (input) {
+function computeReclaim(input) {
   const afterLoad = toBytes(input && input.rssAfterLoadBytes)
   const peak = toBytes(input && input.peakRssBytes)
   const afterUnload = toBytes(input && input.rssAfterUnloadBytes)
@@ -164,18 +166,18 @@ function computeReclaim (input) {
   }
 }
 
-function roundTo (value, digits) {
+function roundTo(value, digits) {
   const factor = 10 ** digits
   return Math.round(value * factor) / factor
 }
 
-function bytesToMb (bytes, digits) {
+function bytesToMb(bytes, digits) {
   if (!isPositiveNumber(bytes)) return 0
   const mb = bytes / BYTES_PER_MB
   return typeof digits === 'number' ? roundTo(mb, digits) : mb
 }
 
-function buildMemorySummary (input) {
+function buildMemorySummary(input) {
   const source = input || {}
   const rssAfterLoadBytes = toBytes(source.rssAfterLoadBytes)
   const peakRssBytes = Math.max(toBytes(source.peakRssBytes), rssAfterLoadBytes)
@@ -199,12 +201,15 @@ function buildMemorySummary (input) {
 // weighting, the empty-runs fallback to the post-load footprint, and the peak
 // floor are all unit-testable without a live model; the harness keeps only the
 // unload+gc+settle orchestration.
-function summarizeRunMemory (runs, context) {
+function summarizeRunMemory(runs, context) {
   const list = Array.isArray(runs) ? runs : []
   const ctx = context || {}
   const rssAfterLoadBytes = toBytes(ctx.rssAfterLoadBytes)
   const avgRssBytes = weightedMeanBytes(list) || rssAfterLoadBytes
-  const peakRssBytes = maxWithFloor(list.map(run => (run && run.peakRssBytes) || 0), rssAfterLoadBytes)
+  const peakRssBytes = maxWithFloor(
+    list.map((run) => (run && run.peakRssBytes) || 0),
+    rssAfterLoadBytes
+  )
   const sampleCount = list.reduce((sum, run) => sum + ((run && run.rssSampleCount) || 0), 0)
   return buildMemorySummary({
     rssBeforeLoadBytes: ctx.rssBeforeLoadBytes,
