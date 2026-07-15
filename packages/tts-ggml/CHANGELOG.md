@@ -35,21 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Applied the team coding standards to the package. Split the oversized C++/JS
-  functions and their inlined loops into smaller named helpers
-  (`ChatterboxModel::synthesize` and its streaming/batch/enhancer/denoiser
-  stages, `OutputResampler::resample`, `StreamingEnhancer::process`,
-  `WsolaTimeStretch`, and `index.js`'s `TTSGgml` constructor and
-  `_addonOutputCallback`), and removed narration comments while keeping the
-  non-obvious "why" rationale.
-- Consolidated the float32-to-int16 PCM conversion (previously duplicated
-  across both engines) into a single shared `pcmFloatToInt16` helper in
-  `PcmConversion.hpp`.
-- Replaced magic numbers with named constants: the output sample-rate bounds
-  and the flush/chunk defaults on the JS side, and a shared GPU "offload all
-  layers" constant, the Chatterbox native sample rate, and the int16 PCM
-  full-scale constant on the C++ side. These are internal refactors with no
-  public API change.
+- Internal refactor to apply the team coding standards; no public API or behavior change.
 
 ## [0.5.0] - 2026-07-14
 

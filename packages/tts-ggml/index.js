@@ -654,7 +654,7 @@ class TTSGgml {
         ? rawPreset
         : 'multilingual'
     const maxBufferScalars = o.maxBufferScalars
-    const flushAfterMs = o.flushAfterMs != null ? o.flushAfterMs : 500
+    const flushAfterMs = o.flushAfterMs != null ? o.flushAfterMs : DEFAULT_FLUSH_AFTER_MS
     const sentenceDelimiter =
       o.sentenceDelimiter instanceof RegExp ? o.sentenceDelimiter : undefined
     return {
