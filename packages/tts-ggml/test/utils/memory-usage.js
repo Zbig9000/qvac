@@ -160,8 +160,7 @@ function computeReclaim (input) {
   const baseline = peak > 0 ? peak : afterLoad
   return {
     reclaimedBytes: afterLoad - afterUnload,
-    reclaimedFromPeakBytes: baseline - afterUnload,
-    reclaimedRatio: afterLoad > 0 ? (afterLoad - afterUnload) / afterLoad : 0
+    reclaimedFromPeakBytes: baseline - afterUnload
   }
 }
 

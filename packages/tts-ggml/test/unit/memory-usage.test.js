@@ -48,7 +48,6 @@ test('computeReclaim measures memory returned after unload', (t) => {
   })
   t.is(reclaim.reclaimedBytes, 50)
   t.is(reclaim.reclaimedFromPeakBytes, 110)
-  t.is(reclaim.reclaimedRatio, 0.25)
 })
 
 test('computeReclaim falls back to after-load baseline when peak is missing', (t) => {
