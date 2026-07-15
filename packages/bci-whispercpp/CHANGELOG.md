@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Faster desktop neural-signal preprocessing on the GPU (Vulkan) and CPU paths. Public API and transcription output are unchanged.
+- Refactored the JS and native internals to the team coding standards: extracted loops and large functions into named helpers, replaced magic numbers and repeated string literals with named constants (shared stream-header layout and addon-event names), and removed tracker-coupled comments. Behavior-preserving; public API and transcription output are unchanged.
 
 ## [0.5.0] - 2026-07-14
 
