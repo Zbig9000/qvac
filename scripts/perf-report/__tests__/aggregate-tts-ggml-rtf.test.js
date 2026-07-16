@@ -116,3 +116,52 @@ test('markdown table includes the memory columns and rounded values', () => {
   assert.ok(markdown.includes('| 812 |'), 'avg RSS should be rounded to 812 in the table')
   assert.ok(markdown.includes('| 512 |'), 'reclaimed should be rounded to 512 in the table')
 })
+
+test('desktop record defaults enhancer to none and surfaces model.enhancer when set', () => {
+  const none = normalizeDesktopRecord(desktopReport(true), 'rtf-benchmark-linux-x64-chatterbox-q4-gpu.json')
+  assert.equal(none.enhancer, 'none')
+
+  const report = desktopReport(true)
+  report.model.enhancer = 'lavasr'
+  const withEnhancer = normalizeDesktopRecord(report, 'rtf-benchmark-linux-x64-chatterbox-q4-gpu-lavasr.json')
+  assert.equal(withEnhancer.enhancer, 'lavasr')
+})
+
+test('mobile canonical report parses the trailing enhancer token', () => {
+  const report = mobileCanonicalReport()
+  report.results[0].test = '[GPU] chatterbox q4 metal lavasr'
+  const { records } = expandCanonicalReport(report, '/x/Apple_iPhone_16_Pro/performance-report.json')
+  assert.equal(records.length, 1)
+  assert.equal(records[0].engine, 'chatterbox')
+  assert.equal(records[0].backend, 'metal')
+  assert.equal(records[0].enhancer, 'lavasr')
+})
+
+test('mobile canonical report without an enhancer token defaults to none (backward compat)', () => {
+  const { records } = expandCanonicalReport(mobileCanonicalReport(), '/x/Apple_iPhone_16_Pro/performance-report.json')
+  assert.equal(records[0].enhancer, 'none')
+})
+
+test('mobile canonical streaming report parses the trailing enhancer token', () => {
+  const report = mobileCanonicalReport()
+  report.results[0].test = '[CPU] streaming chatterbox q4 cpu lavasr'
+  report.results[0].metrics = {
+    ttfa_ms: 120,
+    inter_chunk_p95_ms: 40,
+    wall_time_ms: 900,
+    chunks_per_run_mean: 5
+  }
+  const { streaming } = expandCanonicalReport(report, '/x/Apple_iPhone_16_Pro/performance-report.json')
+  assert.equal(streaming.length, 1)
+  assert.equal(streaming[0].engine, 'chatterbox')
+  assert.equal(streaming[0].enhancer, 'lavasr')
+})
+
+test('markdown table exposes the Enhancer column and the lavasr value', () => {
+  const report = desktopReport(true)
+  report.model.enhancer = 'lavasr'
+  const record = normalizeDesktopRecord(report, 'rtf-benchmark-linux-x64-chatterbox-q4-gpu-lavasr.json')
+  const markdown = renderMarkdown([record], [])
+  assert.ok(markdown.includes('| Enhancer |'), 'header carries the Enhancer column')
+  assert.ok(markdown.includes('| lavasr |'), 'enhancer value rendered in the row')
+})

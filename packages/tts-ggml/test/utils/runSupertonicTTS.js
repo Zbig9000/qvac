@@ -22,9 +22,14 @@ async function loadSupertonicTTS(params = {}) {
     config.useGPU = false
   }
 
+  const files = { supertonicModel: supertonicPath }
+  // The enhancer path is the "on" switch for LavaSR bandwidth extension; only
+  // set it when a path was resolved so an unset value leaves enhancement off.
+  if (params.lavasrEnhancerPath) files.lavasrEnhancer = params.lavasrEnhancerPath
+
   const model = new TTSGgml({
     engine: TTSGgml.ENGINE_SUPERTONIC,
-    files: { supertonicModel: supertonicPath },
+    files,
     voice: params.voice || 'F1',
     steps: params.steps,
     speed: params.speed,

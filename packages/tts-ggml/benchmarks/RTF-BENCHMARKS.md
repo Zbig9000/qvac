@@ -63,17 +63,26 @@ QVAC_TTS_GGML_BENCHMARK_DEVICE="RTX 4090 box" \
 QVAC_TTS_GGML_BENCHMARK_RUNNER=manual-zbig \
 npm --prefix packages/tts-ggml run test:benchmark:rtf
 
-# Matrix via one npm invocation
+# Matrix via one npm invocation (an `enhancer` field adds the LavaSR axis)
 QVAC_TTS_GGML_BENCHMARK_MATRIX_JSON='[
   {"engine":"chatterbox","useGPU":false,"backendHint":"cpu"},
   {"engine":"chatterbox-mtl","useGPU":false,"backendHint":"cpu"},
   {"engine":"supertonic","useGPU":false,"backendHint":"cpu"},
-  {"engine":"supertonic-mtl","useGPU":false,"backendHint":"cpu"}
+  {"engine":"supertonic-mtl","useGPU":false,"backendHint":"cpu"},
+  {"engine":"supertonic","useGPU":false,"backendHint":"cpu","enhancer":"lavasr"}
 ]' npm --prefix packages/tts-ggml run test:benchmark:rtf:matrix
 
 # Streaming latency (TTFA + inter-chunk gap)
 QVAC_TTS_GGML_BENCHMARK_ENGINE=chatterbox \
 npm --prefix packages/tts-ggml run test:benchmark:streaming
+
+# LavaSR enhancer axis (48 kHz bandwidth extension layered on the engine).
+# Point LAVASR_ENHANCER_GGUF at a converted enhancer GGUF (see "LavaSR enhancer
+# axis" below); without it the run soft-skips (green) instead of failing.
+QVAC_TTS_GGML_BENCHMARK_ENGINE=supertonic \
+QVAC_TTS_GGML_BENCHMARK_ENHANCER=lavasr \
+LAVASR_ENHANCER_GGUF=/path/to/lavasr-enhancer.gguf \
+npm --prefix packages/tts-ggml run test:benchmark:rtf
 
 # Aggregate what you've run so far (no CI required)
 node scripts/perf-report/aggregate-tts-ggml-rtf.js \
@@ -91,7 +100,8 @@ node scripts/perf-report/aggregate-tts-ggml-rtf.js \
 |---------|---------|---------|
 | `QVAC_TTS_GGML_BENCHMARK_ENGINE` | `chatterbox` | One of `chatterbox` / `chatterbox-mtl` / `supertonic` / `supertonic-mtl` / `supertonic3`. |
 | `QVAC_TTS_GGML_BENCHMARK_VARIANT` | `q4` | Label only — one of `q4` / `q8` / `f16` / `mixed`. The GGUF on the registry determines the real quant. |
-| `QVAC_TTS_GGML_BENCHMARK_USE_GPU` | `0` | `1` / `true` to request GPU. Backend auto-derives from platform (Vulkan / Metal). |
+| `QVAC_TTS_GGML_BENCHMARK_ENHANCER` | `none` | One of `none` / `lavasr`. `lavasr` layers the LavaSR 48 kHz bandwidth-extension enhancer on top of the engine output. Soft-skips (green) when the enhancer GGUF is not staged. Adds `-lavasr` to the artifact name + a trailing token to the canonical label, and populates the `Enhancer` findings column. |
+| `QVAC_TTS_GGML_BENCHMARK_USE_GPU` | `0` | `1` / `true` to request GPU. Backend auto-derives from platform (Vulkan / Metal). The enhancer shares this switch (runs on the same GPU backend as the engine). |
 | `QVAC_TTS_GGML_BENCHMARK_BACKEND` | (derived) | `cpu` / `metal` / `vulkan` / `cuda` / `opencl`. Used in reports and to differentiate rows. |
 | `QVAC_TTS_GGML_BENCHMARK_DEVICE` | — | Device label rendered in the `Device` column. |
 | `QVAC_TTS_GGML_BENCHMARK_RUNNER` | — | CI / runner label rendered in reports. |
@@ -132,6 +142,75 @@ The matrix runner forwards `GITHUB_RUN_ID`, `GITHUB_RUN_ATTEMPT`, `GITHUB_SHA`,
 `GITHUB_REF_NAME`, `GITHUB_ACTOR`, `GITHUB_WORKFLOW`, `GITHUB_JOB`,
 `GITHUB_SERVER_URL`, and `GITHUB_REPOSITORY` into each child benchmark run so
 every report links back to the CI run that produced it.
+
+## LavaSR enhancer axis
+
+LavaSR is not a standalone engine — it is a 48 kHz neural bandwidth-extension
+**enhancer** that layers on top of an existing engine's output (upsampling the
+engine's native 24 kHz / 44.1 kHz to 48 kHz). It is benchmarked as an extra
+axis, `QVAC_TTS_GGML_BENCHMARK_ENHANCER` = `none` (default) | `lavasr`,
+orthogonal to `engine` / `variant` / `useGPU`. When on:
+
+- both benchmark suites construct the model with `files.lavasrEnhancer` (the path
+  is the "on" switch) and the enhancer shares the engine's `useGPU` switch, so
+  `useGPU:true` runs the ConvNeXt backbone + spec head on the same GPU backend
+  (Vulkan / Metal);
+- the enhancer GGUF's size is folded into the reported `Model (MB)`;
+- the artifact name gains a `-lavasr` tag (`rtf-benchmark-<platform>-<engine>-<variant>-<cpu|gpu>-lavasr[-<label>].json`)
+  and the canonical `[PERF_REPORT_START]` label gains a trailing `lavasr` token,
+  so the aggregator surfaces the run in the `Enhancer` column and dedupes
+  `lavasr` vs `none` rows separately.
+
+### Resolving the enhancer GGUF
+
+`test/utils/downloadModel.js` `ensureLavaSREnhancerGguf()` resolves, in order:
+
+1. `LAVASR_ENHANCER_GGUF` (absolute path to a converted GGUF);
+2. a locally-staged `models/lavasr/lavasr-enhancer.gguf` (and a couple of fallbacks);
+3. the QVAC registry, when `LAVASR_ENHANCER_REGISTRY_PATH` (+ optional
+   `LAVASR_ENHANCER_REGISTRY_SOURCE`, default `s3`) is set.
+
+The enhancer GGUF is **not published to the QVAC registry yet** (tracked
+follow-up). Until it is, an `enhancer=lavasr` run that can't resolve the GGUF
+**soft-skips** (the brittle test passes with a skip comment and writes no
+artifact) so CI stays green — the `enhancer=none` rows still produce artifacts,
+so the desktop "zero artifacts" guard never trips. Once the GGUF is on the
+registry, set `LAVASR_ENHANCER_REGISTRY_PATH` (or bake it into
+`ensureLavaSREnhancerGguf`) and the same matrix rows start collecting numbers
+with no further changes.
+
+### Collecting LavaSR numbers locally
+
+```bash
+# 1. Convert the enhancer ONNX pair to a GGUF (needs numpy + onnx + gguf).
+python packages/tts-ggml/scripts/convert-lavasr-enhancer-to-gguf.py \
+  --backbone  enhancer_backbone.onnx \
+  --spec-head enhancer_spec_head.onnx \
+  --out       lavasr-enhancer.gguf \
+  --ftype     f16
+
+# 2. Run any engine with the enhancer on (Supertonic + Chatterbox are supported).
+QVAC_TTS_GGML_BENCHMARK_ENGINE=supertonic \
+QVAC_TTS_GGML_BENCHMARK_ENHANCER=lavasr \
+LAVASR_ENHANCER_GGUF="$PWD/lavasr-enhancer.gguf" \
+QVAC_TTS_GGML_BENCHMARK_DEVICE="my-box" \
+QVAC_TTS_GGML_BENCHMARK_RUNNER=manual-zbig \
+npm --prefix packages/tts-ggml run test:benchmark:rtf
+
+# 3. For a row on a backend CI can't reach (CUDA, Adreno OpenCL, hosted Metal),
+#    copy the artifact into manual-results/ (see manual-results/LAVASR_TEMPLATE.json.example).
+```
+
+### CI wiring
+
+- **Desktop** (`integration-test-tts-ggml.yml`): each matrix branch carries
+  self-skipping `enhancer:"lavasr"` rows for `supertonic` + `chatterbox` (CPU
+  everywhere, plus Vulkan/Metal on GPU runners). They go green-with-skip today
+  and light up once the GGUF is published.
+- **Mobile** (`integration-mobile-test-tts-ggml.yml`): the on-device runtime
+  reads `QVAC_TTS_GGML_BENCHMARK_ENHANCER` (threaded through the inject-env
+  step). Device Farm benchmark rows for the enhancer are added once the GGUF is
+  published + pre-staged alongside the engine GGUFs.
 
 ## How the CI pipeline fits together
 
@@ -182,7 +261,11 @@ The aggregated table carries:
 - **Mean Wall (ms)**: average wall time per synthesis.
 - **Load (ms)**: `model.load()` time (loads + maps the GGUFs once).
 - **Peak RSS (MB)**: high-water RSS observed across warmup + measured runs.
-- **Model (MB)**: sum of the engine's GGUF files on disk.
+- **Model (MB)**: sum of the engine's GGUF files on disk (includes the LavaSR
+  enhancer GGUF when the `Enhancer` column is `lavasr`).
+- **Enhancer**: `lavasr` when the LavaSR 48 kHz bandwidth-extension enhancer was
+  layered on the engine, else `none`. `lavasr` and `none` rows for the same
+  `(engine, variant, gpu)` are kept as separate rows.
 - **Tokens/s**: populated from the addon's `runtimeStats`. `n/a` when absent.
 - **Noisy**: `⚠` when stddev / mean > 15% — compare P50 instead.
 - **Run**: links back to the GitHub Actions run.

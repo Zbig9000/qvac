@@ -140,19 +140,25 @@ function isCanonicalReport (report) {
 function parseCanonicalTestLabel (testLabel) {
   // The benchmark file builds `testLabel` as
   // `[${ep.toUpperCase()}] ${engine} ${variant} ${backend}` for RTF runs and
-  // the streaming benchmark mirrors that with a `streaming ` prefix. Example
-  // labels observed in mobile CI logs:
+  // the streaming benchmark mirrors that with a `streaming ` prefix. When the
+  // LavaSR enhancer axis is on, an extra `${enhancer}` token is appended. The
+  // trailing token is optional so existing 5-token labels parse unchanged.
+  // Example labels observed in mobile CI logs:
   //   `[CPU] chatterbox q4 cpu`
   //   `[CPU] streaming chatterbox q4 cpu`
   //   `[GPU] supertonic q4 vulkan`
-  const m = String(testLabel || '').match(/^\[(CPU|GPU)\]\s*(streaming\s+)?(\S+)\s+(\S+)\s+(\S+)$/)
+  //   `[GPU] supertonic q4 vulkan lavasr`
+  const m = String(testLabel || '').match(
+    /^\[(CPU|GPU)\]\s*(streaming\s+)?(\S+)\s+(\S+)\s+(\S+?)(?:\s+(\S+))?$/
+  )
   if (!m) return null
   return {
     useGPU: m[1] === 'GPU',
     streaming: Boolean(m[2]),
     engine: m[3],
     variant: m[4],
-    backendHint: m[5]
+    backendHint: m[5],
+    enhancer: m[6] || 'none'
   }
 }
 
@@ -175,6 +181,7 @@ function expandCanonicalReport (report, sourceFile) {
         engine: parsed.engine,
         modelType: parsed.engine,
         variant: parsed.variant,
+        enhancer: parsed.enhancer || result.enhancer || 'none',
         platform,
         platformName: platformFamily,
         deviceLabel: device.name,
@@ -194,6 +201,7 @@ function expandCanonicalReport (report, sourceFile) {
         engine: parsed.engine,
         modelType: parsed.engine,
         variant: parsed.variant,
+        enhancer: parsed.enhancer || result.enhancer || 'none',
         platform,
         platformName: platformFamily,
         deviceLabel: device.name,
@@ -282,6 +290,7 @@ function normalizeDesktopRecord (report, sourceFile) {
     platformFamily: platformName || 'unknown',
     engine: report.engine || 'unknown',
     variant: (report.model && report.model.variant) || (report.requested && report.requested.variant) || 'q4',
+    enhancer: (report.model && report.model.enhancer) || (report.requested && report.requested.enhancer) || (report.config && report.config.enhancer) || 'none',
     gpu: useGPU ? 'gpu' : 'cpu',
     backend,
     gpuModel: (report.labels && report.labels.gpuModel) || (report.device && report.device.gpu) || null,
@@ -323,6 +332,7 @@ function normalizeMobileRecord (record, sourceFile) {
     platformFamily: platformFamily || 'unknown',
     engine: record.engine || record.modelType || 'unknown',
     variant: record.variant || 'q4',
+    enhancer: record.enhancer || 'none',
     gpu: useGPU ? 'gpu' : 'cpu',
     backend,
     gpuModel: record.gpuModel || null,
@@ -358,6 +368,7 @@ function normalizeManualRecord (record, sourceFile) {
     platformFamily: platformFamily || 'unknown',
     engine: record.engine || record.model || 'unknown',
     variant: record.variant || 'q4',
+    enhancer: record.enhancer || 'none',
     gpu: useGPU ? 'gpu' : 'cpu',
     backend: normalizeBackend(platformFamily, useGPU, record.backend),
     gpuModel: record.gpuModel || record.gpu_model || null,
@@ -400,6 +411,7 @@ function normalizeStreamingRecord (report, sourceFile, source) {
     platformFamily: platformName || 'unknown',
     engine: report.engine || report.modelType || 'unknown',
     variant: (report.model && report.model.variant) || report.variant || 'q4',
+    enhancer: (report.model && report.model.enhancer) || report.enhancer || 'none',
     gpu: useGPU ? 'gpu' : 'cpu',
     backend,
     label: String((report.labels && report.labels.label) || report.label || ''),
@@ -502,6 +514,7 @@ function dedupeRecords (records) {
       record.platform,
       record.engine,
       record.variant,
+      record.enhancer || 'none',
       record.gpu,
       record.backend,
       record.device,
@@ -563,8 +576,8 @@ function renderMarkdown (records, streamingRecords) {
   lines.push('')
   lines.push('`Cold RTF` is the first warmup run after load (captures cold-path latency). `Noisy` flags rows where stddev / mean > 15%.')
   lines.push('')
-  lines.push('| Source | Device | Platform | Engine | Variant | GPU | Backend | GPU Model | Label | Mean RTF | P50 | P95 | Cold RTF | Mean Wall (ms) | Load (ms) | Avg RSS (MB) | Peak RSS (MB) | Reclaimed (MB) | Model (MB) | Tokens/s | Noisy | Run |')
-  lines.push('|--------|--------|----------|--------|---------|-----|---------|-----------|-------|----------|-----|-----|----------|----------------|-----------|--------------|---------------|----------------|------------|----------|-------|-----|')
+  lines.push('| Source | Device | Platform | Engine | Variant | Enhancer | GPU | Backend | GPU Model | Label | Mean RTF | P50 | P95 | Cold RTF | Mean Wall (ms) | Load (ms) | Avg RSS (MB) | Peak RSS (MB) | Reclaimed (MB) | Model (MB) | Tokens/s | Noisy | Run |')
+  lines.push('|--------|--------|----------|--------|---------|----------|-----|---------|-----------|-------|----------|-----|-----|----------|----------------|-----------|--------------|---------------|----------------|------------|----------|-------|-----|')
 
   for (const r of records) {
     lines.push('| ' + [
@@ -573,6 +586,7 @@ function renderMarkdown (records, streamingRecords) {
       r.platform,
       r.engine,
       r.variant,
+      r.enhancer || 'none',
       r.gpu,
       r.backend,
       r.gpuModel || '-',
@@ -599,8 +613,8 @@ function renderMarkdown (records, streamingRecords) {
     lines.push('')
     lines.push('`TTFA` = Time-to-First-Audio from `run()` call. `Inter-chunk` = gap between successive `onUpdate` deliveries.')
     lines.push('')
-    lines.push('| Source | Device | Platform | Engine | Variant | GPU | Backend | Label | TTFA Mean (ms) | TTFA P50 | TTFA P95 | Inter-chunk Mean (ms) | Inter-chunk P95 | Chunks/run | Total Wall (ms) | Run |')
-    lines.push('|--------|--------|----------|--------|---------|-----|---------|-------|----------------|----------|----------|-----------------------|-----------------|------------|-----------------|-----|')
+    lines.push('| Source | Device | Platform | Engine | Variant | Enhancer | GPU | Backend | Label | TTFA Mean (ms) | TTFA P50 | TTFA P95 | Inter-chunk Mean (ms) | Inter-chunk P95 | Chunks/run | Total Wall (ms) | Run |')
+    lines.push('|--------|--------|----------|--------|---------|----------|-----|---------|-------|----------------|----------|----------|-----------------------|-----------------|------------|-----------------|-----|')
     for (const r of streamingRecords) {
       lines.push('| ' + [
         r.source,
@@ -608,6 +622,7 @@ function renderMarkdown (records, streamingRecords) {
         r.platform,
         r.engine,
         r.variant,
+        r.enhancer || 'none',
         r.gpu,
         r.backend,
         r.label || '-',

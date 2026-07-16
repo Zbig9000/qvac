@@ -155,6 +155,10 @@ jobs:
           ENGINE: ${{ matrix.engine || 'chatterbox' }}
           USE_GPU: ${{ matrix.use_gpu && '1' || '0' }}
           GPU_TAG: ${{ matrix.use_gpu && 'gpu' || 'cpu' }}
+          # Enhancer axis (none|lavasr). Defaults to none for the existing rows;
+          # the LavaSR enhancer GGUF is not on the registry yet, so a `lavasr`
+          # row soft-skips on device until it is published + pre-staged.
+          ENHANCER: ${{ matrix.enhancer || 'none' }}
         run: |
           echo "Injecting QVAC_TTS_GGML_RUN_BENCHMARK_ON_MOBILE=1 into mobile runtime"
           cat > test/mobile/inject-env.cjs <<NODE
@@ -168,6 +172,7 @@ jobs:
             if (key === 'QVAC_TTS_GGML_BENCHMARK_VARIANT') return '$VARIANT'
             if (key === 'QVAC_TTS_GGML_BENCHMARK_ENGINE') return '$ENGINE'
             if (key === 'QVAC_TTS_GGML_BENCHMARK_USE_GPU') return '$USE_GPU'
+            if (key === 'QVAC_TTS_GGML_BENCHMARK_ENHANCER') return '$ENHANCER'
             return originalGetEnv ? originalGetEnv.call(this, key) : undefined
           }
           NODE

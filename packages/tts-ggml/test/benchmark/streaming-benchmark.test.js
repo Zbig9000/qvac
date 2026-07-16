@@ -23,6 +23,9 @@
  * Environment variables (all optional):
  *   QVAC_TTS_GGML_BENCHMARK_ENGINE       chatterbox | chatterbox-mtl | supertonic | supertonic-mtl | supertonic3
  *   QVAC_TTS_GGML_BENCHMARK_VARIANT      q4 | q8 | f16 | mixed (default: q4, label only)
+ *   QVAC_TTS_GGML_BENCHMARK_ENHANCER     none | lavasr (default: none; `lavasr`
+ *                                        layers the LavaSR 48 kHz enhancer per
+ *                                        streamed chunk; soft-skips when unstaged)
  *   QVAC_TTS_GGML_BENCHMARK_USE_GPU      1 | 0 (default 0)
  *   QVAC_TTS_GGML_BENCHMARK_BACKEND      cpu | metal | vulkan | cuda | opencl
  *   QVAC_TTS_GGML_BENCHMARK_DEVICE       device label for reports
@@ -46,7 +49,9 @@ const {
   ensureSupertonicModel,
   ensureSupertonicMtlModel,
   ensureSupertonic3Model,
-  supertonic3QuantFromVariant
+  supertonic3QuantFromVariant,
+  ensureLavaSREnhancerGguf,
+  normalizeEnhancer
 } = require('../utils/downloadModel')
 
 const VALID_ENGINES = [
@@ -73,7 +78,11 @@ const isMobile = platform === 'ios' || platform === 'android'
 function buildCanonicalStreamingReport(settings, summary, backend) {
   const useGPU = !!settings.useGPU
   const ep = useGPU ? 'gpu' : 'cpu'
-  const testLabel = `[${ep.toUpperCase()}] streaming ${settings.engine} ${settings.variant} ${backend}`
+  const enhancer = settings.enhancer || 'none'
+  // Append the enhancer token only when enabled so existing streaming labels
+  // (`[CPU] streaming engine variant backend`) parse unchanged in the aggregator.
+  const enhancerTag = enhancer !== 'none' ? ` ${enhancer}` : ''
+  const testLabel = `[${ep.toUpperCase()}] streaming ${settings.engine} ${settings.variant} ${backend}${enhancerTag}`
 
   const ttfa = summary.ttfaMs || {}
   const totalWall = summary.totalWallMs || {}
@@ -96,6 +105,7 @@ function buildCanonicalStreamingReport(settings, summary, backend) {
       {
         test: testLabel,
         execution_provider: ep,
+        enhancer,
         metrics: {
           ttfa_ms: typeof ttfa.mean === 'number' ? Math.round(ttfa.mean) : null,
           inter_chunk_p95_ms:
@@ -184,6 +194,8 @@ function getSettings() {
     throw new Error(`Invalid benchmark variant: ${variant}. Valid: ${VALID_VARIANTS.join(', ')}`)
   }
 
+  const enhancer = normalizeEnhancer(getEnv('QVAC_TTS_GGML_BENCHMARK_ENHANCER'))
+
   const numThreadsRaw = getEnv('QVAC_TTS_GGML_BENCHMARK_NUM_THREADS') || ''
   const numThreadsParsed = Number.parseInt(numThreadsRaw, 10)
   const numThreads =
@@ -192,6 +204,9 @@ function getSettings() {
   return {
     engine,
     variant,
+    enhancer,
+    enhancerRegistryPath: getEnv('LAVASR_ENHANCER_REGISTRY_PATH') || '',
+    enhancerRegistrySource: getEnv('LAVASR_ENHANCER_REGISTRY_SOURCE') || '',
     useGPU: getEnvBoolean('QVAC_TTS_GGML_BENCHMARK_USE_GPU', false),
     backendHint: getEnv('QVAC_TTS_GGML_BENCHMARK_BACKEND') || '',
     deviceLabel: getEnv('QVAC_TTS_GGML_BENCHMARK_DEVICE') || '',
@@ -230,6 +245,9 @@ function getArtifactFileName(settings) {
     settings.variant,
     settings.useGPU ? 'gpu' : 'cpu'
   ]
+  // Insert the enhancer tag only when enabled so existing (enhancer=none)
+  // artifact names stay byte-for-byte stable.
+  if (settings.enhancer && settings.enhancer !== 'none') parts.push(settings.enhancer)
   if (settings.label) parts.push(settings.label)
   return `${parts.join('-')}.json`
 }
@@ -242,20 +260,50 @@ function isMultilingualEngine(engine) {
   return engine === 'chatterbox-mtl' || engine === 'supertonic-mtl'
 }
 
+// Resolve the LavaSR enhancer GGUF when the enhancer axis is on. Returns
+// `{ path: null }` for the default (enhancer=none), `{ path }` when staged, or
+// `{ skip, skipReason }` when requested but unavailable so the benchmark
+// soft-skips (mirrors the RTF suite; the enhancer GGUF is not on the QVAC
+// registry yet, so a run without it staged goes green-with-skip).
+async function resolveEnhancer(settings, baseDir) {
+  if (settings.enhancer !== 'lavasr') return { path: null }
+  const options = { targetDir: path.join(baseDir, 'models', 'lavasr') }
+  if (settings.enhancerRegistryPath) {
+    options.registryPath = settings.enhancerRegistryPath
+    if (settings.enhancerRegistrySource) options.registrySource = settings.enhancerRegistrySource
+  }
+  const enh = await ensureLavaSREnhancerGguf(options)
+  if (!enh.success) {
+    return {
+      skip: true,
+      skipReason:
+        'LavaSR enhancer GGUF not staged (set LAVASR_ENHANCER_GGUF / ' +
+        'LAVASR_ENHANCER_REGISTRY_PATH, or publish it to the QVAC registry)'
+    }
+  }
+  return { path: enh.path }
+}
+
 async function loadModelForEngine(settings) {
   const baseDir = getBaseDir()
   const modelsDir = path.join(baseDir, 'models')
   const threadOpts = settings.numThreads !== undefined ? { threads: settings.numThreads } : {}
 
+  const enhancer = await resolveEnhancer(settings, baseDir)
+  if (enhancer.skip) return { skip: true, skipReason: enhancer.skipReason }
+  const enhancerOpts = enhancer.path ? { lavasrEnhancerPath: enhancer.path } : {}
+
   if (settings.engine === 'chatterbox') {
     const download = await ensureChatterboxModels({ targetDir: modelsDir })
     if (!download.success) throw new Error('Chatterbox GGUFs unavailable (registry fetch failed)')
-    return loadChatterboxTTS({
+    const model = await loadChatterboxTTS({
       modelDir: download.targetDir || modelsDir,
       language: 'en',
       useGPU: settings.useGPU,
-      ...threadOpts
+      ...threadOpts,
+      ...enhancerOpts
     })
+    return { model }
   }
 
   if (settings.engine === 'chatterbox-mtl') {
@@ -263,28 +311,32 @@ async function loadModelForEngine(settings) {
     if (!download.success)
       throw new Error('Chatterbox MTL GGUFs unavailable (registry fetch failed)')
     const dir = download.targetDir || modelsDir
-    return loadChatterboxTTS({
+    const model = await loadChatterboxTTS({
       modelDir: dir,
       t3ModelPath: path.join(dir, 'chatterbox-t3-mtl.gguf'),
       s3genModelPath: path.join(dir, 'chatterbox-s3gen-mtl.gguf'),
       language: 'es',
       useGPU: settings.useGPU,
-      ...threadOpts
+      ...threadOpts,
+      ...enhancerOpts
     })
+    return { model }
   }
 
   if (settings.engine === 'supertonic-mtl') {
     const download = await ensureSupertonicMtlModel({ targetDir: modelsDir })
     if (!download || !download.success)
       throw new Error('Supertonic MTL GGUF unavailable (registry fetch failed)')
-    return loadSupertonicTTS({
+    const model = await loadSupertonicTTS({
       supertonicModelPath:
         download.path || path.join(download.targetDir || modelsDir, 'supertonic2.gguf'),
       voice: 'F1',
       language: 'es',
       useGPU: settings.useGPU,
-      ...threadOpts
+      ...threadOpts,
+      ...enhancerOpts
     })
+    return { model }
   }
 
   if (settings.engine === 'supertonic3') {
@@ -292,27 +344,31 @@ async function loadModelForEngine(settings) {
     const download = await ensureSupertonic3Model({ targetDir: modelsDir, quant })
     if (!download || !download.success)
       throw new Error(`Supertonic 3 GGUF (${quant}) unavailable (registry fetch failed)`)
-    return loadSupertonicTTS({
+    const model = await loadSupertonicTTS({
       supertonicModelPath:
         download.path || path.join(download.targetDir || modelsDir, `supertonic3-${quant}.gguf`),
       voice: 'F1',
       language: 'en',
       useGPU: settings.useGPU,
-      ...threadOpts
+      ...threadOpts,
+      ...enhancerOpts
     })
+    return { model }
   }
 
   const download = await ensureSupertonicModel({ targetDir: modelsDir })
   if (!download || !download.success)
     throw new Error('Supertonic GGUF unavailable (registry fetch failed)')
-  return loadSupertonicTTS({
+  const model = await loadSupertonicTTS({
     supertonicModelPath:
       download.path || path.join(download.targetDir || modelsDir, 'supertonic.gguf'),
     voice: 'F1',
     language: 'en',
     useGPU: settings.useGPU,
-    ...threadOpts
+    ...threadOpts,
+    ...enhancerOpts
   })
+  return { model }
 }
 
 // Text long enough that Chatterbox native chunking produces >=2 chunks.
@@ -390,6 +446,7 @@ test(
     console.log(`  Platform:       ${platformArch}`)
     console.log(`  Engine:         ${settings.engine}`)
     console.log(`  Variant:        ${settings.variant}`)
+    console.log(`  Enhancer:       ${settings.enhancer}`)
     console.log(`  GPU requested:  ${settings.useGPU}`)
     console.log(`  Backend:        ${backend}`)
     if (settings.deviceLabel) console.log(`  Device label:   ${settings.deviceLabel}`)
@@ -404,12 +461,19 @@ test(
     console.log(`Loading model for engine: ${settings.engine}...`)
     const loadStart = nowMs()
     let model
+    let loaded
     try {
-      model = await loadModelForEngine(settings)
+      loaded = await loadModelForEngine(settings)
     } catch (err) {
       t.fail(`Model load failed: ${err.message}`)
       return
     }
+    if (loaded && loaded.skip) {
+      t.comment(loaded.skipReason || 'benchmark configuration unavailable')
+      t.pass(`skipped — ${loaded.skipReason || 'unavailable'}`)
+      return
+    }
+    model = loaded.model
     const loadMs = nowMs() - loadStart
     console.log(`Model loaded in ${loadMs.toFixed(0)}ms\n`)
 
@@ -489,7 +553,8 @@ test(
         engine: settings.engine,
         model: {
           type: settings.engine,
-          variant: settings.variant
+          variant: settings.variant,
+          enhancer: settings.enhancer
         },
         labels: {
           runner: settings.runnerLabel,
@@ -503,12 +568,14 @@ test(
           measuredRuns: settings.numRuns,
           useGPU: settings.useGPU,
           variant: settings.variant,
+          enhancer: settings.enhancer,
           modelLoadMs: loadMs,
           numThreads: settings.numThreads !== undefined ? settings.numThreads : null
         },
         requested: {
           engine: settings.engine,
           variant: settings.variant,
+          enhancer: settings.enhancer,
           useGPU: settings.useGPU,
           backendHint: settings.backendHint,
           deviceLabel: settings.deviceLabel,

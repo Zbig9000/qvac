@@ -1047,6 +1047,24 @@ async function ensureMecabDict(options = {}) {
   return { success: false, dir: targetDir }
 }
 
+// Benchmark enhancer axis. `none` runs the engine as-is; `lavasr` layers the
+// LavaSR 48 kHz bandwidth-extension enhancer on top of the engine output
+// (resolved via ensureLavaSREnhancerGguf). Shared by the RTF + streaming
+// benchmark suites so the env parsing + validation lives in one unit-tested
+// place, mirroring supertonic3QuantFromVariant.
+const VALID_ENHANCERS = ['none', 'lavasr']
+const DEFAULT_ENHANCER = 'none'
+
+function normalizeEnhancer(value) {
+  const normalized = String(value || DEFAULT_ENHANCER).toLowerCase()
+  if (!VALID_ENHANCERS.includes(normalized)) {
+    throw new Error(
+      `Invalid benchmark enhancer: ${normalized}. Valid: ${VALID_ENHANCERS.join(', ')}`
+    )
+  }
+  return normalized
+}
+
 /**
  * Ensure the LavaSR enhancer GGUF is staged, returning its path.
  * Resolution order: $LAVASR_ENHANCER_GGUF, then models/lavasr/lavasr-enhancer.gguf
@@ -1243,5 +1261,8 @@ module.exports = {
   DEFAULT_SUPERTONIC3_QUANT,
   ensureMecabDict,
   ensureCangjieTsv,
-  ensureLavaSREnhancerGguf
+  ensureLavaSREnhancerGguf,
+  normalizeEnhancer,
+  VALID_ENHANCERS,
+  DEFAULT_ENHANCER
 }

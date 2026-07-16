@@ -58,12 +58,17 @@ async function loadChatterboxTTS(params = {}) {
     config.useGPU = false
   }
 
+  const files = {
+    modelDir,
+    t3Model: t3ModelPath,
+    s3genModel: s3genModelPath
+  }
+  // The enhancer path is the "on" switch for LavaSR bandwidth extension; only
+  // set it when a path was resolved so an unset value leaves enhancement off.
+  if (params.lavasrEnhancerPath) files.lavasrEnhancer = params.lavasrEnhancerPath
+
   const model = new TTSGgml({
-    files: {
-      modelDir,
-      t3Model: t3ModelPath,
-      s3genModel: s3genModelPath
-    },
+    files,
     referenceAudio: refWavPath,
     voiceDir: params.voiceDir,
     seed: params.seed,

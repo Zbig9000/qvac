@@ -10,6 +10,7 @@
  *   {
  *     "engine": "chatterbox" | "chatterbox-mtl" | "supertonic" | "supertonic-mtl",
  *     "variant": "q4" | "q8" | "f16" | "mixed",              (optional, default q4)
+ *     "enhancer": "none" | "lavasr",                         (optional, default none)
  *     "useGPU": true | false,
  *     "backendHint": "cpu" | "metal" | "vulkan" | "opencl",  (optional)
  *     "deviceLabel": "...",                                  (optional)
@@ -86,7 +87,9 @@ function normalizeBoolean (value) {
 function buildLabel (entry, index) {
   if (entry.label) return String(entry.label)
   const gpuTag = normalizeBoolean(entry.useGPU) ? 'gpu' : 'cpu'
-  return `${index + 1}-${entry.engine || 'tts'}-${gpuTag}`
+  const enhancer = String(entry.enhancer || 'none').toLowerCase()
+  const enhancerTag = enhancer !== 'none' ? `-${enhancer}` : ''
+  return `${index + 1}-${entry.engine || 'tts'}${enhancerTag}-${gpuTag}`
 }
 
 function buildEnv (entry, index) {
@@ -95,6 +98,7 @@ function buildEnv (entry, index) {
     ...process.env,
     QVAC_TTS_GGML_BENCHMARK_ENGINE: String(entry.engine || 'chatterbox'),
     QVAC_TTS_GGML_BENCHMARK_VARIANT: String(entry.variant || process.env.QVAC_TTS_GGML_BENCHMARK_VARIANT || 'q4'),
+    QVAC_TTS_GGML_BENCHMARK_ENHANCER: String(entry.enhancer || process.env.QVAC_TTS_GGML_BENCHMARK_ENHANCER || 'none'),
     QVAC_TTS_GGML_BENCHMARK_USE_GPU: normalizeBoolean(entry.useGPU) ? 'true' : 'false',
     QVAC_TTS_GGML_BENCHMARK_LABEL: label,
     QVAC_TTS_GGML_BENCHMARK_BACKEND:
@@ -152,6 +156,7 @@ function runEntry (pkgDir, entry, index, matrixLen) {
   console.log(`Running benchmark entry ${index + 1}/${matrixLen}`)
   console.log(`  engine:     ${env.QVAC_TTS_GGML_BENCHMARK_ENGINE}`)
   console.log(`  variant:    ${env.QVAC_TTS_GGML_BENCHMARK_VARIANT}`)
+  console.log(`  enhancer:   ${env.QVAC_TTS_GGML_BENCHMARK_ENHANCER}`)
   console.log(`  useGPU:     ${env.QVAC_TTS_GGML_BENCHMARK_USE_GPU}`)
   console.log(`  backend:    ${env.QVAC_TTS_GGML_BENCHMARK_BACKEND || 'default'}`)
   console.log(`  label:      ${env.QVAC_TTS_GGML_BENCHMARK_LABEL}`)
