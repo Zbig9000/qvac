@@ -23,9 +23,9 @@ Three ready-to-fill templates live next to this README:
   writes into `benchmarks/results/rtf-benchmark-*.json`).
 - `COMPACT_SUMMARY_TEMPLATE.json.example` — compact "summary-only" shape (same
   shape the mobile log extractor produces).
-- `LAVASR_TEMPLATE.json.example` — full schema with the LavaSR enhancer axis on
-  (`model.enhancer: "lavasr"`), for dropping enhancer numbers from a backend CI
-  can't reach.
+- `LAVASR_TEMPLATE.json.example` — full schema with the LavaSR enhancer and
+  denoiser axes on (`model.enhancer: "lavasr"`, `model.denoiser: "lavasr"`), for
+  dropping LavaSR numbers from a backend CI can't reach.
 
 ## Schema overview (v2)
 
@@ -38,6 +38,7 @@ The canonical shape includes:
 | `engine`                      | string   | yes      | `chatterbox` / `chatterbox-mtl` / `supertonic` / `supertonic-mtl`. |
 | `model.variant`               | string   | no       | Label: `q4` / `q8` / `f16` / `mixed` (default `q4`). |
 | `model.enhancer`              | string   | no       | `none` (default) / `lavasr`. `lavasr` marks rows where the LavaSR 48 kHz enhancer was layered on the engine; shown in the `Enhancer` column. Either `model.enhancer` or top-level `enhancer` is accepted. |
+| `model.denoiser`              | string   | no       | `none` (default) / `lavasr`. `lavasr` marks rows where the LavaSR speech denoiser ran before the enhancer; shown in the `Denoiser` column. Either `model.denoiser` or top-level `denoiser` is accepted. |
 | `model.sizeBytes`             | number   | no       | Sum of the engine's GGUF files on disk. Shown as `Model (MB)`. |
 | `labels.backend`              | string   | yes      | `cpu` / `metal` / `vulkan` / `opencl`. |
 | `labels.device`               | string   | yes      | Human-readable device identifier (goes into the `Device` column). |

@@ -34,14 +34,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Supertonic models now report `enhancerBackendDevice` (`-1` none / `0` CPU /
   `1` GPU) and `enhancerBackendId` (the ggml backend id, e.g. `3` for Vulkan),
   so hosts can confirm where the enhancer actually ran.
-- **LavaSR enhancer wiring in the shipped `test/utils` helpers.**
-  `runChatterboxTTS` / `runSupertonicTTS` accept an optional `lavasrEnhancerPath`
-  that maps to the addon's `files.lavasrEnhancer` (the "on" switch for the LavaSR
-  48 kHz bandwidth-extension enhancer), and `downloadModel.js` gains
-  `ensureLavaSREnhancerGguf()` — which fetches the enhancer GGUF from the QVAC
-  registry by default, with `LAVASR_ENHANCER_GGUF` / `LAVASR_ENHANCER_REGISTRY_PATH`
-  / locally-staged overrides — plus a shared `normalizeEnhancer()` helper. The
-  benchmark/CI enhancer axis built on these utilities is documented in
+- **LavaSR enhancer + denoiser wiring in the shipped `test/utils` helpers.**
+  `runChatterboxTTS` / `runSupertonicTTS` accept optional `lavasrEnhancerPath`
+  and `lavasrDenoiserPath` that map to the addon's `files.lavasrEnhancer` (the
+  LavaSR 48 kHz bandwidth-extension enhancer) and `files.lavasrDenoiser` (the
+  UL-UNAS speech denoiser, which runs before the enhancer) — each path is the
+  "on" switch for its stage, so an unset value leaves that stage off.
+  `downloadModel.js` gains `ensureLavaSREnhancerGguf()` / `ensureLavaSRDenoiserGguf()`
+  — which fetch their GGUF from the QVAC registry by default, with
+  `LAVASR_ENHANCER_GGUF` / `LAVASR_DENOISER_GGUF` /
+  `LAVASR_{ENHANCER,DENOISER}_REGISTRY_PATH` / locally-staged overrides — plus
+  shared `normalizeEnhancer()` / `normalizeDenoiser()` helpers. The benchmark/CI
+  enhancer and denoiser axes built on these utilities are documented in
   `benchmarks/RTF-BENCHMARKS.md`.
 - Opt-in `vulkanCacheDir` (Supertonic + `useGPU: true`): persists the Vulkan pipeline cache (`GGML_VK_PIPELINE_CACHE_DIR`) and pre-warms it at `load()` so the first-dispatch shader-compile cost is paid once per install, not on the first `run()`. Fully opt-in/non-breaking; Vulkan analogue of `openclCacheDir` (QVAC-21910, tetherto/qvac#3120).
 - **Per-call cancellation via `AbortSignal` on `run()`.** `model.run({ input, signal })` now accepts an optional `AbortSignal`; when it aborts, `response.await()` rejects with the abort reason. An already-aborted signal rejects deterministically without dispatching the engine (no native interrupt) — the race-free way to cancel on fast hardware. Additive/non-breaking. Non-streaming `run()` only: **ignored when `streamOutput: true`** (and on `runStream` / `runStreaming`). (QVAC-22247, tetherto/qvac#3260)

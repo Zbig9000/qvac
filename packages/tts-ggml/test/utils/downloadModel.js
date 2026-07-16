@@ -567,6 +567,23 @@ const LAVASR_ENHANCER_GGUFS = [
   }
 ]
 
+// LavaSR UL-UNAS speech denoiser (benchmark `denoiser=lavasr` axis). Runs BEFORE
+// the enhancer and preserves the sample rate. Published on the QVAC registry as
+// fp16 (~0.5 MB, the benchmark default) and fp32 (~0.7 MB); point
+// options.registryPath / $LAVASR_DENOISER_REGISTRY_PATH at the fp32 build to pull
+// that instead. Kept on disk as `lavasr-denoiser.gguf` (the quant lives in the
+// GGUF metadata, not the filename). The band spans fp16 + fp32 with headroom.
+const REGISTRY_DATE_LAVASR_DENOISER = '2026-07-03'
+const SIZE_LAVASR_DENOISER = { minSize: 100_000, maxSize: 5_000_000 }
+const LAVASR_DENOISER_GGUFS = [
+  {
+    name: 'lavasr-denoiser.gguf',
+    ...SIZE_LAVASR_DENOISER,
+    registryPath: `qvac_models_compiled/ggml/lavasr/${REGISTRY_DATE_LAVASR_DENOISER}/lavasr-denoiser-f16.gguf`,
+    registrySource: REGISTRY_SOURCE
+  }
+]
+
 // Compiled MeCab + IPAdic dictionary for Japanese ("ja") morphological
 // segmentation inside the multilingual Chatterbox engine.  tts-cpp reads
 // this directory via EngineOptions::mecab_dict_path; without it kanji
@@ -1071,15 +1088,27 @@ async function ensureMecabDict(options = {}) {
 // place, mirroring supertonic3QuantFromVariant.
 const VALID_ENHANCERS = ['none', 'lavasr']
 const DEFAULT_ENHANCER = 'none'
+const VALID_DENOISERS = ['none', 'lavasr']
+const DEFAULT_DENOISER = 'none'
+// Distinct label/artifact token for the denoiser leg. The enhancer contributes
+// its value verbatim (`lavasr`); the denoiser uses `denoise` so the two axes stay
+// unambiguous when both appear in one canonical label or artifact name.
+const DENOISER_LABEL_TOKEN = 'denoise'
 
-function normalizeEnhancer(value) {
-  const normalized = String(value || DEFAULT_ENHANCER).toLowerCase()
-  if (!VALID_ENHANCERS.includes(normalized)) {
-    throw new Error(
-      `Invalid benchmark enhancer: ${normalized}. Valid: ${VALID_ENHANCERS.join(', ')}`
-    )
+function normalizeAxisValue(kind, validValues, defaultValue, value) {
+  const normalized = String(value || defaultValue).toLowerCase()
+  if (!validValues.includes(normalized)) {
+    throw new Error(`Invalid benchmark ${kind}: ${normalized}. Valid: ${validValues.join(', ')}`)
   }
   return normalized
+}
+
+function normalizeEnhancer(value) {
+  return normalizeAxisValue('enhancer', VALID_ENHANCERS, DEFAULT_ENHANCER, value)
+}
+
+function normalizeDenoiser(value) {
+  return normalizeAxisValue('denoiser', VALID_DENOISERS, DEFAULT_DENOISER, value)
 }
 
 // Trailing token the enhancer axis contributes to artifact filenames, canonical
@@ -1090,6 +1119,14 @@ function normalizeEnhancer(value) {
 function enhancerTag(value) {
   const enhancer = normalizeEnhancer(value)
   return enhancer === DEFAULT_ENHANCER ? '' : enhancer
+}
+
+// Trailing token for the denoiser axis, mirroring enhancerTag. Uses the fixed
+// `denoise` marker (not the axis value) so it never collides with the enhancer
+// token when both legs are on in one label / artifact name.
+function denoiserTag(value) {
+  const denoiser = normalizeDenoiser(value)
+  return denoiser === DEFAULT_DENOISER ? '' : DENOISER_LABEL_TOKEN
 }
 
 /**
@@ -1146,6 +1183,63 @@ async function ensureLavaSREnhancerGguf(options = {}) {
   console.log(` LavaSR enhancer GGUF could not be staged from the registry (${gguf.registryPath}).`)
   console.log(' Set LAVASR_ENHANCER_GGUF to a local copy, or convert one with')
   console.log(' scripts/convert-lavasr-enhancer-to-gguf.py, to run offline.')
+  return { success: false, path: null, targetDir: requestedDir }
+}
+
+/**
+ * Ensure the LavaSR denoiser GGUF is staged, returning its path.
+ * Mirrors ensureLavaSREnhancerGguf: $LAVASR_DENOISER_GGUF, a locally-staged
+ * models/lavasr/lavasr-denoiser.gguf (and a couple of fallbacks), then the QVAC
+ * registry (TTS_DENOISER_LAVASR_FP16 by default). Pass the returned path to
+ * TTSGgml as files.lavasrDenoiser (it runs before the enhancer).
+ *
+ * @param {Object} [options]
+ * @param {string} [options.targetDir] - preferred dir (default models/lavasr).
+ * @param {string} [options.registryPath] - override the default fp16 registry
+ *   path (e.g. the fp32 build); also settable via $LAVASR_DENOISER_REGISTRY_PATH.
+ * @param {string} [options.registrySource] - registry source (default s3).
+ * @returns {Promise<{ success: boolean, path: string|null, targetDir: string }>}
+ */
+async function ensureLavaSRDenoiserGguf(options = {}) {
+  const fileName = 'lavasr-denoiser.gguf'
+  const baseDir = getBaseDir()
+  const requestedDir = options.targetDir || path.join(baseDir, 'models', 'lavasr')
+
+  const envPath = process.env && process.env.LAVASR_DENOISER_GGUF
+  if (envPath && fs.existsSync(envPath)) {
+    console.log(` ✓ using LavaSR denoiser GGUF at ${envPath} (LAVASR_DENOISER_GGUF)`)
+    return { success: true, path: envPath, targetDir: path.dirname(envPath) }
+  }
+
+  const candidates = [
+    path.join(requestedDir, fileName),
+    path.join(baseDir, 'models', 'lavasr', fileName),
+    path.join(baseDir, 'models', fileName)
+  ]
+  for (const p of candidates) {
+    if (fs.existsSync(p)) {
+      console.log(` ✓ using LavaSR denoiser GGUF at ${p}`)
+      return { success: true, path: p, targetDir: path.dirname(p) }
+    }
+  }
+
+  const gguf = options.registryPath
+    ? {
+        name: fileName,
+        ...SIZE_LAVASR_DENOISER,
+        registryPath: options.registryPath,
+        registrySource: options.registrySource || REGISTRY_SOURCE
+      }
+    : LAVASR_DENOISER_GGUFS[0]
+  if (typeof tryFetchGgufsFromRegistry === 'function') {
+    if (await tryFetchGgufsFromRegistry([gguf], requestedDir)) {
+      return { success: true, path: path.join(requestedDir, fileName), targetDir: requestedDir }
+    }
+  }
+
+  console.log(` LavaSR denoiser GGUF could not be staged from the registry (${gguf.registryPath}).`)
+  console.log(' Set LAVASR_DENOISER_GGUF to a local copy, or convert one with')
+  console.log(' scripts/convert-lavasr-denoiser-to-gguf.py, to run offline.')
   return { success: false, path: null, targetDir: requestedDir }
 }
 
@@ -1284,8 +1378,13 @@ module.exports = {
   ensureMecabDict,
   ensureCangjieTsv,
   ensureLavaSREnhancerGguf,
+  ensureLavaSRDenoiserGguf,
   normalizeEnhancer,
+  normalizeDenoiser,
   enhancerTag,
+  denoiserTag,
   VALID_ENHANCERS,
-  DEFAULT_ENHANCER
+  DEFAULT_ENHANCER,
+  VALID_DENOISERS,
+  DEFAULT_DENOISER
 }

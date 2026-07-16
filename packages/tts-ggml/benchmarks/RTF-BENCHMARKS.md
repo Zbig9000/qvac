@@ -63,13 +63,16 @@ QVAC_TTS_GGML_BENCHMARK_DEVICE="RTX 4090 box" \
 QVAC_TTS_GGML_BENCHMARK_RUNNER=manual-zbig \
 npm --prefix packages/tts-ggml run test:benchmark:rtf
 
-# Matrix via one npm invocation (an `enhancer` field adds the LavaSR axis)
+# Matrix via one npm invocation. `enhancer` / `denoiser` fields add the LavaSR
+# axes; the none/denoise/enhance/full quartet below isolates each stage's cost.
 QVAC_TTS_GGML_BENCHMARK_MATRIX_JSON='[
   {"engine":"chatterbox","useGPU":false,"backendHint":"cpu"},
   {"engine":"chatterbox-mtl","useGPU":false,"backendHint":"cpu"},
   {"engine":"supertonic","useGPU":false,"backendHint":"cpu"},
   {"engine":"supertonic-mtl","useGPU":false,"backendHint":"cpu"},
-  {"engine":"supertonic","useGPU":false,"backendHint":"cpu","enhancer":"lavasr"}
+  {"engine":"supertonic","useGPU":false,"backendHint":"cpu","denoiser":"lavasr"},
+  {"engine":"supertonic","useGPU":false,"backendHint":"cpu","enhancer":"lavasr"},
+  {"engine":"supertonic","useGPU":false,"backendHint":"cpu","denoiser":"lavasr","enhancer":"lavasr"}
 ]' npm --prefix packages/tts-ggml run test:benchmark:rtf:matrix
 
 # Streaming latency (TTFA + inter-chunk gap)
@@ -82,6 +85,14 @@ npm --prefix packages/tts-ggml run test:benchmark:streaming
 QVAC_TTS_GGML_BENCHMARK_ENGINE=supertonic \
 QVAC_TTS_GGML_BENCHMARK_ENHANCER=lavasr \
 LAVASR_ENHANCER_GGUF=/path/to/lavasr-enhancer.gguf \
+npm --prefix packages/tts-ggml run test:benchmark:rtf
+
+# LavaSR denoiser axis (speech denoiser that runs before the enhancer). Enable it
+# alone, or together with the enhancer for the full LavaSR chain. Both default to
+# the registry GGUF; LAVASR_DENOISER_GGUF points at a local copy (see below).
+QVAC_TTS_GGML_BENCHMARK_ENGINE=supertonic \
+QVAC_TTS_GGML_BENCHMARK_DENOISER=lavasr \
+QVAC_TTS_GGML_BENCHMARK_ENHANCER=lavasr \
 npm --prefix packages/tts-ggml run test:benchmark:rtf
 
 # Aggregate what you've run so far (no CI required)
@@ -101,7 +112,8 @@ node scripts/perf-report/aggregate-tts-ggml-rtf.js \
 | `QVAC_TTS_GGML_BENCHMARK_ENGINE` | `chatterbox` | One of `chatterbox` / `chatterbox-mtl` / `supertonic` / `supertonic-mtl` / `supertonic3`. |
 | `QVAC_TTS_GGML_BENCHMARK_VARIANT` | `q4` | Label only — one of `q4` / `q8` / `f16` / `mixed`. The GGUF on the registry determines the real quant. |
 | `QVAC_TTS_GGML_BENCHMARK_ENHANCER` | `none` | One of `none` / `lavasr`. `lavasr` layers the LavaSR 48 kHz bandwidth-extension enhancer on top of the engine output. Soft-skips (green) when the enhancer GGUF is not staged. Adds `-lavasr` to the artifact name + a trailing token to the canonical label, and populates the `Enhancer` findings column. |
-| `QVAC_TTS_GGML_BENCHMARK_USE_GPU` | `0` | `1` / `true` to request GPU. Backend auto-derives from platform (Vulkan / Metal). The enhancer shares this switch (runs on the same GPU backend as the engine). |
+| `QVAC_TTS_GGML_BENCHMARK_DENOISER` | `none` | One of `none` / `lavasr`. `lavasr` runs the LavaSR speech denoiser before the enhancer. Orthogonal to the enhancer, so any of none/denoise/enhance/full can run. Soft-skips (green) when the denoiser GGUF is not staged. Adds `-denoise` to the artifact name + a trailing token to the canonical label, and populates the `Denoiser` findings column. |
+| `QVAC_TTS_GGML_BENCHMARK_USE_GPU` | `0` | `1` / `true` to request GPU. Backend auto-derives from platform (Vulkan / Metal). The enhancer and denoiser share this switch (run on the same GPU backend as the engine). |
 | `QVAC_TTS_GGML_BENCHMARK_BACKEND` | (derived) | `cpu` / `metal` / `vulkan` / `cuda` / `opencl`. Used in reports and to differentiate rows. |
 | `QVAC_TTS_GGML_BENCHMARK_DEVICE` | — | Device label rendered in the `Device` column. |
 | `QVAC_TTS_GGML_BENCHMARK_RUNNER` | — | CI / runner label rendered in reports. |
@@ -143,23 +155,40 @@ The matrix runner forwards `GITHUB_RUN_ID`, `GITHUB_RUN_ATTEMPT`, `GITHUB_SHA`,
 `GITHUB_SERVER_URL`, and `GITHUB_REPOSITORY` into each child benchmark run so
 every report links back to the CI run that produced it.
 
-## LavaSR enhancer axis
+## LavaSR enhancer + denoiser axes
 
-LavaSR is not a standalone engine — it is a 48 kHz neural bandwidth-extension
-**enhancer** that layers on top of an existing engine's output (upsampling the
-engine's native 24 kHz / 44.1 kHz to 48 kHz). It is benchmarked as an extra
-axis, `QVAC_TTS_GGML_BENCHMARK_ENHANCER` = `none` (default) | `lavasr`,
-orthogonal to `engine` / `variant` / `useGPU`. When on:
+LavaSR is not a standalone engine — it is a pair of post/pre-processing stages
+that layer on an existing engine's output. Each is benchmarked as its own axis,
+orthogonal to `engine` / `variant` / `useGPU` and to each other:
 
-- both benchmark suites construct the model with `files.lavasrEnhancer` (the path
-  is the "on" switch) and the enhancer shares the engine's `useGPU` switch, so
-  `useGPU:true` runs the ConvNeXt backbone + spec head on the same GPU backend
+- **Enhancer** (`QVAC_TTS_GGML_BENCHMARK_ENHANCER` = `none` (default) | `lavasr`):
+  a 48 kHz neural bandwidth-extension model that upsamples the engine's native
+  24 kHz / 44.1 kHz output to 48 kHz.
+- **Denoiser** (`QVAC_TTS_GGML_BENCHMARK_DENOISER` = `none` (default) | `lavasr`):
+  the UL-UNAS speech denoiser, which runs **before** the enhancer in the chain.
+
+When a stage is on:
+
+- both benchmark suites construct the model with `files.lavasrEnhancer` /
+  `files.lavasrDenoiser` (each path is the "on" switch) and both stages share the
+  engine's `useGPU` switch, so `useGPU:true` runs them on the same GPU backend
   (Vulkan / Metal);
-- the enhancer GGUF's size is folded into the reported `Model (MB)`;
-- the artifact name gains a `-lavasr` tag (`rtf-benchmark-<platform>-<engine>-<variant>-<cpu|gpu>-lavasr[-<label>].json`)
-  and the canonical `[PERF_REPORT_START]` label gains a trailing `lavasr` token,
-  so the aggregator surfaces the run in the `Enhancer` column and dedupes
-  `lavasr` vs `none` rows separately.
+- the stage's GGUF size is folded into the reported `Model (MB)`;
+- the artifact name gains a `-lavasr` (enhancer) and/or `-denoise` (denoiser) tag
+  (`rtf-benchmark-<platform>-<engine>-<variant>-<cpu|gpu>[-lavasr][-denoise][-<label>].json`)
+  and the canonical `[PERF_REPORT_START]` label gains the matching trailing
+  token(s), so the aggregator surfaces the run in the `Enhancer` / `Denoiser`
+  columns and dedupes each combination as a separate row.
+
+### Isolating each stage's cost
+
+The two axes are independent booleans, so the **none / denoise / enhance / full**
+quartet for one `(engine, variant, gpu)` isolates each stage's marginal cost:
+`denoise - none` is the denoiser's added RTF, `enhance - none` is the enhancer's,
+and `full - none` is the combined chain (the matrix example above runs exactly
+this quartet for Supertonic CPU). The addon reports one wall-clock / RTF per run
+(no per-stage timers), so isolation comes from differencing these paired rows
+rather than from a stage breakdown inside a single run.
 
 ### Resolving the enhancer GGUF
 
@@ -180,21 +209,41 @@ and no local copy), the run **soft-skips** (the brittle test passes with a skip
 comment and writes no artifact) so CI stays green — the `enhancer=none` rows still
 produce artifacts, so the desktop "zero artifacts" guard never trips.
 
+### Resolving the denoiser GGUF
+
+`test/utils/downloadModel.js` `ensureLavaSRDenoiserGguf()` mirrors the enhancer
+resolver, in order:
+
+1. `LAVASR_DENOISER_GGUF` (absolute path to a local GGUF);
+2. a locally-staged `models/lavasr/lavasr-denoiser.gguf` (and a couple of fallbacks);
+3. the QVAC registry — `TTS_DENOISER_LAVASR_FP16` by default, or the path in
+   `LAVASR_DENOISER_REGISTRY_PATH` (+ optional `LAVASR_DENOISER_REGISTRY_SOURCE`,
+   default `s3`).
+
+The denoiser GGUF is published on the QVAC registry (fp16 `TTS_DENOISER_LAVASR_FP16`
+~0.5 MB, under `qvac_models_compiled/ggml/lavasr/2026-07-03/`), so
+`denoiser=lavasr` desktop rows fetch it automatically and soft-skip (green) the
+same way the enhancer does when it can't be resolved.
+
 ### Collecting LavaSR numbers locally
 
 ```bash
-# 1. Run any engine with the enhancer on (Supertonic + Chatterbox are supported).
-#    The enhancer GGUF is pulled from the QVAC registry automatically, exactly
-#    like the engine GGUFs (needs registry access + @qvac/registry-client).
+# 1. Run any engine with the enhancer and/or denoiser on (Supertonic + Chatterbox
+#    are supported). Both GGUFs are pulled from the QVAC registry automatically,
+#    exactly like the engine GGUFs (needs registry access + @qvac/registry-client).
 QVAC_TTS_GGML_BENCHMARK_ENGINE=supertonic \
 QVAC_TTS_GGML_BENCHMARK_ENHANCER=lavasr \
+QVAC_TTS_GGML_BENCHMARK_DENOISER=lavasr \
 QVAC_TTS_GGML_BENCHMARK_DEVICE="my-box" \
 QVAC_TTS_GGML_BENCHMARK_RUNNER=manual-zbig \
 npm --prefix packages/tts-ggml run test:benchmark:rtf
 
-# 1b. Offline / a custom build: point LAVASR_ENHANCER_GGUF at a local GGUF
-#     (convert one with scripts/convert-lavasr-enhancer-to-gguf.py), or set
-#     LAVASR_ENHANCER_REGISTRY_PATH to pull the fp32 enhancer instead of fp16.
+# 1b. Offline / a custom build: point LAVASR_ENHANCER_GGUF / LAVASR_DENOISER_GGUF
+#     at local GGUFs, or set LAVASR_{ENHANCER,DENOISER}_REGISTRY_PATH to pull a
+#     different build (e.g. the fp32 enhancer).
+
+# 1c. Isolate each stage: run the none/denoise/enhance/full quartet (drop the env
+#     var to turn a stage off) and diff the paired rows in the findings table.
 
 # 2. For a row on a backend CI can't reach (CUDA, Adreno OpenCL, hosted Metal),
 #    copy the artifact into manual-results/ (see manual-results/LAVASR_TEMPLATE.json.example).
@@ -203,14 +252,15 @@ npm --prefix packages/tts-ggml run test:benchmark:rtf
 ### CI wiring
 
 - **Desktop** (`integration-test-tts-ggml.yml`): each matrix branch carries
-  `enhancer:"lavasr"` rows for `supertonic` + `chatterbox` (CPU everywhere, plus
-  Vulkan/Metal on GPU runners). They fetch the enhancer from the registry and
-  collect numbers; a row soft-skips only if the GGUF can't be resolved.
+  `enhancer:"lavasr"` and `denoiser:"lavasr"` rows for `supertonic` + `chatterbox`
+  (CPU everywhere, plus Vulkan/Metal on GPU runners). They fetch the GGUFs from
+  the registry and collect numbers; a row soft-skips only if its GGUF can't be
+  resolved.
 - **Mobile** (`integration-mobile-test-tts-ggml.yml`): the on-device runtime
-  reads `QVAC_TTS_GGML_BENCHMARK_ENHANCER` (threaded through the inject-env
-  step). Device Farm rows for the enhancer follow once the enhancer GGUF is listed
-  in the mobile model manifest (mobile pushes pre-staged files rather than fetching
-  from the registry on-device).
+  reads `QVAC_TTS_GGML_BENCHMARK_ENHANCER` / `QVAC_TTS_GGML_BENCHMARK_DENOISER`
+  (both threaded through the inject-env step). Device Farm rows for the enhancer /
+  denoiser follow once their GGUFs are listed in the mobile model manifest (mobile
+  pushes pre-staged files rather than fetching from the registry on-device).
 
 ## How the CI pipeline fits together
 
@@ -262,10 +312,13 @@ The aggregated table carries:
 - **Load (ms)**: `model.load()` time (loads + maps the GGUFs once).
 - **Peak RSS (MB)**: high-water RSS observed across warmup + measured runs.
 - **Model (MB)**: sum of the engine's GGUF files on disk (includes the LavaSR
-  enhancer GGUF when the `Enhancer` column is `lavasr`).
+  enhancer and/or denoiser GGUF when the `Enhancer` / `Denoiser` column is `lavasr`).
 - **Enhancer**: `lavasr` when the LavaSR 48 kHz bandwidth-extension enhancer was
   layered on the engine, else `none`. `lavasr` and `none` rows for the same
   `(engine, variant, gpu)` are kept as separate rows.
+- **Denoiser**: `lavasr` when the LavaSR speech denoiser ran before the enhancer,
+  else `none`. Combined with `Enhancer`, the none/denoise/enhance/full rows for
+  one `(engine, variant, gpu)` isolate each stage's marginal cost.
 - **Tokens/s**: populated from the addon's `runtimeStats`. `n/a` when absent.
 - **Noisy**: `⚠` when stddev / mean > 15% — compare P50 instead.
 - **Run**: links back to the GitHub Actions run.

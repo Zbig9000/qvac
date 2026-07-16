@@ -36,6 +36,12 @@
  *                                        the engine; GGUF fetched from the QVAC
  *                                        registry, soft-skips only if it can't
  *                                        be resolved (see ensureLavaSREnhancerGguf)
+ *   QVAC_TTS_GGML_BENCHMARK_DENOISER     none | lavasr               (default: none)
+ *                                        `lavasr` runs the LavaSR UL-UNAS denoiser
+ *                                        before the engine output (independent of
+ *                                        the enhancer axis); GGUF fetched from the
+ *                                        QVAC registry, soft-skips only if it can't
+ *                                        be resolved (see ensureLavaSRDenoiserGguf)
  *   QVAC_TTS_GGML_BENCHMARK_USE_GPU      1 | true | 0 | false        (default: false)
  *   QVAC_TTS_GGML_BENCHMARK_BACKEND      cpu | metal | vulkan | cuda | opencl
  *                                        (free-form hint; defaults derived from
@@ -64,8 +70,11 @@ const {
   ensureSupertonic3Model,
   supertonic3QuantFromVariant,
   ensureLavaSREnhancerGguf,
+  ensureLavaSRDenoiserGguf,
   normalizeEnhancer,
-  enhancerTag
+  normalizeDenoiser,
+  enhancerTag,
+  denoiserTag
 } = require('../utils/downloadModel')
 const {
   readRssBytes,
@@ -135,11 +144,13 @@ function buildCanonicalReport(settings, summary, backend) {
   const engine = settings.engine
   const variant = settings.variant
   const enhancer = settings.enhancer || 'none'
-  // Append the enhancer token only when enabled so existing 5-token labels
-  // (`[CPU] engine variant backend`) parse unchanged in the aggregator.
-  const enhancerToken = enhancerTag(enhancer)
-  const enhancerSuffix = enhancerToken ? ` ${enhancerToken}` : ''
-  const testLabel = `[${ep.toUpperCase()}] ${engine} ${variant} ${backend}${enhancerSuffix}`
+  const denoiser = settings.denoiser || 'none'
+  // Append the enhancer / denoiser tokens only when enabled so existing 5-token
+  // labels (`[CPU] engine variant backend`) parse unchanged in the aggregator.
+  // Distinct tokens (`lavasr` / `denoise`) keep the two axes unambiguous.
+  const lavasrTokens = [enhancerTag(enhancer), denoiserTag(denoiser)].filter(Boolean)
+  const lavasrSuffix = lavasrTokens.length ? ` ${lavasrTokens.join(' ')}` : ''
+  const testLabel = `[${ep.toUpperCase()}] ${engine} ${variant} ${backend}${lavasrSuffix}`
 
   const rtf = summary.rtf || {}
   const wallMs = summary.wallMs || {}
@@ -165,6 +176,7 @@ function buildCanonicalReport(settings, summary, backend) {
         test: testLabel,
         execution_provider: ep,
         enhancer,
+        denoiser,
         metrics: {
           real_time_factor: typeof rtf.mean === 'number' ? rtf.mean : null,
           rtf_p50: typeof rtf.p50 === 'number' ? rtf.p50 : null,
@@ -228,6 +240,7 @@ function getSettings() {
   }
 
   const enhancer = normalizeEnhancer(getEnv('QVAC_TTS_GGML_BENCHMARK_ENHANCER'))
+  const denoiser = normalizeDenoiser(getEnv('QVAC_TTS_GGML_BENCHMARK_DENOISER'))
 
   const numThreadsRaw = getEnv('QVAC_TTS_GGML_BENCHMARK_NUM_THREADS') || ''
   const numThreadsParsed = Number.parseInt(numThreadsRaw, 10)
@@ -238,11 +251,16 @@ function getSettings() {
     engine,
     variant,
     enhancer,
+    denoiser,
     // Optional registry-path override (e.g. to pull the fp32 enhancer instead
     // of the default fp16 TTS_ENHANCER_LAVASR_FP16); empty uses the baked-in
     // default in ensureLavaSREnhancerGguf.
     enhancerRegistryPath: getEnv('LAVASR_ENHANCER_REGISTRY_PATH') || '',
     enhancerRegistrySource: getEnv('LAVASR_ENHANCER_REGISTRY_SOURCE') || '',
+    // Same override for the denoiser leg (e.g. the fp32 build); empty uses the
+    // baked-in default in ensureLavaSRDenoiserGguf.
+    denoiserRegistryPath: getEnv('LAVASR_DENOISER_REGISTRY_PATH') || '',
+    denoiserRegistrySource: getEnv('LAVASR_DENOISER_REGISTRY_SOURCE') || '',
     useGPU: getEnvBoolean('QVAC_TTS_GGML_BENCHMARK_USE_GPU', false),
     backendHint: getEnv('QVAC_TTS_GGML_BENCHMARK_BACKEND') || '',
     deviceLabel: getEnv('QVAC_TTS_GGML_BENCHMARK_DEVICE') || '',
@@ -286,10 +304,12 @@ function getArtifactFileName(settings) {
     settings.variant,
     settings.useGPU ? 'gpu' : 'cpu'
   ]
-  // Insert the enhancer tag only when enabled so existing (enhancer=none)
-  // artifact names stay byte-for-byte stable.
+  // Insert the enhancer / denoiser tags only when enabled so existing
+  // (enhancer=none, denoiser=none) artifact names stay byte-for-byte stable.
   const enhancerToken = enhancerTag(settings.enhancer)
   if (enhancerToken) parts.push(enhancerToken)
+  const denoiserToken = denoiserTag(settings.denoiser)
+  if (denoiserToken) parts.push(denoiserToken)
   if (settings.label) parts.push(settings.label)
   return `${parts.join('-')}.json`
 }
@@ -430,6 +450,29 @@ async function resolveEnhancer(settings, baseDir) {
   return { path: enh.path }
 }
 
+// Resolve the LavaSR denoiser GGUF when the denoiser axis is on. Mirrors
+// resolveEnhancer: `{ path: null }` for the default (denoiser=none), `{ path }`
+// once fetched, or `{ skip, skipReason }` when it can't be resolved so the leg
+// goes green-with-skip instead of failing the matrix.
+async function resolveDenoiser(settings, baseDir) {
+  if (settings.denoiser !== 'lavasr') return { path: null }
+  const options = { targetDir: path.join(baseDir, 'models', 'lavasr') }
+  if (settings.denoiserRegistryPath) {
+    options.registryPath = settings.denoiserRegistryPath
+    if (settings.denoiserRegistrySource) options.registrySource = settings.denoiserRegistrySource
+  }
+  const den = await ensureLavaSRDenoiserGguf(options)
+  if (!den.success) {
+    return {
+      skip: true,
+      skipReason:
+        'LavaSR denoiser GGUF could not be resolved from the registry ' +
+        '(set LAVASR_DENOISER_GGUF to a local copy to run offline)'
+    }
+  }
+  return { path: den.path }
+}
+
 async function loadModelForEngine(settings) {
   const baseDir = getBaseDir()
   const modelsDir = path.join(baseDir, 'models')
@@ -437,10 +480,18 @@ async function loadModelForEngine(settings) {
 
   const enhancer = await resolveEnhancer(settings, baseDir)
   if (enhancer.skip) return { skip: true, skipReason: enhancer.skipReason }
-  // The enhancer GGUF loads alongside the engine, so fold it into the model
-  // options + the on-disk size accounting when present.
-  const enhancerOpts = enhancer.path ? { lavasrEnhancerPath: enhancer.path } : {}
-  const enhancerFiles = enhancer.path ? [enhancer.path] : []
+  const denoiser = await resolveDenoiser(settings, baseDir)
+  if (denoiser.skip) return { skip: true, skipReason: denoiser.skipReason }
+  // The enhancer / denoiser GGUFs load alongside the engine, so fold them into
+  // the model options + the on-disk size accounting when present.
+  const lavasrOpts = {
+    ...(enhancer.path ? { lavasrEnhancerPath: enhancer.path } : {}),
+    ...(denoiser.path ? { lavasrDenoiserPath: denoiser.path } : {})
+  }
+  const lavasrFiles = [
+    ...(enhancer.path ? [enhancer.path] : []),
+    ...(denoiser.path ? [denoiser.path] : [])
+  ]
 
   if (settings.engine === 'chatterbox') {
     const download = await ensureChatterboxModels({ targetDir: modelsDir })
@@ -451,14 +502,14 @@ async function loadModelForEngine(settings) {
       language: 'en',
       useGPU: settings.useGPU,
       ...threadOpts,
-      ...enhancerOpts
+      ...lavasrOpts
     })
     return {
       model,
       modelFiles: [
         path.join(dir, 'chatterbox-t3-turbo.gguf'),
         path.join(dir, 'chatterbox-s3gen.gguf'),
-        ...enhancerFiles
+        ...lavasrFiles
       ]
     }
   }
@@ -475,14 +526,14 @@ async function loadModelForEngine(settings) {
       language: 'es',
       useGPU: settings.useGPU,
       ...threadOpts,
-      ...enhancerOpts
+      ...lavasrOpts
     })
     return {
       model,
       modelFiles: [
         path.join(dir, 'chatterbox-t3-mtl.gguf'),
         path.join(dir, 'chatterbox-s3gen-mtl.gguf'),
-        ...enhancerFiles
+        ...lavasrFiles
       ]
     }
   }
@@ -499,9 +550,9 @@ async function loadModelForEngine(settings) {
       language: 'es',
       useGPU: settings.useGPU,
       ...threadOpts,
-      ...enhancerOpts
+      ...lavasrOpts
     })
-    return { model, modelFiles: [supertonicPath, ...enhancerFiles] }
+    return { model, modelFiles: [supertonicPath, ...lavasrFiles] }
   }
 
   if (settings.engine === 'supertonic3') {
@@ -517,9 +568,9 @@ async function loadModelForEngine(settings) {
       language: 'en',
       useGPU: settings.useGPU,
       ...threadOpts,
-      ...enhancerOpts
+      ...lavasrOpts
     })
-    return { model, modelFiles: [supertonicPath, ...enhancerFiles] }
+    return { model, modelFiles: [supertonicPath, ...lavasrFiles] }
   }
 
   const download = await ensureSupertonicModel({ targetDir: modelsDir })
@@ -533,9 +584,9 @@ async function loadModelForEngine(settings) {
     language: 'en',
     useGPU: settings.useGPU,
     ...threadOpts,
-    ...enhancerOpts
+    ...lavasrOpts
   })
-  return { model, modelFiles: [supertonicPath, ...enhancerFiles] }
+  return { model, modelFiles: [supertonicPath, ...lavasrFiles] }
 }
 
 // All Supertonic tiers (v1 / v2-mtl / v3) run through the Supertonic runner;
@@ -566,6 +617,7 @@ test('RTF benchmark: GGML TTS on CI device', { timeout: 1800000 }, async (t) => 
   console.log(`  Engine:         ${settings.engine}`)
   console.log(`  Variant:        ${settings.variant}`)
   console.log(`  Enhancer:       ${settings.enhancer}`)
+  console.log(`  Denoiser:       ${settings.denoiser}`)
   console.log(`  GPU requested:  ${settings.useGPU}`)
   console.log(`  Backend:        ${backend}`)
   if (settings.deviceLabel) console.log(`  Device label:   ${settings.deviceLabel}`)
@@ -791,6 +843,7 @@ test('RTF benchmark: GGML TTS on CI device', { timeout: 1800000 }, async (t) => 
         type: settings.engine,
         variant: settings.variant,
         enhancer: settings.enhancer,
+        denoiser: settings.denoiser,
         sizeBytes: modelSizeBytes
       },
       labels: {
@@ -809,6 +862,7 @@ test('RTF benchmark: GGML TTS on CI device', { timeout: 1800000 }, async (t) => 
         useGPU: settings.useGPU,
         variant: settings.variant,
         enhancer: settings.enhancer,
+        denoiser: settings.denoiser,
         modelLoadMs: loadMs,
         numThreads: settings.numThreads !== undefined ? settings.numThreads : null
       },
@@ -816,6 +870,7 @@ test('RTF benchmark: GGML TTS on CI device', { timeout: 1800000 }, async (t) => 
         engine: settings.engine,
         variant: settings.variant,
         enhancer: settings.enhancer,
+        denoiser: settings.denoiser,
         useGPU: settings.useGPU,
         backendHint: settings.backendHint,
         deviceLabel: settings.deviceLabel,

@@ -11,6 +11,7 @@
  *     "engine": "chatterbox" | "chatterbox-mtl" | "supertonic" | "supertonic-mtl",
  *     "variant": "q4" | "q8" | "f16" | "mixed",              (optional, default q4)
  *     "enhancer": "none" | "lavasr",                         (optional, default none)
+ *     "denoiser": "none" | "lavasr",                         (optional, default none)
  *     "useGPU": true | false,
  *     "backendHint": "cpu" | "metal" | "vulkan" | "opencl",  (optional)
  *     "deviceLabel": "...",                                  (optional)
@@ -84,12 +85,21 @@ function normalizeBoolean (value) {
   return value === true || value === 'true' || value === '1'
 }
 
+// Distinct tokens (`lavasr` for the enhancer, `denoise` for the denoiser) keep
+// the two LavaSR axes unambiguous in default labels; they mirror enhancerTag /
+// denoiserTag in test/utils/downloadModel.js (kept local because that module is
+// Bare-only and cannot be required from this Node script).
+const ENHANCER_LABEL_TOKEN = 'lavasr'
+const DENOISER_LABEL_TOKEN = 'denoise'
+
 function buildLabel (entry, index) {
   if (entry.label) return String(entry.label)
   const gpuTag = normalizeBoolean(entry.useGPU) ? 'gpu' : 'cpu'
   const enhancer = String(entry.enhancer || 'none').toLowerCase()
-  const enhancerTag = enhancer !== 'none' ? `-${enhancer}` : ''
-  return `${index + 1}-${entry.engine || 'tts'}${enhancerTag}-${gpuTag}`
+  const enhancerTag = enhancer !== 'none' ? `-${ENHANCER_LABEL_TOKEN}` : ''
+  const denoiser = String(entry.denoiser || 'none').toLowerCase()
+  const denoiserTag = denoiser !== 'none' ? `-${DENOISER_LABEL_TOKEN}` : ''
+  return `${index + 1}-${entry.engine || 'tts'}${enhancerTag}${denoiserTag}-${gpuTag}`
 }
 
 function buildEnv (entry, index) {
@@ -99,6 +109,7 @@ function buildEnv (entry, index) {
     QVAC_TTS_GGML_BENCHMARK_ENGINE: String(entry.engine || 'chatterbox'),
     QVAC_TTS_GGML_BENCHMARK_VARIANT: String(entry.variant || process.env.QVAC_TTS_GGML_BENCHMARK_VARIANT || 'q4'),
     QVAC_TTS_GGML_BENCHMARK_ENHANCER: String(entry.enhancer || process.env.QVAC_TTS_GGML_BENCHMARK_ENHANCER || 'none'),
+    QVAC_TTS_GGML_BENCHMARK_DENOISER: String(entry.denoiser || process.env.QVAC_TTS_GGML_BENCHMARK_DENOISER || 'none'),
     QVAC_TTS_GGML_BENCHMARK_USE_GPU: normalizeBoolean(entry.useGPU) ? 'true' : 'false',
     QVAC_TTS_GGML_BENCHMARK_LABEL: label,
     QVAC_TTS_GGML_BENCHMARK_BACKEND:
@@ -157,6 +168,7 @@ function runEntry (pkgDir, entry, index, matrixLen) {
   console.log(`  engine:     ${env.QVAC_TTS_GGML_BENCHMARK_ENGINE}`)
   console.log(`  variant:    ${env.QVAC_TTS_GGML_BENCHMARK_VARIANT}`)
   console.log(`  enhancer:   ${env.QVAC_TTS_GGML_BENCHMARK_ENHANCER}`)
+  console.log(`  denoiser:   ${env.QVAC_TTS_GGML_BENCHMARK_DENOISER}`)
   console.log(`  useGPU:     ${env.QVAC_TTS_GGML_BENCHMARK_USE_GPU}`)
   console.log(`  backend:    ${env.QVAC_TTS_GGML_BENCHMARK_BACKEND || 'default'}`)
   console.log(`  label:      ${env.QVAC_TTS_GGML_BENCHMARK_LABEL}`)

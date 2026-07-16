@@ -184,3 +184,71 @@ test('markdown table exposes the Enhancer column and the lavasr value', () => {
   assert.ok(markdown.includes('| Enhancer |'), 'header carries the Enhancer column')
   assert.ok(markdown.includes('| lavasr |'), 'enhancer value rendered in the row')
 })
+
+test('desktop record defaults denoiser to none and surfaces model.denoiser when set', () => {
+  const none = normalizeDesktopRecord(desktopReport(true), 'rtf-benchmark-linux-x64-chatterbox-q4-gpu.json')
+  assert.equal(none.denoiser, 'none')
+
+  const report = desktopReport(true)
+  report.model.denoiser = 'lavasr'
+  const withDenoiser = normalizeDesktopRecord(report, 'rtf-benchmark-linux-x64-chatterbox-q4-gpu-denoise.json')
+  assert.equal(withDenoiser.denoiser, 'lavasr')
+})
+
+test('mobile canonical report parses the trailing denoise token as the denoiser axis', () => {
+  const report = mobileCanonicalReport()
+  report.results[0].test = '[GPU] chatterbox q4 metal denoise'
+  const { records } = expandCanonicalReport(report, '/x/Apple_iPhone_16_Pro/performance-report.json')
+  assert.equal(records.length, 1)
+  assert.equal(records[0].enhancer, 'none', 'no lavasr token -> enhancer stays none')
+  assert.equal(records[0].denoiser, 'lavasr', 'denoise token -> denoiser on')
+})
+
+test('mobile canonical report parses both lavasr and denoise tokens unambiguously', () => {
+  const report = mobileCanonicalReport()
+  report.results[0].test = '[GPU] chatterbox q4 metal lavasr denoise'
+  const { records } = expandCanonicalReport(report, '/x/Apple_iPhone_16_Pro/performance-report.json')
+  assert.equal(records.length, 1)
+  assert.equal(records[0].backend, 'metal', 'backend is not swallowed by the trailing tokens')
+  assert.equal(records[0].enhancer, 'lavasr')
+  assert.equal(records[0].denoiser, 'lavasr')
+})
+
+test('mobile canonical report without a denoise token defaults the denoiser to none', () => {
+  const report = mobileCanonicalReport()
+  report.results[0].test = '[GPU] chatterbox q4 metal lavasr'
+  const { records } = expandCanonicalReport(report, '/x/Apple_iPhone_16_Pro/performance-report.json')
+  assert.equal(records[0].denoiser, 'none')
+})
+
+test('mobile canonical report falls back to the record-level denoiser when the label has no token', () => {
+  const report = mobileCanonicalReport()
+  report.results[0].test = '[GPU] chatterbox q4 metal'
+  report.results[0].denoiser = 'lavasr'
+  const { records } = expandCanonicalReport(report, '/x/Apple_iPhone_16_Pro/performance-report.json')
+  assert.equal(records[0].denoiser, 'lavasr')
+})
+
+test('mobile canonical streaming report parses both trailing tokens', () => {
+  const report = mobileCanonicalReport()
+  report.results[0].test = '[CPU] streaming chatterbox q4 cpu lavasr denoise'
+  report.results[0].metrics = {
+    ttfa_ms: 120,
+    inter_chunk_p95_ms: 40,
+    wall_time_ms: 900,
+    chunks_per_run_mean: 5
+  }
+  const { streaming } = expandCanonicalReport(report, '/x/Apple_iPhone_16_Pro/performance-report.json')
+  assert.equal(streaming.length, 1)
+  assert.equal(streaming[0].enhancer, 'lavasr')
+  assert.equal(streaming[0].denoiser, 'lavasr')
+})
+
+test('markdown table exposes the Denoiser column and the lavasr value', () => {
+  const report = desktopReport(true)
+  report.model.denoiser = 'lavasr'
+  const record = normalizeDesktopRecord(report, 'rtf-benchmark-linux-x64-chatterbox-q4-gpu-denoise.json')
+  const markdown = renderMarkdown([record], [])
+  assert.ok(markdown.includes('| Denoiser |'), 'header carries the Denoiser column')
+  assert.ok(markdown.includes('| lavasr |'), 'denoiser value rendered in the row')
+})

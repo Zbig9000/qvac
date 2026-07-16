@@ -9,6 +9,7 @@
     "type": "supertonic",
     "variant": "q4",
     "enhancer": "lavasr",
+    "denoiser": "lavasr",
     "sizeBytes": 120000000
   },
   "labels": {
@@ -16,12 +17,13 @@
     "device": "RTX 4090 desktop",
     "backend": "vulkan",
     "requestedBackend": "gpu",
-    "label": "manual-lavasr"
+    "label": "manual-lavasr-denoise"
   },
   "requested": {
     "engine": "supertonic",
     "variant": "q4",
     "enhancer": "lavasr",
+    "denoiser": "lavasr",
     "useGPU": true,
     "backendHint": "vulkan",
     "deviceLabel": "RTX 4090 desktop",
