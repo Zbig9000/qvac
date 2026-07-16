@@ -176,12 +176,17 @@ function expandCanonicalReport (report, sourceFile) {
     if (!parsed || !VALID_ENGINES.includes(parsed.engine)) continue
 
     const m = result.metrics || {}
+    // parseCanonicalTestLabel already defaults the label enhancer to 'none', so
+    // prefer the label token and only fall back to the record-level `enhancer`
+    // field when the label carried no enhancer token (legacy 5-token labels).
+    const enhancer =
+      parsed.enhancer !== 'none' ? parsed.enhancer : result.enhancer || 'none'
     if (parsed.streaming) {
       streaming.push(normalizeStreamingRecord({
         engine: parsed.engine,
         modelType: parsed.engine,
         variant: parsed.variant,
-        enhancer: parsed.enhancer || result.enhancer || 'none',
+        enhancer,
         platform,
         platformName: platformFamily,
         deviceLabel: device.name,
@@ -201,7 +206,7 @@ function expandCanonicalReport (report, sourceFile) {
         engine: parsed.engine,
         modelType: parsed.engine,
         variant: parsed.variant,
-        enhancer: parsed.enhancer || result.enhancer || 'none',
+        enhancer,
         platform,
         platformName: platformFamily,
         deviceLabel: device.name,

@@ -1,7 +1,12 @@
 'use strict'
 
 const test = require('brittle')
-const { normalizeEnhancer, VALID_ENHANCERS, DEFAULT_ENHANCER } = require('../utils/downloadModel')
+const {
+  normalizeEnhancer,
+  enhancerTag,
+  VALID_ENHANCERS,
+  DEFAULT_ENHANCER
+} = require('../utils/downloadModel')
 
 test('normalizeEnhancer accepts the known enhancer axis values', (t) => {
   t.is(normalizeEnhancer('none'), 'none', 'none -> none')
@@ -22,5 +27,25 @@ test('normalizeEnhancer throws on an unknown enhancer so a typo fails loudly', (
     () => normalizeEnhancer('lavasr-typo'),
     /Invalid benchmark enhancer/,
     'unknown enhancer is rejected instead of silently disabling enhancement'
+  )
+})
+
+test('enhancerTag emits a token only for a non-default enhancer', (t) => {
+  t.is(enhancerTag('lavasr'), 'lavasr', 'lavasr -> lavasr token')
+  t.is(enhancerTag('LavaSR'), 'lavasr', 'token is normalized (case-insensitive)')
+})
+
+test('enhancerTag is empty for the default so pre-axis artifacts stay byte-stable', (t) => {
+  t.is(enhancerTag('none'), '', 'none -> no token')
+  t.is(enhancerTag(''), '', "'' -> no token")
+  t.is(enhancerTag(undefined), '', 'undefined -> no token')
+  t.is(enhancerTag(null), '', 'null -> no token')
+})
+
+test('enhancerTag throws on an unknown enhancer so a typo fails loudly', (t) => {
+  t.exception(
+    () => enhancerTag('lavasr-typo'),
+    /Invalid benchmark enhancer/,
+    'an invalid enhancer cannot silently produce a bogus artifact tag'
   )
 })

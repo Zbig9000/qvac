@@ -64,7 +64,8 @@ const {
   ensureSupertonic3Model,
   supertonic3QuantFromVariant,
   ensureLavaSREnhancerGguf,
-  normalizeEnhancer
+  normalizeEnhancer,
+  enhancerTag
 } = require('../utils/downloadModel')
 const {
   readRssBytes,
@@ -136,8 +137,9 @@ function buildCanonicalReport(settings, summary, backend) {
   const enhancer = settings.enhancer || 'none'
   // Append the enhancer token only when enabled so existing 5-token labels
   // (`[CPU] engine variant backend`) parse unchanged in the aggregator.
-  const enhancerTag = enhancer !== 'none' ? ` ${enhancer}` : ''
-  const testLabel = `[${ep.toUpperCase()}] ${engine} ${variant} ${backend}${enhancerTag}`
+  const enhancerToken = enhancerTag(enhancer)
+  const enhancerSuffix = enhancerToken ? ` ${enhancerToken}` : ''
+  const testLabel = `[${ep.toUpperCase()}] ${engine} ${variant} ${backend}${enhancerSuffix}`
 
   const rtf = summary.rtf || {}
   const wallMs = summary.wallMs || {}
@@ -286,7 +288,8 @@ function getArtifactFileName(settings) {
   ]
   // Insert the enhancer tag only when enabled so existing (enhancer=none)
   // artifact names stay byte-for-byte stable.
-  if (settings.enhancer && settings.enhancer !== 'none') parts.push(settings.enhancer)
+  const enhancerToken = enhancerTag(settings.enhancer)
+  if (enhancerToken) parts.push(enhancerToken)
   if (settings.label) parts.push(settings.label)
   return `${parts.join('-')}.json`
 }

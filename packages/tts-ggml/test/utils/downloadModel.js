@@ -1082,6 +1082,16 @@ function normalizeEnhancer(value) {
   return normalized
 }
 
+// Trailing token the enhancer axis contributes to artifact filenames, canonical
+// [PERF_REPORT_START] labels and matrix run labels: empty string for the default
+// (enhancer=none) so those strings stay byte-for-byte identical to pre-axis runs,
+// otherwise the normalized enhancer id. Centralised so every producer
+// (getArtifactFileName, buildCanonicalReport, buildLabel) agrees on one rule.
+function enhancerTag(value) {
+  const enhancer = normalizeEnhancer(value)
+  return enhancer === DEFAULT_ENHANCER ? '' : enhancer
+}
+
 /**
  * Ensure the LavaSR enhancer GGUF is staged, returning its path.
  * Resolution order: $LAVASR_ENHANCER_GGUF, a locally-staged
@@ -1275,6 +1285,7 @@ module.exports = {
   ensureCangjieTsv,
   ensureLavaSREnhancerGguf,
   normalizeEnhancer,
+  enhancerTag,
   VALID_ENHANCERS,
   DEFAULT_ENHANCER
 }

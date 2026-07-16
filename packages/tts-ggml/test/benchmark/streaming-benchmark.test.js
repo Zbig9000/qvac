@@ -52,7 +52,8 @@ const {
   ensureSupertonic3Model,
   supertonic3QuantFromVariant,
   ensureLavaSREnhancerGguf,
-  normalizeEnhancer
+  normalizeEnhancer,
+  enhancerTag
 } = require('../utils/downloadModel')
 
 const VALID_ENGINES = [
@@ -82,8 +83,9 @@ function buildCanonicalStreamingReport(settings, summary, backend) {
   const enhancer = settings.enhancer || 'none'
   // Append the enhancer token only when enabled so existing streaming labels
   // (`[CPU] streaming engine variant backend`) parse unchanged in the aggregator.
-  const enhancerTag = enhancer !== 'none' ? ` ${enhancer}` : ''
-  const testLabel = `[${ep.toUpperCase()}] streaming ${settings.engine} ${settings.variant} ${backend}${enhancerTag}`
+  const enhancerToken = enhancerTag(enhancer)
+  const enhancerSuffix = enhancerToken ? ` ${enhancerToken}` : ''
+  const testLabel = `[${ep.toUpperCase()}] streaming ${settings.engine} ${settings.variant} ${backend}${enhancerSuffix}`
 
   const ttfa = summary.ttfaMs || {}
   const totalWall = summary.totalWallMs || {}
@@ -248,7 +250,8 @@ function getArtifactFileName(settings) {
   ]
   // Insert the enhancer tag only when enabled so existing (enhancer=none)
   // artifact names stay byte-for-byte stable.
-  if (settings.enhancer && settings.enhancer !== 'none') parts.push(settings.enhancer)
+  const enhancerToken = enhancerTag(settings.enhancer)
+  if (enhancerToken) parts.push(enhancerToken)
   if (settings.label) parts.push(settings.label)
   return `${parts.join('-')}.json`
 }

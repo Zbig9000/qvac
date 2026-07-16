@@ -142,6 +142,25 @@ test('mobile canonical report without an enhancer token defaults to none (backwa
   assert.equal(records[0].enhancer, 'none')
 })
 
+test('mobile canonical report falls back to the record-level enhancer when the label has no token', () => {
+  // Legacy 5-token label (no enhancer token) but the record carries
+  // enhancer: 'lavasr'. The label default of 'none' must not shadow it.
+  const report = mobileCanonicalReport()
+  report.results[0].test = '[GPU] chatterbox q4 metal'
+  report.results[0].enhancer = 'lavasr'
+  const { records } = expandCanonicalReport(report, '/x/Apple_iPhone_16_Pro/performance-report.json')
+  assert.equal(records.length, 1)
+  assert.equal(records[0].enhancer, 'lavasr')
+})
+
+test('mobile canonical report prefers the label enhancer token over the record field', () => {
+  const report = mobileCanonicalReport()
+  report.results[0].test = '[GPU] chatterbox q4 metal lavasr'
+  report.results[0].enhancer = 'none'
+  const { records } = expandCanonicalReport(report, '/x/Apple_iPhone_16_Pro/performance-report.json')
+  assert.equal(records[0].enhancer, 'lavasr')
+})
+
 test('mobile canonical streaming report parses the trailing enhancer token', () => {
   const report = mobileCanonicalReport()
   report.results[0].test = '[CPU] streaming chatterbox q4 cpu lavasr'
