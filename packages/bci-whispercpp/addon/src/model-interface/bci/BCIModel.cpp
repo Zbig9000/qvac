@@ -49,21 +49,19 @@ static bool shouldAbortWhisper(void* userData) {
          cancelRequested->load(std::memory_order_relaxed);
 }
 
-#if defined(__ANDROID__)
+#if defined(__ANDROID__) || (defined(__linux__) && defined(__aarch64__))
 namespace {
-// Android ships ggml with `GGML_BACKEND_DL=ON`, so no backend is statically
-// registered. dlopen the per-arch CPU + GPU `.so` modules once per process;
-// otherwise whisper_init aborts on a NULL CPU device. This is a no-op while
-// the pinned whisper-cpp port leaves `GGML_BACKEND_DL` off on Android (the
-// static CPU backend registers via ggml's constructor and no MODULE `.so`
-// files are found).
-void ensureBackendsLoadedAndroid(const std::string& backendsDir) {
+// Android and desktop linux-arm64 prebuilds ship ggml with
+// `GGML_BACKEND_DL=ON`, so no backend is statically registered. dlopen the
+// per-arch CPU + GPU `.so` modules once per process; otherwise whisper_init
+// aborts on a NULL CPU device.
+void ensureBackendsLoaded(const std::string& backendsDir) {
   static std::once_flag flag;
   std::call_once(flag, [&]() {
     if (backendsDir.empty()) {
       QLOG(
           qvac_lib_inference_addon_cpp::logger::Priority::WARNING,
-          "Android: configurationParams.backendsDir not set; falling back to "
+          "configurationParams.backendsDir not set; falling back to "
           "ggml_backend_load_all() (default search path). CPU / Vulkan / "
           "OpenCL registration may fail inside an APK with default "
           "compressed-native-libs packaging.");
@@ -80,13 +78,13 @@ void ensureBackendsLoadedAndroid(const std::string& backendsDir) {
 #endif
     QLOG(
         qvac_lib_inference_addon_cpp::logger::Priority::INFO,
-        std::string("Android: loading ggml backends from: ") +
+        std::string("loading ggml backends from: ") +
             variantsDir.string());
     ggml_backend_load_all_from_path(variantsDir.string().c_str());
   });
 }
 } // namespace
-#endif // __ANDROID__
+#endif // __ANDROID__ || linux-arm64
 
 BCIModel::BCIModel(BCIConfig config)
     : cfg_(std::move(config)), neuralProcessor_() {}
@@ -195,8 +193,8 @@ int adrenoOpenclGpuDeviceIndex() {
 void BCIModel::load() {
   if (ctx_) return;
 
-#if defined(__ANDROID__)
-  ensureBackendsLoadedAndroid(cfg_.backendsDir);
+#if defined(__ANDROID__) || (defined(__linux__) && defined(__aarch64__))
+  ensureBackendsLoaded(cfg_.backendsDir);
 #endif
 
   whisper_context_params contextParams = toWhisperContextParams(cfg_);
