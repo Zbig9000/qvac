@@ -41,11 +41,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `-lavasr` and append the enhancer to the canonical `[PERF_REPORT_START]` label,
   and `scripts/perf-report/aggregate-tts-ggml-rtf.js` surfaces it in a new
   `Enhancer` column (deduping `lavasr` vs `none` rows separately). The enhancer
-  GGUF is resolved via `LAVASR_ENHANCER_GGUF` / `LAVASR_ENHANCER_REGISTRY_PATH`
-  or a locally-staged copy; until it is published to the registry, `lavasr` runs
-  soft-skip (green) rather than fail. Self-skipping desktop matrix rows and the
-  mobile inject-env plumbing are in place so numbers collect automatically once
-  the GGUF lands. See `benchmarks/RTF-BENCHMARKS.md`.
+  GGUF is fetched from the QVAC registry by default (`TTS_ENHANCER_LAVASR_FP16`),
+  or from `LAVASR_ENHANCER_GGUF` / `LAVASR_ENHANCER_REGISTRY_PATH` (e.g. the fp32
+  build) / a locally-staged copy; a `lavasr` leg that can't resolve the GGUF
+  soft-skips (green) rather than failing the matrix. Desktop matrix rows collect
+  numbers automatically; mobile threads the env var through inject-env (device
+  rows follow once the enhancer is added to the mobile model manifest). See
+  `benchmarks/RTF-BENCHMARKS.md`.
 - Opt-in `vulkanCacheDir` (Supertonic + `useGPU: true`): persists the Vulkan pipeline cache (`GGML_VK_PIPELINE_CACHE_DIR`) and pre-warms it at `load()` so the first-dispatch shader-compile cost is paid once per install, not on the first `run()`. Fully opt-in/non-breaking; Vulkan analogue of `openclCacheDir` (QVAC-21910, tetherto/qvac#3120).
 - **Per-call cancellation via `AbortSignal` on `run()`.** `model.run({ input, signal })` now accepts an optional `AbortSignal`; when it aborts, `response.await()` rejects with the abort reason. An already-aborted signal rejects deterministically without dispatching the engine (no native interrupt) — the race-free way to cancel on fast hardware. Additive/non-breaking. Non-streaming `run()` only: **ignored when `streamOutput: true`** (and on `runStream` / `runStreaming`). (QVAC-22247, tetherto/qvac#3260)
 

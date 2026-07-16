@@ -25,7 +25,8 @@
  *   QVAC_TTS_GGML_BENCHMARK_VARIANT      q4 | q8 | f16 | mixed (default: q4, label only)
  *   QVAC_TTS_GGML_BENCHMARK_ENHANCER     none | lavasr (default: none; `lavasr`
  *                                        layers the LavaSR 48 kHz enhancer per
- *                                        streamed chunk; soft-skips when unstaged)
+ *                                        streamed chunk; GGUF fetched from the
+ *                                        QVAC registry, soft-skips if unresolved)
  *   QVAC_TTS_GGML_BENCHMARK_USE_GPU      1 | 0 (default 0)
  *   QVAC_TTS_GGML_BENCHMARK_BACKEND      cpu | metal | vulkan | cuda | opencl
  *   QVAC_TTS_GGML_BENCHMARK_DEVICE       device label for reports
@@ -261,10 +262,10 @@ function isMultilingualEngine(engine) {
 }
 
 // Resolve the LavaSR enhancer GGUF when the enhancer axis is on. Returns
-// `{ path: null }` for the default (enhancer=none), `{ path }` when staged, or
-// `{ skip, skipReason }` when requested but unavailable so the benchmark
-// soft-skips (mirrors the RTF suite; the enhancer GGUF is not on the QVAC
-// registry yet, so a run without it staged goes green-with-skip).
+// `{ path: null }` for the default (enhancer=none), `{ path }` once fetched from
+// the QVAC registry (or a local/env-pointed copy), or `{ skip, skipReason }`
+// when it can't be resolved (mirrors the RTF suite; a leg that can't stage the
+// enhancer goes green-with-skip rather than failing).
 async function resolveEnhancer(settings, baseDir) {
   if (settings.enhancer !== 'lavasr') return { path: null }
   const options = { targetDir: path.join(baseDir, 'models', 'lavasr') }
@@ -277,8 +278,8 @@ async function resolveEnhancer(settings, baseDir) {
     return {
       skip: true,
       skipReason:
-        'LavaSR enhancer GGUF not staged (set LAVASR_ENHANCER_GGUF / ' +
-        'LAVASR_ENHANCER_REGISTRY_PATH, or publish it to the QVAC registry)'
+        'LavaSR enhancer GGUF could not be resolved from the registry ' +
+        '(set LAVASR_ENHANCER_GGUF to a local copy to run offline)'
     }
   }
   return { path: enh.path }

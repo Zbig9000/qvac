@@ -33,8 +33,9 @@
  *   QVAC_TTS_GGML_BENCHMARK_ENHANCER     none | lavasr               (default: none)
  *                                        `lavasr` layers the LavaSR 48 kHz
  *                                        bandwidth-extension enhancer on top of
- *                                        the engine; soft-skips when its GGUF is
- *                                        not staged (see ensureLavaSREnhancerGguf)
+ *                                        the engine; GGUF fetched from the QVAC
+ *                                        registry, soft-skips only if it can't
+ *                                        be resolved (see ensureLavaSREnhancerGguf)
  *   QVAC_TTS_GGML_BENCHMARK_USE_GPU      1 | true | 0 | false        (default: false)
  *   QVAC_TTS_GGML_BENCHMARK_BACKEND      cpu | metal | vulkan | cuda | opencl
  *                                        (free-form hint; defaults derived from
@@ -235,9 +236,9 @@ function getSettings() {
     engine,
     variant,
     enhancer,
-    // Optional registry override so enhancer runs start collecting numbers the
-    // moment the GGUF is published, without another code change (the enhancer
-    // is not on the QVAC registry yet — tracked follow-up).
+    // Optional registry-path override (e.g. to pull the fp32 enhancer instead
+    // of the default fp16 TTS_ENHANCER_LAVASR_FP16); empty uses the baked-in
+    // default in ensureLavaSREnhancerGguf.
     enhancerRegistryPath: getEnv('LAVASR_ENHANCER_REGISTRY_PATH') || '',
     enhancerRegistrySource: getEnv('LAVASR_ENHANCER_REGISTRY_SOURCE') || '',
     useGPU: getEnvBoolean('QVAC_TTS_GGML_BENCHMARK_USE_GPU', false),
@@ -403,10 +404,10 @@ function getBaseDir() {
 }
 
 // Resolve the LavaSR enhancer GGUF when the enhancer axis is on. Returns
-// `{ path: null }` for the default (enhancer=none), `{ path }` when staged, or
-// `{ skip, skipReason }` when requested but unavailable so the benchmark
-// soft-skips (the enhancer GGUF is not on the QVAC registry yet — a run without
-// it staged should go green-with-skip, not fail the matrix leg).
+// `{ path: null }` for the default (enhancer=none), `{ path }` once fetched from
+// the QVAC registry (or a local/env-pointed copy), or `{ skip, skipReason }`
+// when it can't be resolved (e.g. registry unreachable / offline) so the
+// benchmark goes green-with-skip instead of failing the matrix leg.
 async function resolveEnhancer(settings, baseDir) {
   if (settings.enhancer !== 'lavasr') return { path: null }
   const options = { targetDir: path.join(baseDir, 'models', 'lavasr') }
@@ -419,8 +420,8 @@ async function resolveEnhancer(settings, baseDir) {
     return {
       skip: true,
       skipReason:
-        'LavaSR enhancer GGUF not staged (set LAVASR_ENHANCER_GGUF / ' +
-        'LAVASR_ENHANCER_REGISTRY_PATH, or publish it to the QVAC registry)'
+        'LavaSR enhancer GGUF could not be resolved from the registry ' +
+        '(set LAVASR_ENHANCER_GGUF to a local copy to run offline)'
     }
   }
   return { path: enh.path }

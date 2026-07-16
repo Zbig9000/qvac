@@ -550,6 +550,23 @@ const SUPERTONIC_MTL_GGUFS = [
   }
 ]
 
+// LavaSR 48 kHz bandwidth-extension enhancer (benchmark `enhancer=lavasr` axis).
+// Published on the QVAC registry as fp16 (~28 MB, the benchmark default) and
+// fp32 (~56 MB); point options.registryPath / $LAVASR_ENHANCER_REGISTRY_PATH at
+// the fp32 build to pull that instead. Kept on disk as `lavasr-enhancer.gguf`
+// (the quant lives in the GGUF metadata, not the filename), mirroring how the
+// engine GGUFs drop their `-q4_0` suffix locally. The band spans fp16 + fp32.
+const REGISTRY_DATE_LAVASR = '2026-06-26'
+const SIZE_LAVASR_ENHANCER = { minSize: 15_000_000, maxSize: 80_000_000 }
+const LAVASR_ENHANCER_GGUFS = [
+  {
+    name: 'lavasr-enhancer.gguf',
+    ...SIZE_LAVASR_ENHANCER,
+    registryPath: `qvac_models_compiled/ggml/lavasr/${REGISTRY_DATE_LAVASR}/lavasr-enhancer-f16.gguf`,
+    registrySource: REGISTRY_SOURCE
+  }
+]
+
 // Compiled MeCab + IPAdic dictionary for Japanese ("ja") morphological
 // segmentation inside the multilingual Chatterbox engine.  tts-cpp reads
 // this directory via EngineOptions::mecab_dict_path; without it kanji
@@ -1067,18 +1084,16 @@ function normalizeEnhancer(value) {
 
 /**
  * Ensure the LavaSR enhancer GGUF is staged, returning its path.
- * Resolution order: $LAVASR_ENHANCER_GGUF, then models/lavasr/lavasr-enhancer.gguf
- * (and a couple of fallbacks), then the QVAC registry.
- *
- * NOTE: publishing the LavaSR enhancer GGUF to the registry is a tracked
- * follow-up (assigned to @ishanvohra2). Until then there is no registryPath, so
- * this resolves only a locally-staged / env-pointed file. Convert one with
- * scripts/convert-lavasr-enhancer-to-gguf.py from the public LavaSRcpp ONNX
- * release. Pass the returned path to TTSGgml as files.lavasrEnhancer.
+ * Resolution order: $LAVASR_ENHANCER_GGUF, a locally-staged
+ * models/lavasr/lavasr-enhancer.gguf (and a couple of fallbacks), then the QVAC
+ * registry (TTS_ENHANCER_LAVASR_FP16 by default). Pass the returned path to
+ * TTSGgml as files.lavasrEnhancer.
  *
  * @param {Object} [options]
  * @param {string} [options.targetDir] - preferred dir (default models/lavasr).
- * @param {string} [options.registryPath] - override once the GGUF is published.
+ * @param {string} [options.registryPath] - override the default fp16 registry
+ *   path (e.g. the fp32 build); also settable via $LAVASR_ENHANCER_REGISTRY_PATH.
+ * @param {string} [options.registrySource] - registry source (default s3).
  * @returns {Promise<{ success: boolean, path: string|null, targetDir: string }>}
  */
 async function ensureLavaSREnhancerGguf(options = {}) {
@@ -1104,26 +1119,23 @@ async function ensureLavaSREnhancerGguf(options = {}) {
     }
   }
 
-  // Registry fetch (once the GGUF is published — see note above).
   const gguf = options.registryPath
     ? {
         name: fileName,
+        ...SIZE_LAVASR_ENHANCER,
         registryPath: options.registryPath,
-        registrySource: options.registrySource || 's3'
+        registrySource: options.registrySource || REGISTRY_SOURCE
       }
-    : null
-  if (gguf && typeof tryFetchGgufsFromRegistry === 'function') {
+    : LAVASR_ENHANCER_GGUFS[0]
+  if (typeof tryFetchGgufsFromRegistry === 'function') {
     if (await tryFetchGgufsFromRegistry([gguf], requestedDir)) {
       return { success: true, path: path.join(requestedDir, fileName), targetDir: requestedDir }
     }
   }
 
-  console.log(' LavaSR enhancer GGUF not staged (and no registry mapping yet).')
-  console.log(' Convert it from the public LavaSRcpp ONNX release:')
-  console.log('   python scripts/convert-lavasr-enhancer-to-gguf.py \\')
-  console.log('     --backbone enhancer_backbone.onnx --spec-head enhancer_spec_head.onnx \\')
-  console.log(`     --out ${path.join(requestedDir, fileName)} --ftype f16`)
-  console.log(' or set LAVASR_ENHANCER_GGUF to its path.')
+  console.log(` LavaSR enhancer GGUF could not be staged from the registry (${gguf.registryPath}).`)
+  console.log(' Set LAVASR_ENHANCER_GGUF to a local copy, or convert one with')
+  console.log(' scripts/convert-lavasr-enhancer-to-gguf.py, to run offline.')
   return { success: false, path: null, targetDir: requestedDir }
 }
 

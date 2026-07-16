@@ -155,9 +155,10 @@ jobs:
           ENGINE: ${{ matrix.engine || 'chatterbox' }}
           USE_GPU: ${{ matrix.use_gpu && '1' || '0' }}
           GPU_TAG: ${{ matrix.use_gpu && 'gpu' || 'cpu' }}
-          # Enhancer axis (none|lavasr). Defaults to none for the existing rows;
-          # the LavaSR enhancer GGUF is not on the registry yet, so a `lavasr`
-          # row soft-skips on device until it is published + pre-staged.
+          # Enhancer axis (none|lavasr). Defaults to none for the existing rows.
+          # Mobile pushes pre-staged model files (it does not fetch from the
+          # registry on-device), so a `lavasr` row needs the enhancer GGUF added
+          # to the mobile model manifest before it can collect numbers on device.
           ENHANCER: ${{ matrix.enhancer || 'none' }}
         run: |
           echo "Injecting QVAC_TTS_GGML_RUN_BENCHMARK_ON_MOBILE=1 into mobile runtime"

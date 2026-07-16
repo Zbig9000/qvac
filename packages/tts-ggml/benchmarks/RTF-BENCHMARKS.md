@@ -165,52 +165,52 @@ orthogonal to `engine` / `variant` / `useGPU`. When on:
 
 `test/utils/downloadModel.js` `ensureLavaSREnhancerGguf()` resolves, in order:
 
-1. `LAVASR_ENHANCER_GGUF` (absolute path to a converted GGUF);
+1. `LAVASR_ENHANCER_GGUF` (absolute path to a local GGUF);
 2. a locally-staged `models/lavasr/lavasr-enhancer.gguf` (and a couple of fallbacks);
-3. the QVAC registry, when `LAVASR_ENHANCER_REGISTRY_PATH` (+ optional
-   `LAVASR_ENHANCER_REGISTRY_SOURCE`, default `s3`) is set.
+3. the QVAC registry — `TTS_ENHANCER_LAVASR_FP16` by default, or the path in
+   `LAVASR_ENHANCER_REGISTRY_PATH` (+ optional `LAVASR_ENHANCER_REGISTRY_SOURCE`,
+   default `s3`) to pull a different build, e.g. the fp32 enhancer.
 
-The enhancer GGUF is **not published to the QVAC registry yet** (tracked
-follow-up). Until it is, an `enhancer=lavasr` run that can't resolve the GGUF
-**soft-skips** (the brittle test passes with a skip comment and writes no
-artifact) so CI stays green — the `enhancer=none` rows still produce artifacts,
-so the desktop "zero artifacts" guard never trips. Once the GGUF is on the
-registry, set `LAVASR_ENHANCER_REGISTRY_PATH` (or bake it into
-`ensureLavaSREnhancerGguf`) and the same matrix rows start collecting numbers
-with no further changes.
+The enhancer GGUF is published on the QVAC registry (fp16 `TTS_ENHANCER_LAVASR_FP16`
+~28 MB / fp32 `TTS_ENHANCER_LAVASR_FP32` ~56 MB, under
+`qvac_models_compiled/ggml/lavasr/2026-06-26/`), so `enhancer=lavasr` desktop
+rows fetch it the same way the engine GGUFs are fetched and collect numbers with
+no extra setup. If it genuinely can't be resolved (registry unreachable / offline
+and no local copy), the run **soft-skips** (the brittle test passes with a skip
+comment and writes no artifact) so CI stays green — the `enhancer=none` rows still
+produce artifacts, so the desktop "zero artifacts" guard never trips.
 
 ### Collecting LavaSR numbers locally
 
 ```bash
-# 1. Convert the enhancer ONNX pair to a GGUF (needs numpy + onnx + gguf).
-python packages/tts-ggml/scripts/convert-lavasr-enhancer-to-gguf.py \
-  --backbone  enhancer_backbone.onnx \
-  --spec-head enhancer_spec_head.onnx \
-  --out       lavasr-enhancer.gguf \
-  --ftype     f16
-
-# 2. Run any engine with the enhancer on (Supertonic + Chatterbox are supported).
+# 1. Run any engine with the enhancer on (Supertonic + Chatterbox are supported).
+#    The enhancer GGUF is pulled from the QVAC registry automatically, exactly
+#    like the engine GGUFs (needs registry access + @qvac/registry-client).
 QVAC_TTS_GGML_BENCHMARK_ENGINE=supertonic \
 QVAC_TTS_GGML_BENCHMARK_ENHANCER=lavasr \
-LAVASR_ENHANCER_GGUF="$PWD/lavasr-enhancer.gguf" \
 QVAC_TTS_GGML_BENCHMARK_DEVICE="my-box" \
 QVAC_TTS_GGML_BENCHMARK_RUNNER=manual-zbig \
 npm --prefix packages/tts-ggml run test:benchmark:rtf
 
-# 3. For a row on a backend CI can't reach (CUDA, Adreno OpenCL, hosted Metal),
+# 1b. Offline / a custom build: point LAVASR_ENHANCER_GGUF at a local GGUF
+#     (convert one with scripts/convert-lavasr-enhancer-to-gguf.py), or set
+#     LAVASR_ENHANCER_REGISTRY_PATH to pull the fp32 enhancer instead of fp16.
+
+# 2. For a row on a backend CI can't reach (CUDA, Adreno OpenCL, hosted Metal),
 #    copy the artifact into manual-results/ (see manual-results/LAVASR_TEMPLATE.json.example).
 ```
 
 ### CI wiring
 
 - **Desktop** (`integration-test-tts-ggml.yml`): each matrix branch carries
-  self-skipping `enhancer:"lavasr"` rows for `supertonic` + `chatterbox` (CPU
-  everywhere, plus Vulkan/Metal on GPU runners). They go green-with-skip today
-  and light up once the GGUF is published.
+  `enhancer:"lavasr"` rows for `supertonic` + `chatterbox` (CPU everywhere, plus
+  Vulkan/Metal on GPU runners). They fetch the enhancer from the registry and
+  collect numbers; a row soft-skips only if the GGUF can't be resolved.
 - **Mobile** (`integration-mobile-test-tts-ggml.yml`): the on-device runtime
   reads `QVAC_TTS_GGML_BENCHMARK_ENHANCER` (threaded through the inject-env
-  step). Device Farm benchmark rows for the enhancer are added once the GGUF is
-  published + pre-staged alongside the engine GGUFs.
+  step). Device Farm rows for the enhancer follow once the enhancer GGUF is listed
+  in the mobile model manifest (mobile pushes pre-staged files rather than fetching
+  from the registry on-device).
 
 ## How the CI pipeline fits together
 
