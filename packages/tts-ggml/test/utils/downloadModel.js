@@ -551,21 +551,76 @@ const SUPERTONIC_MTL_GGUFS = [
 ]
 
 // LavaSR 48 kHz bandwidth-extension enhancer (benchmark `enhancer=lavasr` axis).
-// Published on the QVAC registry as fp16 (~28 MB, the benchmark default) and
-// fp32 (~56 MB); point options.registryPath / $LAVASR_ENHANCER_REGISTRY_PATH at
-// the fp32 build to pull that instead. Kept on disk as `lavasr-enhancer.gguf`
-// (the quant lives in the GGUF metadata, not the filename), mirroring how the
-// engine GGUFs drop their `-q4_0` suffix locally. The band spans fp16 + fp32.
+// fp16 (~28 MB, the benchmark default) + fp32 (~56 MB) are published on the QVAC
+// registry under the 2026-06-26 build. QVAC-21906 adds the block-quant tiers
+// (q4_0/q5_0/q8_0) and K-quant tiers (q4_K/q5_K/q6_K); the C++ loader dequantizes
+// each at load, so the forward math matches fp32 and only the GGUF shrinks. The
+// `enhancerVariant` axis (default fp16) picks the tier; each tier is fetched from
+// the registry and kept on disk under its own name so tiers can coexist, exactly
+// like the Supertonic 3 tiers below. One generous band spans q4_0 (~8 MB) .. fp32
+// (~56 MB); it is only a truncation guard because every tier has a distinct
+// filename + registry path (so a stale cache can't be mistaken for another tier).
 const REGISTRY_DATE_LAVASR = '2026-06-26'
-const SIZE_LAVASR_ENHANCER = { minSize: 15_000_000, maxSize: 80_000_000 }
-const LAVASR_ENHANCER_GGUFS = [
-  {
-    name: 'lavasr-enhancer.gguf',
+const SIZE_LAVASR_ENHANCER = { minSize: 4_000_000, maxSize: 80_000_000 }
+
+// Single source of truth for the enhancer quant tiers. fp16 / fp32 are published
+// today; the quantized tiers resolve once QVAC-21906's converter/requantizer
+// output is uploaded (a `lavasr` benchmark row soft-skips until its tier GGUF is
+// fetchable). Shared by normalizeEnhancerVariant + lavasrEnhancerGguf so the axis
+// and the fetch path can never drift.
+const DEFAULT_ENHANCER_VARIANT = 'f16'
+const VALID_ENHANCER_VARIANTS = ['f16', 'f32', 'q8_0', 'q5_0', 'q4_0', 'q6_K', 'q5_K', 'q4_K']
+
+// Canonicalize an enhancer quant tier (case-insensitive, default fp16). Unknown
+// tiers throw so a typo fails loudly instead of silently downgrading to fp16.
+// The enhancer analog of supertonic3QuantFromVariant.
+function normalizeEnhancerVariant(value) {
+  const raw = String(value === undefined || value === null ? '' : value).trim()
+  if (raw === '') return DEFAULT_ENHANCER_VARIANT
+  const match = VALID_ENHANCER_VARIANTS.find((tier) => tier.toLowerCase() === raw.toLowerCase())
+  if (!match) {
+    throw new Error(
+      `Invalid LavaSR enhancer variant: ${raw}. Valid: ${VALID_ENHANCER_VARIANTS.join(', ')}`
+    )
+  }
+  return match
+}
+
+// GGUF descriptor for one enhancer quant tier (the enhancer analog of
+// supertonic3Gguf). The fp16 default keeps the historical `lavasr-enhancer.gguf`
+// on-disk name so pre-quant runs, examples and integration tests stay byte-stable;
+// every other tier is `lavasr-enhancer-<tier>.gguf` so tiers coexist in one
+// models/lavasr dir. The registry filename always carries the tier suffix.
+function lavasrEnhancerGguf(variant) {
+  const tier = normalizeEnhancerVariant(variant)
+  const localName =
+    tier === DEFAULT_ENHANCER_VARIANT ? 'lavasr-enhancer.gguf' : `lavasr-enhancer-${tier}.gguf`
+  return {
+    name: localName,
     ...SIZE_LAVASR_ENHANCER,
-    registryPath: `qvac_models_compiled/ggml/lavasr/${REGISTRY_DATE_LAVASR}/lavasr-enhancer-f16.gguf`,
+    registryPath: `qvac_models_compiled/ggml/lavasr/${REGISTRY_DATE_LAVASR}/lavasr-enhancer-${tier}.gguf`,
     registrySource: REGISTRY_SOURCE
   }
-]
+}
+
+// Legacy block quants the gguf-python path (requantize-gguf.py) can emit; the
+// K-quants need ggml's own quantizer (the lavasr-requantize C++ tool). fp16 /
+// fp32 come straight from the converter. Used only to print an accurate offline
+// build hint when a tier can't be fetched.
+const ENHANCER_LEGACY_BLOCK_QUANTS = ['q4_0', 'q5_0', 'q8_0']
+
+// One-line "how to build this tier offline" hint, matched to the tool that can
+// actually emit it, so a skipped quant row tells you exactly how to produce it.
+function enhancerOfflineBuildHint(variant) {
+  const tier = normalizeEnhancerVariant(variant)
+  if (tier === 'f16' || tier === 'f32') {
+    return ` scripts/convert-lavasr-enhancer-to-gguf.py --ftype ${tier}, to run offline.`
+  }
+  if (ENHANCER_LEGACY_BLOCK_QUANTS.includes(tier)) {
+    return ` scripts/requantize-gguf.py <f16.gguf> <out.gguf> ${tier}, to run offline.`
+  }
+  return ` lavasr-requantize <f16.gguf> <out.gguf> ${tier} (whisper.cpp), to run offline.`
+}
 
 // LavaSR UL-UNAS speech denoiser (benchmark `denoiser=lavasr` axis). Runs BEFORE
 // the enhancer and preserves the sample rate. Published on the QVAC registry as
@@ -1129,29 +1184,46 @@ function denoiserTag(value) {
   return denoiser === DEFAULT_DENOISER ? '' : DENOISER_LABEL_TOKEN
 }
 
+// Trailing token the enhancer QUANT tier contributes to artifact filenames and
+// matrix run labels. Empty when the enhancer is off OR the tier is the fp16
+// default, so pre-quant `lavasr` artifacts/labels stay byte-for-byte identical;
+// otherwise the canonical tier id (e.g. `q4_0`). Only meaningful next to an
+// enhancer token — a non-default tier without `enhancer=lavasr` contributes
+// nothing (the tier is inert when no enhancer runs).
+function enhancerVariantTag(enhancer, variant) {
+  if (enhancerTag(enhancer) === '') return ''
+  const tier = normalizeEnhancerVariant(variant)
+  return tier === DEFAULT_ENHANCER_VARIANT ? '' : tier
+}
+
 /**
  * Ensure the LavaSR enhancer GGUF is staged, returning its path.
  * Resolution order: $LAVASR_ENHANCER_GGUF, a locally-staged
- * models/lavasr/lavasr-enhancer.gguf (and a couple of fallbacks), then the QVAC
- * registry (TTS_ENHANCER_LAVASR_FP16 by default). Pass the returned path to
- * TTSGgml as files.lavasrEnhancer.
+ * models/lavasr/lavasr-enhancer[-<tier>].gguf (and a couple of fallbacks), then
+ * the QVAC registry. Pass the returned path to TTSGgml as files.lavasrEnhancer.
  *
  * @param {Object} [options]
  * @param {string} [options.targetDir] - preferred dir (default models/lavasr).
- * @param {string} [options.registryPath] - override the default fp16 registry
- *   path (e.g. the fp32 build); also settable via $LAVASR_ENHANCER_REGISTRY_PATH.
+ * @param {string} [options.quant] - enhancer quant tier (f16 | f32 | q8_0 | q5_0
+ *   | q4_0 | q6_K | q5_K | q4_K; default fp16). Picks both the registry tier GGUF
+ *   and the on-disk filename so tiers coexist. Ignored when options.registryPath
+ *   is set (the explicit path wins).
+ * @param {string} [options.registryPath] - override the resolved registry path
+ *   (e.g. a one-off build); also settable via $LAVASR_ENHANCER_REGISTRY_PATH.
  * @param {string} [options.registrySource] - registry source (default s3).
- * @returns {Promise<{ success: boolean, path: string|null, targetDir: string }>}
+ * @returns {Promise<{ success: boolean, path: string|null, targetDir: string, quant: string }>}
  */
 async function ensureLavaSREnhancerGguf(options = {}) {
-  const fileName = 'lavasr-enhancer.gguf'
+  const quant = normalizeEnhancerVariant(options.quant)
+  const descriptor = lavasrEnhancerGguf(quant)
+  const fileName = descriptor.name
   const baseDir = getBaseDir()
   const requestedDir = options.targetDir || path.join(baseDir, 'models', 'lavasr')
 
   const envPath = process.env && process.env.LAVASR_ENHANCER_GGUF
   if (envPath && fs.existsSync(envPath)) {
     console.log(` ✓ using LavaSR enhancer GGUF at ${envPath} (LAVASR_ENHANCER_GGUF)`)
-    return { success: true, path: envPath, targetDir: path.dirname(envPath) }
+    return { success: true, path: envPath, targetDir: path.dirname(envPath), quant }
   }
 
   const candidates = [
@@ -1161,8 +1233,8 @@ async function ensureLavaSREnhancerGguf(options = {}) {
   ]
   for (const p of candidates) {
     if (fs.existsSync(p)) {
-      console.log(` ✓ using LavaSR enhancer GGUF at ${p}`)
-      return { success: true, path: p, targetDir: path.dirname(p) }
+      console.log(` ✓ using LavaSR enhancer GGUF (${quant}) at ${p}`)
+      return { success: true, path: p, targetDir: path.dirname(p), quant }
     }
   }
 
@@ -1173,17 +1245,24 @@ async function ensureLavaSREnhancerGguf(options = {}) {
         registryPath: options.registryPath,
         registrySource: options.registrySource || REGISTRY_SOURCE
       }
-    : LAVASR_ENHANCER_GGUFS[0]
+    : descriptor
   if (typeof tryFetchGgufsFromRegistry === 'function') {
     if (await tryFetchGgufsFromRegistry([gguf], requestedDir)) {
-      return { success: true, path: path.join(requestedDir, fileName), targetDir: requestedDir }
+      return {
+        success: true,
+        path: path.join(requestedDir, fileName),
+        targetDir: requestedDir,
+        quant
+      }
     }
   }
 
-  console.log(` LavaSR enhancer GGUF could not be staged from the registry (${gguf.registryPath}).`)
-  console.log(' Set LAVASR_ENHANCER_GGUF to a local copy, or convert one with')
-  console.log(' scripts/convert-lavasr-enhancer-to-gguf.py, to run offline.')
-  return { success: false, path: null, targetDir: requestedDir }
+  console.log(
+    ` LavaSR enhancer GGUF (${quant}) could not be staged from the registry (${gguf.registryPath}).`
+  )
+  console.log(' Set LAVASR_ENHANCER_GGUF to a local copy, or build one with')
+  console.log(enhancerOfflineBuildHint(quant))
+  return { success: false, path: null, targetDir: requestedDir, quant }
 }
 
 /**
@@ -1379,12 +1458,17 @@ module.exports = {
   ensureCangjieTsv,
   ensureLavaSREnhancerGguf,
   ensureLavaSRDenoiserGguf,
+  lavasrEnhancerGguf,
   normalizeEnhancer,
   normalizeDenoiser,
+  normalizeEnhancerVariant,
   enhancerTag,
   denoiserTag,
+  enhancerVariantTag,
   VALID_ENHANCERS,
   DEFAULT_ENHANCER,
   VALID_DENOISERS,
-  DEFAULT_DENOISER
+  DEFAULT_DENOISER,
+  VALID_ENHANCER_VARIANTS,
+  DEFAULT_ENHANCER_VARIANT
 }

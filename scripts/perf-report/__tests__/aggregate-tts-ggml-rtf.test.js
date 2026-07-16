@@ -26,6 +26,7 @@ const assert = require('node:assert/strict')
 const {
   normalizeDesktopRecord,
   expandCanonicalReport,
+  dedupeRecords,
   renderMarkdown
 } = require('../aggregate-tts-ggml-rtf')
 
@@ -251,4 +252,55 @@ test('markdown table exposes the Denoiser column and the lavasr value', () => {
   const markdown = renderMarkdown([record], [])
   assert.ok(markdown.includes('| Denoiser |'), 'header carries the Denoiser column')
   assert.ok(markdown.includes('| lavasr |'), 'denoiser value rendered in the row')
+})
+
+test('desktop record defaults enhancerVariant to fp16 and surfaces model.enhancerVariant', () => {
+  const def = normalizeDesktopRecord(desktopReport(true), 'rtf-benchmark-linux-x64-chatterbox-q4-gpu.json')
+  assert.equal(def.enhancerVariant, 'f16')
+
+  const report = desktopReport(true)
+  report.model.enhancer = 'lavasr'
+  report.model.enhancerVariant = 'q4_0'
+  const record = normalizeDesktopRecord(report, 'rtf-benchmark-linux-x64-chatterbox-q4-gpu-lavasr-q4_0.json')
+  assert.equal(record.enhancerVariant, 'q4_0')
+})
+
+test('mobile canonical report carries the record-level enhancerVariant (default fp16)', () => {
+  const def = expandCanonicalReport(mobileCanonicalReport(), '/x/Apple_iPhone_16_Pro/performance-report.json')
+  assert.equal(def.records[0].enhancerVariant, 'f16')
+
+  const report = mobileCanonicalReport()
+  report.results[0].test = '[GPU] chatterbox q4 metal lavasr'
+  report.results[0].enhancerVariant = 'q5_K'
+  const { records } = expandCanonicalReport(report, '/x/Apple_iPhone_16_Pro/performance-report.json')
+  assert.equal(records[0].enhancer, 'lavasr')
+  assert.equal(records[0].enhancerVariant, 'q5_K')
+})
+
+test('markdown renders the fp16 enhancer as plain lavasr (byte-stable) and a quant tier as lavasr/<tier>', () => {
+  const fp16 = desktopReport(true)
+  fp16.model.enhancer = 'lavasr'
+  const fp16Record = normalizeDesktopRecord(fp16, 'rtf-benchmark-linux-x64-chatterbox-q4-gpu-lavasr.json')
+  assert.ok(renderMarkdown([fp16Record], []).includes('| lavasr |'), 'fp16 stays plain lavasr')
+
+  const quant = desktopReport(true)
+  quant.model.enhancer = 'lavasr'
+  quant.model.enhancerVariant = 'q4_0'
+  const quantRecord = normalizeDesktopRecord(quant, 'rtf-benchmark-linux-x64-chatterbox-q4-gpu-lavasr-q4_0.json')
+  const markdown = renderMarkdown([quantRecord], [])
+  assert.ok(markdown.includes('| lavasr/q4_0 |'), 'a non-fp16 tier renders as lavasr/<tier>')
+})
+
+test('dedupeRecords keeps rows that differ only by enhancer quant tier as separate rows', () => {
+  function lavasrRecord (enhancerVariant) {
+    const report = desktopReport(true)
+    report.model.enhancer = 'lavasr'
+    report.model.enhancerVariant = enhancerVariant
+    return normalizeDesktopRecord(report, `rtf-benchmark-linux-x64-chatterbox-q4-gpu-lavasr-${enhancerVariant}.json`)
+  }
+
+  const deduped = dedupeRecords([lavasrRecord('f16'), lavasrRecord('q4_0'), lavasrRecord('q4_0')])
+  assert.equal(deduped.length, 2, 'f16 and q4_0 survive; the duplicate q4_0 collapses')
+  const tiers = deduped.map((r) => r.enhancerVariant).sort()
+  assert.deepEqual(tiers, ['f16', 'q4_0'])
 })

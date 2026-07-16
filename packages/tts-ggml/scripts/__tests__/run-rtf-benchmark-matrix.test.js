@@ -20,7 +20,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { buildLabel } = require('../run-rtf-benchmark-matrix')
+const { buildLabel, buildEnv } = require('../run-rtf-benchmark-matrix')
 
 test('buildLabel omits the enhancer tag for the default (enhancer=none)', () => {
   assert.equal(buildLabel({ engine: 'supertonic', useGPU: true }, 0), '1-supertonic-gpu')
@@ -73,10 +73,61 @@ test('buildLabel keeps enhancer and denoiser tokens distinct and ordered when bo
   )
 })
 
+test('buildLabel omits the enhancer quant tier tag for the fp16 default', () => {
+  assert.equal(
+    buildLabel({ engine: 'supertonic', enhancer: 'lavasr', enhancerVariant: 'f16', useGPU: false }, 0),
+    '1-supertonic-lavasr-cpu'
+  )
+})
+
+test('buildLabel inserts the quant tier tag after -lavasr for a non-default tier', () => {
+  assert.equal(
+    buildLabel({ engine: 'supertonic', enhancer: 'lavasr', enhancerVariant: 'q4_0', useGPU: false }, 0),
+    '1-supertonic-lavasr-q4_0-cpu'
+  )
+  assert.equal(
+    buildLabel({ engine: 'supertonic', enhancer: 'lavasr', enhancerVariant: 'q5_K', useGPU: true }, 2),
+    '3-supertonic-lavasr-q5_K-gpu'
+  )
+})
+
+test('buildLabel ignores the quant tier when the enhancer is off (tier inert)', () => {
+  assert.equal(
+    buildLabel({ engine: 'supertonic', enhancer: 'none', enhancerVariant: 'q4_0', useGPU: false }, 0),
+    '1-supertonic-cpu'
+  )
+})
+
+test('buildLabel orders enhancer, tier and denoise tokens when all are on', () => {
+  assert.equal(
+    buildLabel(
+      { engine: 'supertonic', enhancer: 'lavasr', enhancerVariant: 'q4_0', denoiser: 'lavasr', useGPU: true },
+      0
+    ),
+    '1-supertonic-lavasr-q4_0-denoise-gpu'
+  )
+})
+
 test('buildLabel honours an explicit label verbatim', () => {
   assert.equal(buildLabel({ label: 'custom-label', enhancer: 'lavasr' }, 4), 'custom-label')
 })
 
 test('buildLabel falls back to the tts engine name when none is given', () => {
   assert.equal(buildLabel({ useGPU: false }, 0), '1-tts-cpu')
+})
+
+test('buildEnv forwards the enhancer quant tier, defaulting to fp16', () => {
+  const savedTier = process.env.QVAC_TTS_GGML_BENCHMARK_ENHANCER_VARIANT
+  delete process.env.QVAC_TTS_GGML_BENCHMARK_ENHANCER_VARIANT
+  try {
+    const withTier = buildEnv({ engine: 'supertonic', enhancer: 'lavasr', enhancerVariant: 'q4_0' }, 0)
+    assert.equal(withTier.QVAC_TTS_GGML_BENCHMARK_ENHANCER_VARIANT, 'q4_0')
+    assert.equal(withTier.QVAC_TTS_GGML_BENCHMARK_ENHANCER, 'lavasr')
+
+    const withoutTier = buildEnv({ engine: 'supertonic', enhancer: 'lavasr' }, 0)
+    assert.equal(withoutTier.QVAC_TTS_GGML_BENCHMARK_ENHANCER_VARIANT, 'f16')
+  } finally {
+    if (savedTier === undefined) delete process.env.QVAC_TTS_GGML_BENCHMARK_ENHANCER_VARIANT
+    else process.env.QVAC_TTS_GGML_BENCHMARK_ENHANCER_VARIANT = savedTier
+  }
 })

@@ -73,8 +73,10 @@ const {
   ensureLavaSRDenoiserGguf,
   normalizeEnhancer,
   normalizeDenoiser,
+  normalizeEnhancerVariant,
   enhancerTag,
-  denoiserTag
+  denoiserTag,
+  enhancerVariantTag
 } = require('../utils/downloadModel')
 const {
   readRssBytes,
@@ -144,6 +146,7 @@ function buildCanonicalReport(settings, summary, backend) {
   const engine = settings.engine
   const variant = settings.variant
   const enhancer = settings.enhancer || 'none'
+  const enhancerVariant = settings.enhancerVariant || 'f16'
   const denoiser = settings.denoiser || 'none'
   // Append the enhancer / denoiser tokens only when enabled so existing 5-token
   // labels (`[CPU] engine variant backend`) parse unchanged in the aggregator.
@@ -176,6 +179,7 @@ function buildCanonicalReport(settings, summary, backend) {
         test: testLabel,
         execution_provider: ep,
         enhancer,
+        enhancerVariant,
         denoiser,
         metrics: {
           real_time_factor: typeof rtf.mean === 'number' ? rtf.mean : null,
@@ -241,6 +245,10 @@ function getSettings() {
 
   const enhancer = normalizeEnhancer(getEnv('QVAC_TTS_GGML_BENCHMARK_ENHANCER'))
   const denoiser = normalizeDenoiser(getEnv('QVAC_TTS_GGML_BENCHMARK_DENOISER'))
+  // Enhancer quant tier (f16 default | f32 | q8_0 | q5_0 | q4_0 | q6_K | q5_K |
+  // q4_K). Only meaningful when enhancer=lavasr; picks which enhancer GGUF the
+  // registry fetch resolves. Validated here so a typo fails loudly.
+  const enhancerVariant = normalizeEnhancerVariant(getEnv('QVAC_TTS_GGML_BENCHMARK_ENHANCER_VARIANT'))
 
   const numThreadsRaw = getEnv('QVAC_TTS_GGML_BENCHMARK_NUM_THREADS') || ''
   const numThreadsParsed = Number.parseInt(numThreadsRaw, 10)
@@ -252,9 +260,9 @@ function getSettings() {
     variant,
     enhancer,
     denoiser,
-    // Optional registry-path override (e.g. to pull the fp32 enhancer instead
-    // of the default fp16 TTS_ENHANCER_LAVASR_FP16); empty uses the baked-in
-    // default in ensureLavaSREnhancerGguf.
+    enhancerVariant,
+    // Optional registry-path override (e.g. to pull a one-off enhancer build);
+    // empty uses the tier resolved from enhancerVariant in ensureLavaSREnhancerGguf.
     enhancerRegistryPath: getEnv('LAVASR_ENHANCER_REGISTRY_PATH') || '',
     enhancerRegistrySource: getEnv('LAVASR_ENHANCER_REGISTRY_SOURCE') || '',
     // Same override for the denoiser leg (e.g. the fp32 build); empty uses the
@@ -308,6 +316,10 @@ function getArtifactFileName(settings) {
   // (enhancer=none, denoiser=none) artifact names stay byte-for-byte stable.
   const enhancerToken = enhancerTag(settings.enhancer)
   if (enhancerToken) parts.push(enhancerToken)
+  // A non-default enhancer quant tier (e.g. q4_0) follows the `lavasr` token so
+  // per-tier artifacts don't overwrite each other; fp16 adds nothing (byte-stable).
+  const enhancerVariantToken = enhancerVariantTag(settings.enhancer, settings.enhancerVariant)
+  if (enhancerVariantToken) parts.push(enhancerVariantToken)
   const denoiserToken = denoiserTag(settings.denoiser)
   if (denoiserToken) parts.push(denoiserToken)
   if (settings.label) parts.push(settings.label)
@@ -433,7 +445,7 @@ function getBaseDir() {
 // benchmark goes green-with-skip instead of failing the matrix leg.
 async function resolveEnhancer(settings, baseDir) {
   if (settings.enhancer !== 'lavasr') return { path: null }
-  const options = { targetDir: path.join(baseDir, 'models', 'lavasr') }
+  const options = { targetDir: path.join(baseDir, 'models', 'lavasr'), quant: settings.enhancerVariant }
   if (settings.enhancerRegistryPath) {
     options.registryPath = settings.enhancerRegistryPath
     if (settings.enhancerRegistrySource) options.registrySource = settings.enhancerRegistrySource
@@ -443,8 +455,8 @@ async function resolveEnhancer(settings, baseDir) {
     return {
       skip: true,
       skipReason:
-        'LavaSR enhancer GGUF could not be resolved from the registry ' +
-        '(set LAVASR_ENHANCER_GGUF to a local copy to run offline)'
+        `LavaSR enhancer GGUF (${settings.enhancerVariant}) could not be resolved from the ` +
+        'registry (set LAVASR_ENHANCER_GGUF to a local copy to run offline)'
     }
   }
   return { path: enh.path }
@@ -616,7 +628,9 @@ test('RTF benchmark: GGML TTS on CI device', { timeout: 1800000 }, async (t) => 
   console.log(`  Platform:       ${platformArch}`)
   console.log(`  Engine:         ${settings.engine}`)
   console.log(`  Variant:        ${settings.variant}`)
-  console.log(`  Enhancer:       ${settings.enhancer}`)
+  console.log(
+    `  Enhancer:       ${settings.enhancer}${settings.enhancer === 'lavasr' ? ` (${settings.enhancerVariant})` : ''}`
+  )
   console.log(`  Denoiser:       ${settings.denoiser}`)
   console.log(`  GPU requested:  ${settings.useGPU}`)
   console.log(`  Backend:        ${backend}`)
@@ -843,6 +857,7 @@ test('RTF benchmark: GGML TTS on CI device', { timeout: 1800000 }, async (t) => 
         type: settings.engine,
         variant: settings.variant,
         enhancer: settings.enhancer,
+        enhancerVariant: settings.enhancerVariant,
         denoiser: settings.denoiser,
         sizeBytes: modelSizeBytes
       },
@@ -862,6 +877,7 @@ test('RTF benchmark: GGML TTS on CI device', { timeout: 1800000 }, async (t) => 
         useGPU: settings.useGPU,
         variant: settings.variant,
         enhancer: settings.enhancer,
+        enhancerVariant: settings.enhancerVariant,
         denoiser: settings.denoiser,
         modelLoadMs: loadMs,
         numThreads: settings.numThreads !== undefined ? settings.numThreads : null
@@ -870,6 +886,7 @@ test('RTF benchmark: GGML TTS on CI device', { timeout: 1800000 }, async (t) => 
         engine: settings.engine,
         variant: settings.variant,
         enhancer: settings.enhancer,
+        enhancerVariant: settings.enhancerVariant,
         denoiser: settings.denoiser,
         useGPU: settings.useGPU,
         backendHint: settings.backendHint,

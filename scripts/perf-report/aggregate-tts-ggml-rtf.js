@@ -25,6 +25,7 @@ const path = require('path')
 const SUPPORTED_GPU_BACKENDS = ['vulkan', 'metal', 'opencl']
 const VALID_ENGINES = ['chatterbox', 'chatterbox-mtl', 'supertonic', 'supertonic-mtl', 'supertonic3']
 const NOISY_STDDEV_RATIO = 0.15
+const DEFAULT_ENHANCER_VARIANT = 'f16'
 
 function parseArgs (argv) {
   const args = {
@@ -189,12 +190,17 @@ function expandCanonicalReport (report, sourceFile) {
       parsed.enhancer !== 'none' ? parsed.enhancer : result.enhancer || 'none'
     const denoiser =
       parsed.denoiser !== 'none' ? parsed.denoiser : result.denoiser || 'none'
+    // The quant tier isn't in the canonical label (it stays byte-stable at
+    // `lavasr`); read it from the record-level field the benchmark now emits,
+    // defaulting to fp16 for legacy markers that predate the enhancer quant axis.
+    const enhancerVariant = result.enhancerVariant || DEFAULT_ENHANCER_VARIANT
     if (parsed.streaming) {
       streaming.push(normalizeStreamingRecord({
         engine: parsed.engine,
         modelType: parsed.engine,
         variant: parsed.variant,
         enhancer,
+        enhancerVariant,
         denoiser,
         platform,
         platformName: platformFamily,
@@ -216,6 +222,7 @@ function expandCanonicalReport (report, sourceFile) {
         modelType: parsed.engine,
         variant: parsed.variant,
         enhancer,
+        enhancerVariant,
         denoiser,
         platform,
         platformName: platformFamily,
@@ -306,6 +313,7 @@ function normalizeDesktopRecord (report, sourceFile) {
     engine: report.engine || 'unknown',
     variant: (report.model && report.model.variant) || (report.requested && report.requested.variant) || 'q4',
     enhancer: (report.model && report.model.enhancer) || (report.requested && report.requested.enhancer) || (report.config && report.config.enhancer) || 'none',
+    enhancerVariant: (report.model && report.model.enhancerVariant) || (report.requested && report.requested.enhancerVariant) || (report.config && report.config.enhancerVariant) || DEFAULT_ENHANCER_VARIANT,
     denoiser: (report.model && report.model.denoiser) || (report.requested && report.requested.denoiser) || (report.config && report.config.denoiser) || 'none',
     gpu: useGPU ? 'gpu' : 'cpu',
     backend,
@@ -349,6 +357,7 @@ function normalizeMobileRecord (record, sourceFile) {
     engine: record.engine || record.modelType || 'unknown',
     variant: record.variant || 'q4',
     enhancer: record.enhancer || 'none',
+    enhancerVariant: record.enhancerVariant || DEFAULT_ENHANCER_VARIANT,
     denoiser: record.denoiser || 'none',
     gpu: useGPU ? 'gpu' : 'cpu',
     backend,
@@ -386,6 +395,7 @@ function normalizeManualRecord (record, sourceFile) {
     engine: record.engine || record.model || 'unknown',
     variant: record.variant || 'q4',
     enhancer: record.enhancer || 'none',
+    enhancerVariant: record.enhancerVariant || DEFAULT_ENHANCER_VARIANT,
     denoiser: record.denoiser || 'none',
     gpu: useGPU ? 'gpu' : 'cpu',
     backend: normalizeBackend(platformFamily, useGPU, record.backend),
@@ -430,6 +440,7 @@ function normalizeStreamingRecord (report, sourceFile, source) {
     engine: report.engine || report.modelType || 'unknown',
     variant: (report.model && report.model.variant) || report.variant || 'q4',
     enhancer: (report.model && report.model.enhancer) || report.enhancer || 'none',
+    enhancerVariant: (report.model && report.model.enhancerVariant) || report.enhancerVariant || DEFAULT_ENHANCER_VARIANT,
     denoiser: (report.model && report.model.denoiser) || report.denoiser || 'none',
     gpu: useGPU ? 'gpu' : 'cpu',
     backend,
@@ -534,6 +545,7 @@ function dedupeRecords (records) {
       record.engine,
       record.variant,
       record.enhancer || 'none',
+      record.enhancerVariant || DEFAULT_ENHANCER_VARIANT,
       record.denoiser || 'none',
       record.gpu,
       record.backend,
@@ -582,6 +594,14 @@ function formatModelSize (mb) {
   return mb.toFixed(1)
 }
 
+function formatEnhancerCell (enhancer, enhancerVariant) {
+  const name = enhancer || 'none'
+  if (name === 'none') return name
+  const variant = enhancerVariant || DEFAULT_ENHANCER_VARIANT
+  if (variant === DEFAULT_ENHANCER_VARIANT) return name
+  return `${name}/${variant}`
+}
+
 function renderMarkdown (records, streamingRecords) {
   const lines = []
   const gpuCoverage = new Set(
@@ -606,7 +626,7 @@ function renderMarkdown (records, streamingRecords) {
       r.platform,
       r.engine,
       r.variant,
-      r.enhancer || 'none',
+      formatEnhancerCell(r.enhancer, r.enhancerVariant),
       r.denoiser || 'none',
       r.gpu,
       r.backend,
@@ -643,7 +663,7 @@ function renderMarkdown (records, streamingRecords) {
         r.platform,
         r.engine,
         r.variant,
-        r.enhancer || 'none',
+        formatEnhancerCell(r.enhancer, r.enhancerVariant),
         r.denoiser || 'none',
         r.gpu,
         r.backend,
@@ -718,5 +738,6 @@ module.exports = {
   normalizeStreamingRecord,
   expandCanonicalReport,
   memoryFromSummary,
+  dedupeRecords,
   renderMarkdown
 }

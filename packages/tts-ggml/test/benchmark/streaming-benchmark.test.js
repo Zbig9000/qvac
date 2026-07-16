@@ -60,8 +60,10 @@ const {
   ensureLavaSRDenoiserGguf,
   normalizeEnhancer,
   normalizeDenoiser,
+  normalizeEnhancerVariant,
   enhancerTag,
-  denoiserTag
+  denoiserTag,
+  enhancerVariantTag
 } = require('../utils/downloadModel')
 
 const VALID_ENGINES = [
@@ -89,6 +91,7 @@ function buildCanonicalStreamingReport(settings, summary, backend) {
   const useGPU = !!settings.useGPU
   const ep = useGPU ? 'gpu' : 'cpu'
   const enhancer = settings.enhancer || 'none'
+  const enhancerVariant = settings.enhancerVariant || 'f16'
   const denoiser = settings.denoiser || 'none'
   // Append the enhancer / denoiser tokens only when enabled so existing streaming
   // labels (`[CPU] streaming engine variant backend`) parse unchanged in the
@@ -119,6 +122,7 @@ function buildCanonicalStreamingReport(settings, summary, backend) {
         test: testLabel,
         execution_provider: ep,
         enhancer,
+        enhancerVariant,
         denoiser,
         metrics: {
           ttfa_ms: typeof ttfa.mean === 'number' ? Math.round(ttfa.mean) : null,
@@ -210,6 +214,7 @@ function getSettings() {
 
   const enhancer = normalizeEnhancer(getEnv('QVAC_TTS_GGML_BENCHMARK_ENHANCER'))
   const denoiser = normalizeDenoiser(getEnv('QVAC_TTS_GGML_BENCHMARK_DENOISER'))
+  const enhancerVariant = normalizeEnhancerVariant(getEnv('QVAC_TTS_GGML_BENCHMARK_ENHANCER_VARIANT'))
 
   const numThreadsRaw = getEnv('QVAC_TTS_GGML_BENCHMARK_NUM_THREADS') || ''
   const numThreadsParsed = Number.parseInt(numThreadsRaw, 10)
@@ -221,6 +226,7 @@ function getSettings() {
     variant,
     enhancer,
     denoiser,
+    enhancerVariant,
     enhancerRegistryPath: getEnv('LAVASR_ENHANCER_REGISTRY_PATH') || '',
     enhancerRegistrySource: getEnv('LAVASR_ENHANCER_REGISTRY_SOURCE') || '',
     denoiserRegistryPath: getEnv('LAVASR_DENOISER_REGISTRY_PATH') || '',
@@ -267,6 +273,10 @@ function getArtifactFileName(settings) {
   // (enhancer=none, denoiser=none) artifact names stay byte-for-byte stable.
   const enhancerToken = enhancerTag(settings.enhancer)
   if (enhancerToken) parts.push(enhancerToken)
+  // A non-default enhancer quant tier (e.g. q4_0) follows the `lavasr` token so
+  // per-tier artifacts don't overwrite each other; fp16 adds nothing (byte-stable).
+  const enhancerVariantToken = enhancerVariantTag(settings.enhancer, settings.enhancerVariant)
+  if (enhancerVariantToken) parts.push(enhancerVariantToken)
   const denoiserToken = denoiserTag(settings.denoiser)
   if (denoiserToken) parts.push(denoiserToken)
   if (settings.label) parts.push(settings.label)
@@ -288,7 +298,7 @@ function isMultilingualEngine(engine) {
 // enhancer goes green-with-skip rather than failing).
 async function resolveEnhancer(settings, baseDir) {
   if (settings.enhancer !== 'lavasr') return { path: null }
-  const options = { targetDir: path.join(baseDir, 'models', 'lavasr') }
+  const options = { targetDir: path.join(baseDir, 'models', 'lavasr'), quant: settings.enhancerVariant }
   if (settings.enhancerRegistryPath) {
     options.registryPath = settings.enhancerRegistryPath
     if (settings.enhancerRegistrySource) options.registrySource = settings.enhancerRegistrySource
@@ -298,8 +308,8 @@ async function resolveEnhancer(settings, baseDir) {
     return {
       skip: true,
       skipReason:
-        'LavaSR enhancer GGUF could not be resolved from the registry ' +
-        '(set LAVASR_ENHANCER_GGUF to a local copy to run offline)'
+        `LavaSR enhancer GGUF (${settings.enhancerVariant}) could not be resolved from the ` +
+        'registry (set LAVASR_ENHANCER_GGUF to a local copy to run offline)'
     }
   }
   return { path: enh.path }
@@ -494,7 +504,9 @@ test(
     console.log(`  Platform:       ${platformArch}`)
     console.log(`  Engine:         ${settings.engine}`)
     console.log(`  Variant:        ${settings.variant}`)
-    console.log(`  Enhancer:       ${settings.enhancer}`)
+    console.log(
+      `  Enhancer:       ${settings.enhancer}${settings.enhancer === 'lavasr' ? ` (${settings.enhancerVariant})` : ''}`
+    )
     console.log(`  Denoiser:       ${settings.denoiser}`)
     console.log(`  GPU requested:  ${settings.useGPU}`)
     console.log(`  Backend:        ${backend}`)
@@ -604,6 +616,7 @@ test(
           type: settings.engine,
           variant: settings.variant,
           enhancer: settings.enhancer,
+          enhancerVariant: settings.enhancerVariant,
           denoiser: settings.denoiser
         },
         labels: {
@@ -619,6 +632,7 @@ test(
           useGPU: settings.useGPU,
           variant: settings.variant,
           enhancer: settings.enhancer,
+          enhancerVariant: settings.enhancerVariant,
           denoiser: settings.denoiser,
           modelLoadMs: loadMs,
           numThreads: settings.numThreads !== undefined ? settings.numThreads : null
@@ -627,6 +641,7 @@ test(
           engine: settings.engine,
           variant: settings.variant,
           enhancer: settings.enhancer,
+          enhancerVariant: settings.enhancerVariant,
           denoiser: settings.denoiser,
           useGPU: settings.useGPU,
           backendHint: settings.backendHint,

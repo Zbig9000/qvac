@@ -155,12 +155,15 @@ jobs:
           ENGINE: ${{ matrix.engine || 'chatterbox' }}
           USE_GPU: ${{ matrix.use_gpu && '1' || '0' }}
           GPU_TAG: ${{ matrix.use_gpu && 'gpu' || 'cpu' }}
-          # Enhancer / denoiser axes (none|lavasr). Default to none for the
-          # existing rows. Mobile pushes pre-staged model files (it does not fetch
-          # from the registry on-device), so a `lavasr` row needs the matching
-          # GGUF added to the mobile model manifest before it can collect numbers
-          # on device; until then these are threaded through but inert.
+          # Enhancer / denoiser axes (none|lavasr) plus the enhancer quant tier
+          # (f16 default | f32 | q8_0 | q5_0 | q4_0 | q6_K | q5_K | q4_K). Default
+          # to none/f16 for the existing rows. Mobile pushes pre-staged model files
+          # (it does not fetch from the registry on-device), so a `lavasr` row needs
+          # the matching GGUF added to the mobile model manifest before it can
+          # collect numbers on device; until then these are threaded through but
+          # inert.
           ENHANCER: ${{ matrix.enhancer || 'none' }}
+          ENHANCER_VARIANT: ${{ matrix.enhancer_variant || 'f16' }}
           DENOISER: ${{ matrix.denoiser || 'none' }}
         run: |
           echo "Injecting QVAC_TTS_GGML_RUN_BENCHMARK_ON_MOBILE=1 into mobile runtime"
@@ -176,6 +179,7 @@ jobs:
             if (key === 'QVAC_TTS_GGML_BENCHMARK_ENGINE') return '$ENGINE'
             if (key === 'QVAC_TTS_GGML_BENCHMARK_USE_GPU') return '$USE_GPU'
             if (key === 'QVAC_TTS_GGML_BENCHMARK_ENHANCER') return '$ENHANCER'
+            if (key === 'QVAC_TTS_GGML_BENCHMARK_ENHANCER_VARIANT') return '$ENHANCER_VARIANT'
             if (key === 'QVAC_TTS_GGML_BENCHMARK_DENOISER') return '$DENOISER'
             return originalGetEnv ? originalGetEnv.call(this, key) : undefined
           }

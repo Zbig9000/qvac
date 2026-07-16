@@ -11,6 +11,8 @@
  *     "engine": "chatterbox" | "chatterbox-mtl" | "supertonic" | "supertonic-mtl",
  *     "variant": "q4" | "q8" | "f16" | "mixed",              (optional, default q4)
  *     "enhancer": "none" | "lavasr",                         (optional, default none)
+ *     "enhancerVariant": "f16" | "f32" | "q8_0" | "q5_0" | "q4_0" | "q6_K" | "q5_K" | "q4_K",
+ *                                                            (optional, default f16; enhancer quant tier)
  *     "denoiser": "none" | "lavasr",                         (optional, default none)
  *     "useGPU": true | false,
  *     "backendHint": "cpu" | "metal" | "vulkan" | "opencl",  (optional)
@@ -88,18 +90,26 @@ function normalizeBoolean (value) {
 // Distinct tokens (`lavasr` for the enhancer, `denoise` for the denoiser) keep
 // the two LavaSR axes unambiguous in default labels; they mirror enhancerTag /
 // denoiserTag in test/utils/downloadModel.js (kept local because that module is
-// Bare-only and cannot be required from this Node script).
+// Bare-only and cannot be required from this Node script). The enhancer quant
+// tier follows the `lavasr` token (empty for the fp16 default), mirroring
+// enhancerVariantTag, so per-tier matrix rows get distinct labels/artifacts.
 const ENHANCER_LABEL_TOKEN = 'lavasr'
 const DENOISER_LABEL_TOKEN = 'denoise'
+const DEFAULT_ENHANCER_VARIANT = 'f16'
 
 function buildLabel (entry, index) {
   if (entry.label) return String(entry.label)
   const gpuTag = normalizeBoolean(entry.useGPU) ? 'gpu' : 'cpu'
   const enhancer = String(entry.enhancer || 'none').toLowerCase()
   const enhancerTag = enhancer !== 'none' ? `-${ENHANCER_LABEL_TOKEN}` : ''
+  const enhancerVariant = String(entry.enhancerVariant || DEFAULT_ENHANCER_VARIANT)
+  const enhancerVariantTag =
+    enhancer !== 'none' && enhancerVariant.toLowerCase() !== DEFAULT_ENHANCER_VARIANT
+      ? `-${enhancerVariant}`
+      : ''
   const denoiser = String(entry.denoiser || 'none').toLowerCase()
   const denoiserTag = denoiser !== 'none' ? `-${DENOISER_LABEL_TOKEN}` : ''
-  return `${index + 1}-${entry.engine || 'tts'}${enhancerTag}${denoiserTag}-${gpuTag}`
+  return `${index + 1}-${entry.engine || 'tts'}${enhancerTag}${enhancerVariantTag}${denoiserTag}-${gpuTag}`
 }
 
 function buildEnv (entry, index) {
@@ -109,6 +119,7 @@ function buildEnv (entry, index) {
     QVAC_TTS_GGML_BENCHMARK_ENGINE: String(entry.engine || 'chatterbox'),
     QVAC_TTS_GGML_BENCHMARK_VARIANT: String(entry.variant || process.env.QVAC_TTS_GGML_BENCHMARK_VARIANT || 'q4'),
     QVAC_TTS_GGML_BENCHMARK_ENHANCER: String(entry.enhancer || process.env.QVAC_TTS_GGML_BENCHMARK_ENHANCER || 'none'),
+    QVAC_TTS_GGML_BENCHMARK_ENHANCER_VARIANT: String(entry.enhancerVariant || process.env.QVAC_TTS_GGML_BENCHMARK_ENHANCER_VARIANT || 'f16'),
     QVAC_TTS_GGML_BENCHMARK_DENOISER: String(entry.denoiser || process.env.QVAC_TTS_GGML_BENCHMARK_DENOISER || 'none'),
     QVAC_TTS_GGML_BENCHMARK_USE_GPU: normalizeBoolean(entry.useGPU) ? 'true' : 'false',
     QVAC_TTS_GGML_BENCHMARK_LABEL: label,
@@ -168,6 +179,7 @@ function runEntry (pkgDir, entry, index, matrixLen) {
   console.log(`  engine:     ${env.QVAC_TTS_GGML_BENCHMARK_ENGINE}`)
   console.log(`  variant:    ${env.QVAC_TTS_GGML_BENCHMARK_VARIANT}`)
   console.log(`  enhancer:   ${env.QVAC_TTS_GGML_BENCHMARK_ENHANCER}`)
+  console.log(`  enhancerVariant: ${env.QVAC_TTS_GGML_BENCHMARK_ENHANCER_VARIANT}`)
   console.log(`  denoiser:   ${env.QVAC_TTS_GGML_BENCHMARK_DENOISER}`)
   console.log(`  useGPU:     ${env.QVAC_TTS_GGML_BENCHMARK_USE_GPU}`)
   console.log(`  backend:    ${env.QVAC_TTS_GGML_BENCHMARK_BACKEND || 'default'}`)
