@@ -410,8 +410,10 @@ class TranscriptionParakeet {
    * ggml backend family, and the human-readable GPU name (e.g. "NVIDIA GeForce
    * RTX 3090"). The name is recovered from the addon's ggml device registry,
    * so it works on CI runners where nvidia-smi / procfs are unavailable.
+   * `encoderBackend` is "coreml" when the FastConformer encoder runs on the
+   * Apple Neural Engine sidecar (else it mirrors `backendName`).
    * `null` before load / after unload.
-   * @returns {{ backendDevice: string, backendId: number, backendName: string, backendDescription: string }|null}
+   * @returns {{ backendDevice: string, backendId: number, backendName: string, backendDescription: string, encoderBackend: string, encoderOnCoreml: boolean }|null}
    */
   getBackendInfo() {
     return this.addon?.getBackendInfo?.() ?? null

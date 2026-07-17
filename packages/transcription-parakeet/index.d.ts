@@ -389,6 +389,13 @@ declare namespace TranscriptionParakeet {
      * is expected, not a regression.
      */
     gpuUnsupported: number
+    /**
+     * 1 when the FastConformer encoder ran on the Apple Neural Engine (Core ML)
+     * sidecar instead of the ggml backend; 0 otherwise. Always 0 off Apple and
+     * whenever the sidecar is absent or failed to initialise (ggml-Metal
+     * fallback). The TDT/CTC decoder always runs on the ggml backend.
+     */
+    encoderOnCoreml: number
   }
 
   /**
@@ -408,6 +415,15 @@ declare namespace TranscriptionParakeet {
     backendName: string
     /** Human-readable device description (e.g. `'NVIDIA GeForce RTX 3090'`); empty when CPU or unavailable. */
     backendDescription: string
+    /**
+     * FastConformer encoder compute backend. `'coreml'` when the Apple Neural
+     * Engine (Core ML) sidecar drives the encoder; otherwise identical to
+     * `backendName`. The TDT/CTC decoder always runs on the `backendName`
+     * ggml backend. Always mirrors `backendName` off Apple.
+     */
+    encoderBackend: string
+    /** `true` when the encoder ran on the Apple Neural Engine (Core ML) sidecar; `false` on the ggml backend. Always `false` off Apple. */
+    encoderOnCoreml: boolean
   }
 
   /**

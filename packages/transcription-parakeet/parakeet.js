@@ -245,8 +245,10 @@ class ParakeetInterface {
    * family, and the human-readable GPU name (e.g. "NVIDIA GeForce RTX 3090")
    * recovered from the ggml device registry. The name is the
    * nvidia-smi-independent fallback the perf reporter uses on CI runners.
+   * `encoderBackend` is "coreml" when the FastConformer encoder runs on the
+   * Apple Neural Engine sidecar (else it mirrors `backendName`).
    * Returns `null` before the instance exists / after destroy.
-   * @returns {{ backendDevice: string, backendId: number, backendName: string, backendDescription: string }|null}
+   * @returns {{ backendDevice: string, backendId: number, backendName: string, backendDescription: string, encoderBackend: string, encoderOnCoreml: boolean }|null}
    */
   getBackendInfo() {
     if (this._handle == null) return null

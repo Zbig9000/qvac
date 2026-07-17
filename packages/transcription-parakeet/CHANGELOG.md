@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Apple-only Core ML (Neural Engine) acceleration for the FastConformer encoder. When a macOS/iOS prebuild is built with the `coreml` feature and a `<model>-encoder.mlmodelc` sits next to the GGUF, the encoder runs on the Apple Neural Engine while mel preprocessing, TDT/CTC decode, and the tokenizer stay on ggml; a missing/incompatible `.mlmodelc` silently falls back to the ggml-Metal encoder. Selection is presence-driven, so non-Apple platforms and Apple bundles without the `.mlmodelc` are unchanged. `getBackendInfo()` now also reports `encoderBackend` (`'coreml'` when the sidecar is active, else mirrors `backendName`) and `encoderOnCoreml`, and `RuntimeStats` gains `encoderOnCoreml` (0/1).
+
 ### Changed
 
 - Desktop linux-arm64 prebuilds now ship per-arch ggml CPU variants (`parakeet-cpp` >= 2026-07-13#1, pulling `ggml-speech` 2026-07-14): the previous armv8-a-baseline build compiled out the ARM dotprod/fp16/i8mm kernels, leaving quantized models slow (tdt q4_0 mean RTF 0.2285 -> 0.0612 on ubuntu-24.04-arm; q4_0 now beats q8_0 like on every other desktop platform).
