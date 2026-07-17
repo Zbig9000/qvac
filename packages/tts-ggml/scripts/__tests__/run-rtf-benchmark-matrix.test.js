@@ -91,6 +91,17 @@ test('buildLabel inserts the quant tier tag after -lavasr for a non-default tier
   )
 })
 
+test('buildLabel lowercases the quant tier so it matches the benchmark enhancerVariantTag', () => {
+  assert.equal(
+    buildLabel({ engine: 'supertonic', enhancer: 'lavasr', enhancerVariant: 'Q8_0', useGPU: false }, 0),
+    '1-supertonic-lavasr-q8_0-cpu'
+  )
+  assert.equal(
+    buildLabel({ engine: 'supertonic', enhancer: 'lavasr', enhancerVariant: 'F32', useGPU: true }, 2),
+    '3-supertonic-lavasr-f32-gpu'
+  )
+})
+
 test('buildLabel ignores the quant tier when the enhancer is off (tier inert)', () => {
   assert.equal(
     buildLabel({ engine: 'supertonic', enhancer: 'none', enhancerVariant: 'q8_0', useGPU: false }, 0),

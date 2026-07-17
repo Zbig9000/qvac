@@ -564,12 +564,25 @@ const REGISTRY_DATE_LAVASR = '2026-06-26'
 const SIZE_LAVASR_ENHANCER = { minSize: 4_000_000, maxSize: 80_000_000 }
 
 // Single source of truth for the enhancer quant tiers. fp16 / fp32 are published
-// today; the q8_0 tier resolves once its GGUF is uploaded (a `lavasr` benchmark
-// row soft-skips until its tier GGUF is fetchable). Shared by
+// today; the q8_0 tier resolves once its GGUF is uploaded. Shared by
 // normalizeEnhancerVariant + lavasrEnhancerGguf so the axis and the fetch path can
 // never drift.
 const DEFAULT_ENHANCER_VARIANT = 'f16'
 const VALID_ENHANCER_VARIANTS = ['f16', 'f32', 'q8_0']
+
+// Enhancer tiers whose GGUF is actually published on the QVAC registry. A fetch
+// failure for one of these is a real registry/network/auth error, so the caller
+// must hard-fail like the engine GGUF rather than record a false green; a tier
+// outside this set is simply not on S3 yet, so its fetch failure is an expected
+// soft-skip until the GGUF lands. Keep in lockstep with the "On registry today"
+// table in benchmarks/RTF-BENCHMARKS.md.
+const PUBLISHED_ENHANCER_VARIANTS = ['f16', 'f32']
+
+// Whether the enhancer tier's GGUF is published (canonicalizes first so casing
+// and the fp16 default resolve correctly).
+function isEnhancerVariantPublished(variant) {
+  return PUBLISHED_ENHANCER_VARIANTS.includes(normalizeEnhancerVariant(variant))
+}
 
 // Canonicalize an enhancer quant tier (case-insensitive, default fp16). Unknown
 // tiers throw so a typo fails loudly instead of silently downgrading to fp16.
@@ -613,6 +626,42 @@ function enhancerOfflineBuildHint(variant) {
     return ` scripts/convert-lavasr-enhancer-to-gguf.py --ftype ${tier}, to run offline.`
   }
   return ` scripts/requantize-gguf.py <f16.gguf> <out.gguf> ${tier}, to run offline.`
+}
+
+// Map a LavaSR enhancer fetch result to a benchmark outcome so the RTF and
+// streaming suites share one policy and can't drift. A published tier (fp16/fp32)
+// that fails to resolve is a real registry/network error the caller must throw on
+// (`fail`), matching the engine GGUF; a not-yet-published tier is an expected
+// `skip` until its GGUF lands on S3. A successful fetch yields the staged `path`.
+function classifyEnhancerResolution(result, variant) {
+  if (result && result.success) return { path: result.path }
+  const tier = normalizeEnhancerVariant(variant)
+  if (isEnhancerVariantPublished(tier)) {
+    return {
+      fail: true,
+      reason:
+        `LavaSR enhancer GGUF (${tier}) is published but could not be resolved from the ` +
+        'registry (set LAVASR_ENHANCER_GGUF to a local copy to run offline)'
+    }
+  }
+  return {
+    skip: true,
+    reason:
+      `LavaSR enhancer GGUF (${tier}) is not published to the registry yet ` +
+      '(set LAVASR_ENHANCER_GGUF to a local copy to benchmark it now)'
+  }
+}
+
+// Denoiser analog. The denoiser (fp16/fp32) is published, so any resolution
+// failure is a real error rather than a not-yet-uploaded tier: always `fail`.
+function classifyDenoiserResolution(result) {
+  if (result && result.success) return { path: result.path }
+  return {
+    fail: true,
+    reason:
+      'LavaSR denoiser GGUF is published but could not be resolved from the registry ' +
+      '(set LAVASR_DENOISER_GGUF to a local copy to run offline)'
+  }
 }
 
 // LavaSR UL-UNAS speech denoiser (benchmark `denoiser=lavasr` axis). Runs BEFORE
@@ -1455,6 +1504,9 @@ module.exports = {
   normalizeEnhancer,
   normalizeDenoiser,
   normalizeEnhancerVariant,
+  isEnhancerVariantPublished,
+  classifyEnhancerResolution,
+  classifyDenoiserResolution,
   enhancerTag,
   denoiserTag,
   enhancerVariantTag,
@@ -1463,5 +1515,6 @@ module.exports = {
   VALID_DENOISERS,
   DEFAULT_DENOISER,
   VALID_ENHANCER_VARIANTS,
-  DEFAULT_ENHANCER_VARIANT
+  DEFAULT_ENHANCER_VARIANT,
+  PUBLISHED_ENHANCER_VARIANTS
 }

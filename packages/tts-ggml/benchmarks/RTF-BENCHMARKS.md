@@ -82,8 +82,9 @@ QVAC_TTS_GGML_BENCHMARK_ENGINE=chatterbox \
 npm --prefix packages/tts-ggml run test:benchmark:streaming
 
 # LavaSR enhancer axis (48 kHz bandwidth extension layered on the engine).
-# Point LAVASR_ENHANCER_GGUF at a converted enhancer GGUF (see "LavaSR enhancer
-# axis" below); without it the run soft-skips (green) instead of failing.
+# The published fp16/fp32 tiers fetch from the registry automatically (like the
+# engine GGUF) and hard-fail if unreachable; point LAVASR_ENHANCER_GGUF at a
+# converted GGUF to run offline or to benchmark a not-yet-published tier.
 QVAC_TTS_GGML_BENCHMARK_ENGINE=supertonic \
 QVAC_TTS_GGML_BENCHMARK_ENHANCER=lavasr \
 LAVASR_ENHANCER_GGUF=/path/to/lavasr-enhancer.gguf \
@@ -113,9 +114,9 @@ node scripts/perf-report/aggregate-tts-ggml-rtf.js \
 |---------|---------|---------|
 | `QVAC_TTS_GGML_BENCHMARK_ENGINE` | `chatterbox` | One of `chatterbox` / `chatterbox-mtl` / `supertonic` / `supertonic-mtl` / `supertonic3`. |
 | `QVAC_TTS_GGML_BENCHMARK_VARIANT` | `q4` | Label only — one of `q4` / `q8` / `f16` / `mixed`. The GGUF on the registry determines the real quant. |
-| `QVAC_TTS_GGML_BENCHMARK_ENHANCER` | `none` | One of `none` / `lavasr`. `lavasr` layers the LavaSR 48 kHz bandwidth-extension enhancer on top of the engine output. Soft-skips (green) when the enhancer GGUF is not staged. Adds `-lavasr` to the artifact name + a trailing token to the canonical label, and populates the `Enhancer` findings column. |
-| `QVAC_TTS_GGML_BENCHMARK_ENHANCER_VARIANT` | `f16` | Enhancer quant tier: one of `f16` / `f32` / `q8_0`. Only meaningful when `ENHANCER=lavasr`; picks which enhancer GGUF is fetched. `f16` is byte-stable (no extra token); any other tier appends `-<tier>` to the artifact name and renders as `lavasr/<tier>` in the `Enhancer` column. Soft-skips (green) until that tier's GGUF is published. |
-| `QVAC_TTS_GGML_BENCHMARK_DENOISER` | `none` | One of `none` / `lavasr`. `lavasr` runs the LavaSR speech denoiser before the enhancer. Orthogonal to the enhancer, so any of none/denoise/enhance/full can run. Soft-skips (green) when the denoiser GGUF is not staged. Adds `-denoise` to the artifact name + a trailing token to the canonical label, and populates the `Denoiser` findings column. |
+| `QVAC_TTS_GGML_BENCHMARK_ENHANCER` | `none` | One of `none` / `lavasr`. `lavasr` layers the LavaSR 48 kHz bandwidth-extension enhancer on top of the engine output. A published tier (`f16`/`f32`) hard-fails if its GGUF can't be fetched (like the engine GGUF); an unpublished tier soft-skips (green). Adds `-lavasr` to the artifact name + a trailing token to the canonical label, and populates the `Enhancer` findings column. |
+| `QVAC_TTS_GGML_BENCHMARK_ENHANCER_VARIANT` | `f16` | Enhancer quant tier: one of `f16` / `f32` / `q8_0`. Only meaningful when `ENHANCER=lavasr`; picks which enhancer GGUF is fetched. `f16` is byte-stable (no extra token); any other tier appends `-<tier>` to the artifact name and renders as `lavasr/<tier>` in the `Enhancer` column. The published `f16`/`f32` tiers hard-fail if their GGUF can't be fetched (like the engine GGUF); a not-yet-published tier (`q8_0`) soft-skips (green) until its GGUF lands on S3. |
+| `QVAC_TTS_GGML_BENCHMARK_DENOISER` | `none` | One of `none` / `lavasr`. `lavasr` runs the LavaSR speech denoiser before the enhancer. Orthogonal to the enhancer, so any of none/denoise/enhance/full can run. The denoiser is published, so it hard-fails if its GGUF can't be fetched (like the engine GGUF). Adds `-denoise` to the artifact name + a trailing token to the canonical label, and populates the `Denoiser` findings column. |
 | `QVAC_TTS_GGML_BENCHMARK_USE_GPU` | `0` | `1` / `true` to request GPU. Backend auto-derives from platform (Vulkan / Metal). The enhancer and denoiser share this switch (run on the same GPU backend as the engine). |
 | `QVAC_TTS_GGML_BENCHMARK_BACKEND` | (derived) | `cpu` / `metal` / `vulkan` / `cuda` / `opencl`. Used in reports and to differentiate rows. |
 | `QVAC_TTS_GGML_BENCHMARK_DEVICE` | — | Device label rendered in the `Device` column. |
@@ -211,11 +212,14 @@ order (the selected tier picks both the on-disk filename and the registry path):
 The fp16 (~28 MB) and fp32 (~56 MB) enhancer GGUFs are published on the QVAC
 registry under `qvac_models_compiled/ggml/lavasr/2026-06-26/`, so `enhancer=lavasr`
 desktop rows fetch them the same way the engine GGUFs are fetched and collect
-numbers with no extra setup. If a tier genuinely can't be resolved (registry
-unreachable / offline and no local copy, or a quant tier not yet published), the
-run **soft-skips** (the brittle test passes with a skip comment and writes no
-artifact) so CI stays green — the `enhancer=none` rows still produce artifacts, so
-the desktop "zero artifacts" guard never trips.
+numbers with no extra setup. Because these tiers are published, a failure to
+resolve one of them (registry unreachable / offline and no local copy) is a real
+error and the row **hard-fails**, exactly like the engine GGUF — this keeps a
+transient registry / network / auth failure from silently recording a false
+green. Only a tier that isn't on S3 yet (currently `q8_0`) **soft-skips** (the
+brittle test passes with a skip comment and writes no artifact) until its GGUF
+lands; the `enhancer=none` rows still produce artifacts, so the desktop "zero
+artifacts" guard never trips.
 
 ### Enhancer quant tiers
 
@@ -249,8 +253,10 @@ resolver, in order:
 
 The denoiser GGUF is published on the QVAC registry (fp16 `TTS_DENOISER_LAVASR_FP16`
 ~0.5 MB, under `qvac_models_compiled/ggml/lavasr/2026-07-03/`), so
-`denoiser=lavasr` desktop rows fetch it automatically and soft-skip (green) the
-same way the enhancer does when it can't be resolved.
+`denoiser=lavasr` desktop rows fetch it automatically. Because it's published, an
+unresolved denoiser **hard-fails** (like the engine GGUF and the published
+enhancer tiers) rather than soft-skipping, so a real fetch failure surfaces
+instead of a false green.
 
 ### Collecting LavaSR numbers locally
 
@@ -282,9 +288,10 @@ npm --prefix packages/tts-ggml run test:benchmark:rtf
   `enhancer:"lavasr"` and `denoiser:"lavasr"` rows for `supertonic` + `chatterbox`
   (CPU everywhere, plus Vulkan/Metal on GPU runners), plus an enhancer quant sweep
   (`enhancerVariant` = `f32` / `q8_0`) on `supertonic` across CPU + the platform
-  GPU. They fetch the GGUFs from the registry and collect numbers; a row soft-skips
-  only if its GGUF can't be resolved (so the not-yet-published `q8_0` tier stays
-  green until it lands on S3).
+  GPU. They fetch the GGUFs from the registry and collect numbers; a published row
+  (the `f16`/`f32` enhancer tiers and the denoiser) hard-fails if its GGUF can't be
+  fetched, so a real registry failure surfaces instead of a false green, while the
+  not-yet-published `q8_0` tier soft-skips (green) until it lands on S3.
 - **Mobile** (`integration-mobile-test-tts-ggml.yml`): the on-device runtime
   reads `QVAC_TTS_GGML_BENCHMARK_ENHANCER` / `QVAC_TTS_GGML_BENCHMARK_ENHANCER_VARIANT`
   / `QVAC_TTS_GGML_BENCHMARK_DENOISER` (all threaded through the inject-env step).

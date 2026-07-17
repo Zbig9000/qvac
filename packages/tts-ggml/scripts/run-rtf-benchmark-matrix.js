@@ -90,8 +90,9 @@ function normalizeBoolean (value) {
 // the two LavaSR axes unambiguous in default labels; they mirror enhancerTag /
 // denoiserTag in test/utils/downloadModel.js (kept local because that module is
 // Bare-only and cannot be required from this Node script). The enhancer quant
-// tier follows the `lavasr` token (empty for the fp16 default), mirroring
-// enhancerVariantTag, so per-tier matrix rows get distinct labels/artifacts.
+// tier follows the `lavasr` token (empty for the fp16 default) and is lowercased
+// to match the benchmark's normalized enhancerVariantTag, so a mixed-case matrix
+// row still gets the same per-tier label/artifact the benchmark writes.
 const ENHANCER_LABEL_TOKEN = 'lavasr'
 const DENOISER_LABEL_TOKEN = 'denoise'
 const DEFAULT_ENHANCER_VARIANT = 'f16'
@@ -101,9 +102,9 @@ function buildLabel (entry, index) {
   const gpuTag = normalizeBoolean(entry.useGPU) ? 'gpu' : 'cpu'
   const enhancer = String(entry.enhancer || 'none').toLowerCase()
   const enhancerTag = enhancer !== 'none' ? `-${ENHANCER_LABEL_TOKEN}` : ''
-  const enhancerVariant = String(entry.enhancerVariant || DEFAULT_ENHANCER_VARIANT)
+  const enhancerVariant = String(entry.enhancerVariant || DEFAULT_ENHANCER_VARIANT).toLowerCase()
   const enhancerVariantTag =
-    enhancer !== 'none' && enhancerVariant.toLowerCase() !== DEFAULT_ENHANCER_VARIANT
+    enhancer !== 'none' && enhancerVariant !== DEFAULT_ENHANCER_VARIANT
       ? `-${enhancerVariant}`
       : ''
   const denoiser = String(entry.denoiser || 'none').toLowerCase()

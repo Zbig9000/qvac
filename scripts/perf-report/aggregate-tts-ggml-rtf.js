@@ -394,9 +394,15 @@ function normalizeManualRecord (record, sourceFile) {
     platformFamily: platformFamily || 'unknown',
     engine: record.engine || record.model || 'unknown',
     variant: record.variant || 'q4',
-    enhancer: record.enhancer || 'none',
-    enhancerVariant: record.enhancerVariant || DEFAULT_ENHANCER_VARIANT,
-    denoiser: record.denoiser || 'none',
+    // Read the LavaSR axes from a `model` block first, then top-level, mirroring
+    // the desktop reader, so a hand-authored manual file that nests them under
+    // `model` (like LAVASR_TEMPLATE.json.example) isn't silently dropped to none.
+    enhancer: (record.model && record.model.enhancer) || record.enhancer || 'none',
+    enhancerVariant:
+      (record.model && record.model.enhancerVariant) ||
+      record.enhancerVariant ||
+      DEFAULT_ENHANCER_VARIANT,
+    denoiser: (record.model && record.model.denoiser) || record.denoiser || 'none',
     gpu: useGPU ? 'gpu' : 'cpu',
     backend: normalizeBackend(platformFamily, useGPU, record.backend),
     gpuModel: record.gpuModel || record.gpu_model || null,

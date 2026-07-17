@@ -25,6 +25,7 @@ const assert = require('node:assert/strict')
 
 const {
   normalizeDesktopRecord,
+  normalizeManualRecord,
   expandCanonicalReport,
   dedupeRecords,
   renderMarkdown
@@ -105,6 +106,39 @@ test('mobile canonical report carries avg/peak/reclaimed memory through metrics'
   assert.equal(row.avgRssMb, 780)
   assert.equal(row.peakRssMb, 860)
   assert.equal(row.reclaimedMb, 400)
+})
+
+test('manual record reads the LavaSR axes from a model block, mirroring the desktop reader', () => {
+  const record = normalizeManualRecord(
+    {
+      source: 'manual',
+      engine: 'supertonic',
+      variant: 'q4',
+      model: { enhancer: 'lavasr', enhancerVariant: 'q8_0', denoiser: 'lavasr' },
+      meanRtf: 0.3
+    },
+    'manual-lavasr.json'
+  )
+  assert.equal(record.enhancer, 'lavasr')
+  assert.equal(record.enhancerVariant, 'q8_0')
+  assert.equal(record.denoiser, 'lavasr')
+})
+
+test('manual record still reads top-level LavaSR axes when there is no model block', () => {
+  const record = normalizeManualRecord(
+    { source: 'manual', engine: 'supertonic', enhancer: 'lavasr', enhancerVariant: 'f32', denoiser: 'lavasr' },
+    'manual-lavasr-flat.json'
+  )
+  assert.equal(record.enhancer, 'lavasr')
+  assert.equal(record.enhancerVariant, 'f32')
+  assert.equal(record.denoiser, 'lavasr')
+})
+
+test('manual record with a string model keeps it as the engine name and defaults the axes off', () => {
+  const record = normalizeManualRecord({ source: 'manual', model: 'supertonic' }, 'manual-legacy.json')
+  assert.equal(record.engine, 'supertonic')
+  assert.equal(record.enhancer, 'none')
+  assert.equal(record.denoiser, 'none')
 })
 
 test('markdown table includes the memory columns and rounded values', () => {

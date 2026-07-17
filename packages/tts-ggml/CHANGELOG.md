@@ -52,7 +52,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   enhancer GGUF — `f16` (default) / `f32` / `q8_0` — to its own on-disk file
   (`lavasr-enhancer.gguf` for the byte-stable `f16` default,
   `lavasr-enhancer-<tier>.gguf` otherwise) and registry path, with shared
-  `normalizeEnhancerVariant()` / `enhancerVariantTag()` helpers. The benchmark/CI
+  `normalizeEnhancerVariant()` / `enhancerVariantTag()` helpers. A published tier
+  (`isEnhancerVariantPublished()` — `f16`/`f32` today) that fails to resolve is a
+  real error the benchmark hard-fails on, matching the engine GGUF, while a
+  not-yet-published tier soft-skips; the shared policy lives in
+  `classifyEnhancerResolution()` / `classifyDenoiserResolution()`. The benchmark/CI
   enhancer quant axis built on these utilities is documented in
   `benchmarks/RTF-BENCHMARKS.md`.
 - Opt-in `vulkanCacheDir` (Supertonic + `useGPU: true`): persists the Vulkan pipeline cache (`GGML_VK_PIPELINE_CACHE_DIR`) and pre-warms it at `load()` so the first-dispatch shader-compile cost is paid once per install, not on the first `run()`. Fully opt-in/non-breaking; Vulkan analogue of `openclCacheDir` (QVAC-21910, tetherto/qvac#3120).

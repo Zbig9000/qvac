@@ -34,14 +34,15 @@
  *                                        `lavasr` layers the LavaSR 48 kHz
  *                                        bandwidth-extension enhancer on top of
  *                                        the engine; GGUF fetched from the QVAC
- *                                        registry, soft-skips only if it can't
- *                                        be resolved (see ensureLavaSREnhancerGguf)
+ *                                        registry — a published tier hard-fails if
+ *                                        unresolved, an unpublished tier soft-skips
+ *                                        (see lavasrResolve)
  *   QVAC_TTS_GGML_BENCHMARK_DENOISER     none | lavasr               (default: none)
  *                                        `lavasr` runs the LavaSR UL-UNAS denoiser
  *                                        before the engine output (independent of
  *                                        the enhancer axis); GGUF fetched from the
- *                                        QVAC registry, soft-skips only if it can't
- *                                        be resolved (see ensureLavaSRDenoiserGguf)
+ *                                        QVAC registry — published, so it hard-fails
+ *                                        if unresolved (see lavasrResolve)
  *   QVAC_TTS_GGML_BENCHMARK_USE_GPU      1 | true | 0 | false        (default: false)
  *   QVAC_TTS_GGML_BENCHMARK_BACKEND      cpu | metal | vulkan | cuda | opencl
  *                                        (free-form hint; defaults derived from
@@ -69,14 +70,13 @@ const {
   ensureSupertonicMtlModel,
   ensureSupertonic3Model,
   supertonic3QuantFromVariant,
-  ensureLavaSREnhancerGguf,
-  ensureLavaSRDenoiserGguf,
   normalizeEnhancer,
   normalizeDenoiser,
   normalizeEnhancerVariant,
   enhancerTag,
   denoiserTag
 } = require('../utils/downloadModel')
+const { resolveEnhancer, resolveDenoiser } = require('../utils/lavasrResolve')
 const { buildBenchmarkArtifactFileName } = require('../utils/artifactName')
 const {
   readRssBytes,
@@ -418,53 +418,6 @@ function getCorpus(engine) {
 
 function getBaseDir() {
   return isMobile && global.testDir ? global.testDir : '.'
-}
-
-// Resolve the LavaSR enhancer GGUF when the enhancer axis is on. Returns
-// `{ path: null }` for the default (enhancer=none), `{ path }` once fetched from
-// the QVAC registry (or a local/env-pointed copy), or `{ skip, skipReason }`
-// when it can't be resolved (e.g. registry unreachable / offline) so the
-// benchmark goes green-with-skip instead of failing the matrix leg.
-async function resolveEnhancer(settings, baseDir) {
-  if (settings.enhancer !== 'lavasr') return { path: null }
-  const options = { targetDir: path.join(baseDir, 'models', 'lavasr'), quant: settings.enhancerVariant }
-  if (settings.enhancerRegistryPath) {
-    options.registryPath = settings.enhancerRegistryPath
-    if (settings.enhancerRegistrySource) options.registrySource = settings.enhancerRegistrySource
-  }
-  const enh = await ensureLavaSREnhancerGguf(options)
-  if (!enh.success) {
-    return {
-      skip: true,
-      skipReason:
-        `LavaSR enhancer GGUF (${settings.enhancerVariant}) could not be resolved from the ` +
-        'registry (set LAVASR_ENHANCER_GGUF to a local copy to run offline)'
-    }
-  }
-  return { path: enh.path }
-}
-
-// Resolve the LavaSR denoiser GGUF when the denoiser axis is on. Mirrors
-// resolveEnhancer: `{ path: null }` for the default (denoiser=none), `{ path }`
-// once fetched, or `{ skip, skipReason }` when it can't be resolved so the leg
-// goes green-with-skip instead of failing the matrix.
-async function resolveDenoiser(settings, baseDir) {
-  if (settings.denoiser !== 'lavasr') return { path: null }
-  const options = { targetDir: path.join(baseDir, 'models', 'lavasr') }
-  if (settings.denoiserRegistryPath) {
-    options.registryPath = settings.denoiserRegistryPath
-    if (settings.denoiserRegistrySource) options.registrySource = settings.denoiserRegistrySource
-  }
-  const den = await ensureLavaSRDenoiserGguf(options)
-  if (!den.success) {
-    return {
-      skip: true,
-      skipReason:
-        'LavaSR denoiser GGUF could not be resolved from the registry ' +
-        '(set LAVASR_DENOISER_GGUF to a local copy to run offline)'
-    }
-  }
-  return { path: den.path }
 }
 
 async function loadModelForEngine(settings) {
