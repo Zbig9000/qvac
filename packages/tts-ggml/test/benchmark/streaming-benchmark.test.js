@@ -215,7 +215,9 @@ function getSettings() {
 
   const enhancer = normalizeEnhancer(getEnv('QVAC_TTS_GGML_BENCHMARK_ENHANCER'))
   const denoiser = normalizeDenoiser(getEnv('QVAC_TTS_GGML_BENCHMARK_DENOISER'))
-  const enhancerVariant = normalizeEnhancerVariant(getEnv('QVAC_TTS_GGML_BENCHMARK_ENHANCER_VARIANT'))
+  const enhancerVariant = normalizeEnhancerVariant(
+    getEnv('QVAC_TTS_GGML_BENCHMARK_ENHANCER_VARIANT')
+  )
 
   const numThreadsRaw = getEnv('QVAC_TTS_GGML_BENCHMARK_NUM_THREADS') || ''
   const numThreadsParsed = Number.parseInt(numThreadsRaw, 10)

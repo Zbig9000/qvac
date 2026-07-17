@@ -31,7 +31,10 @@ test('the -lavasr token is inserted only when the enhancer is on', (t) => {
     'enhancer on -> -lavasr'
   )
   t.absent(
-    buildBenchmarkArtifactFileName('rtf-benchmark', PLATFORM, { ...BASE, enhancer: 'none' }).includes('lavasr'),
+    buildBenchmarkArtifactFileName('rtf-benchmark', PLATFORM, {
+      ...BASE,
+      enhancer: 'none'
+    }).includes('lavasr'),
     'enhancer off -> no -lavasr'
   )
 })
@@ -99,7 +102,9 @@ test('the prefix distinguishes the RTF and streaming artifacts', (t) => {
     'RTF prefix'
   )
   t.ok(
-    buildBenchmarkArtifactFileName('streaming-benchmark', PLATFORM, BASE).startsWith('streaming-benchmark-'),
+    buildBenchmarkArtifactFileName('streaming-benchmark', PLATFORM, BASE).startsWith(
+      'streaming-benchmark-'
+    ),
     'streaming prefix'
   )
 })

@@ -248,7 +248,9 @@ function getSettings() {
   // Enhancer quant tier (f16 default | f32 | q8_0). Only meaningful when
   // enhancer=lavasr; picks which enhancer GGUF the registry fetch resolves.
   // Validated here so a typo fails loudly.
-  const enhancerVariant = normalizeEnhancerVariant(getEnv('QVAC_TTS_GGML_BENCHMARK_ENHANCER_VARIANT'))
+  const enhancerVariant = normalizeEnhancerVariant(
+    getEnv('QVAC_TTS_GGML_BENCHMARK_ENHANCER_VARIANT')
+  )
 
   const numThreadsRaw = getEnv('QVAC_TTS_GGML_BENCHMARK_NUM_THREADS') || ''
   const numThreadsParsed = Number.parseInt(numThreadsRaw, 10)

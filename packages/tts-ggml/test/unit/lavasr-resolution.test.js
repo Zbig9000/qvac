@@ -34,7 +34,10 @@ test('isEnhancerVariantPublished canonicalizes casing before deciding', (t) => {
 })
 
 test('classifyEnhancerResolution returns the staged path on a successful fetch', (t) => {
-  const outcome = classifyEnhancerResolution({ success: true, path: '/models/lavasr/e.gguf' }, 'q8_0')
+  const outcome = classifyEnhancerResolution(
+    { success: true, path: '/models/lavasr/e.gguf' },
+    'q8_0'
+  )
   t.is(outcome.path, '/models/lavasr/e.gguf', 'the fetched path is surfaced')
   t.absent(outcome.fail, 'a success is not a failure')
   t.absent(outcome.skip, 'a success is not a skip')
