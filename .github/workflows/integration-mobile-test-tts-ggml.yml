@@ -156,8 +156,8 @@ jobs:
           USE_GPU: ${{ matrix.use_gpu && '1' || '0' }}
           GPU_TAG: ${{ matrix.use_gpu && 'gpu' || 'cpu' }}
           # Enhancer / denoiser axes (none|lavasr) plus the enhancer quant tier
-          # (f16 default | f32 | q8_0 | q5_0 | q4_0 | q6_K | q5_K | q4_K). Default
-          # to none/f16 for the existing rows. Mobile pushes pre-staged model files
+          # (f16 default | f32 | q8_0). Default to none/f16 for the existing rows.
+          # Mobile pushes pre-staged model files
           # (it does not fetch from the registry on-device), so a `lavasr` row needs
           # the matching GGUF added to the mobile model manifest before it can
           # collect numbers on device; until then these are threaded through but

@@ -75,9 +75,9 @@ const {
   normalizeDenoiser,
   normalizeEnhancerVariant,
   enhancerTag,
-  denoiserTag,
-  enhancerVariantTag
+  denoiserTag
 } = require('../utils/downloadModel')
+const { buildBenchmarkArtifactFileName } = require('../utils/artifactName')
 const {
   readRssBytes,
   createMemorySampler,
@@ -245,9 +245,9 @@ function getSettings() {
 
   const enhancer = normalizeEnhancer(getEnv('QVAC_TTS_GGML_BENCHMARK_ENHANCER'))
   const denoiser = normalizeDenoiser(getEnv('QVAC_TTS_GGML_BENCHMARK_DENOISER'))
-  // Enhancer quant tier (f16 default | f32 | q8_0 | q5_0 | q4_0 | q6_K | q5_K |
-  // q4_K). Only meaningful when enhancer=lavasr; picks which enhancer GGUF the
-  // registry fetch resolves. Validated here so a typo fails loudly.
+  // Enhancer quant tier (f16 default | f32 | q8_0). Only meaningful when
+  // enhancer=lavasr; picks which enhancer GGUF the registry fetch resolves.
+  // Validated here so a typo fails loudly.
   const enhancerVariant = normalizeEnhancerVariant(getEnv('QVAC_TTS_GGML_BENCHMARK_ENHANCER_VARIANT'))
 
   const numThreadsRaw = getEnv('QVAC_TTS_GGML_BENCHMARK_NUM_THREADS') || ''
@@ -305,25 +305,7 @@ function resolveBackend(platformName, useGPU, backendHint) {
 }
 
 function getArtifactFileName(settings) {
-  const parts = [
-    'rtf-benchmark',
-    platformArch,
-    settings.engine,
-    settings.variant,
-    settings.useGPU ? 'gpu' : 'cpu'
-  ]
-  // Insert the enhancer / denoiser tags only when enabled so existing
-  // (enhancer=none, denoiser=none) artifact names stay byte-for-byte stable.
-  const enhancerToken = enhancerTag(settings.enhancer)
-  if (enhancerToken) parts.push(enhancerToken)
-  // A non-default enhancer quant tier (e.g. q4_0) follows the `lavasr` token so
-  // per-tier artifacts don't overwrite each other; fp16 adds nothing (byte-stable).
-  const enhancerVariantToken = enhancerVariantTag(settings.enhancer, settings.enhancerVariant)
-  if (enhancerVariantToken) parts.push(enhancerVariantToken)
-  const denoiserToken = denoiserTag(settings.denoiser)
-  if (denoiserToken) parts.push(denoiserToken)
-  if (settings.label) parts.push(settings.label)
-  return `${parts.join('-')}.json`
+  return buildBenchmarkArtifactFileName('rtf-benchmark', platformArch, settings)
 }
 
 function nowMs() {

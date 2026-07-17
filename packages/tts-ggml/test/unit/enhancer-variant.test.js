@@ -16,9 +16,9 @@ test('normalizeEnhancerVariant returns the canonical tier for every known value'
 })
 
 test('normalizeEnhancerVariant is case-insensitive and canonicalizes casing', (t) => {
-  t.is(normalizeEnhancerVariant('Q4_0'), 'q4_0', 'block quant lowercases')
-  t.is(normalizeEnhancerVariant('q4_k'), 'q4_K', 'K-quant canonicalizes to upper K')
-  t.is(normalizeEnhancerVariant('F16'), 'f16', 'float tier lowercases')
+  t.is(normalizeEnhancerVariant('Q8_0'), 'q8_0', 'block quant lowercases')
+  t.is(normalizeEnhancerVariant('F16'), 'f16', 'fp16 tier lowercases')
+  t.is(normalizeEnhancerVariant('F32'), 'f32', 'fp32 tier lowercases')
 })
 
 test('normalizeEnhancerVariant defaults empty / unset input to fp16', (t) => {
@@ -29,11 +29,16 @@ test('normalizeEnhancerVariant defaults empty / unset input to fp16', (t) => {
   t.is(normalizeEnhancerVariant(null), DEFAULT_ENHANCER_VARIANT, 'null -> default')
 })
 
-test('normalizeEnhancerVariant throws on an unknown tier so a typo fails loudly', (t) => {
+test('normalizeEnhancerVariant throws on an unsupported tier so a typo fails loudly', (t) => {
   t.exception(
     () => normalizeEnhancerVariant('q3_0'),
     /Invalid LavaSR enhancer variant/,
     'an unsupported tier is rejected instead of silently downgrading to fp16'
+  )
+  t.exception(
+    () => normalizeEnhancerVariant('q4_K'),
+    /Invalid LavaSR enhancer variant/,
+    'a tier outside the supported f16/f32/q8_0 set is rejected'
   )
 })
 
@@ -47,19 +52,19 @@ test('lavasrEnhancerGguf keeps the historical on-disk name for the fp16 default'
 })
 
 test('lavasrEnhancerGguf gives each non-default tier its own coexisting file', (t) => {
-  const gguf = lavasrEnhancerGguf('q4_0')
-  t.is(gguf.name, 'lavasr-enhancer-q4_0.gguf', 'quant tier lives at its own on-disk name')
+  const gguf = lavasrEnhancerGguf('q8_0')
+  t.is(gguf.name, 'lavasr-enhancer-q8_0.gguf', 'quant tier lives at its own on-disk name')
   t.ok(
-    gguf.registryPath.endsWith('/lavasr-enhancer-q4_0.gguf'),
+    gguf.registryPath.endsWith('/lavasr-enhancer-q8_0.gguf'),
     'registry path targets the tier GGUF'
   )
   t.ok(gguf.registrySource, 'a registry source is set so the fetch can resolve')
 })
 
 test('lavasrEnhancerGguf canonicalizes the tier before building the descriptor', (t) => {
-  const gguf = lavasrEnhancerGguf('Q4_K')
-  t.is(gguf.name, 'lavasr-enhancer-q4_K.gguf', 'the K-quant casing is canonical')
-  t.ok(gguf.registryPath.endsWith('/lavasr-enhancer-q4_K.gguf'), 'registry path matches')
+  const gguf = lavasrEnhancerGguf('Q8_0')
+  t.is(gguf.name, 'lavasr-enhancer-q8_0.gguf', 'the tier casing is canonical')
+  t.ok(gguf.registryPath.endsWith('/lavasr-enhancer-q8_0.gguf'), 'registry path matches')
 })
 
 test('enhancerVariantTag is empty for the fp16 default so artifacts stay byte-stable', (t) => {
@@ -69,12 +74,13 @@ test('enhancerVariantTag is empty for the fp16 default so artifacts stay byte-st
 })
 
 test('enhancerVariantTag emits the canonical tier for a non-default quant', (t) => {
-  t.is(enhancerVariantTag('lavasr', 'q4_0'), 'q4_0', 'lavasr + q4_0 -> q4_0 token')
-  t.is(enhancerVariantTag('lavasr', 'Q4_K'), 'q4_K', 'token is canonicalized')
+  t.is(enhancerVariantTag('lavasr', 'q8_0'), 'q8_0', 'lavasr + q8_0 -> q8_0 token')
+  t.is(enhancerVariantTag('lavasr', 'Q8_0'), 'q8_0', 'token is canonicalized')
+  t.is(enhancerVariantTag('lavasr', 'f32'), 'f32', 'lavasr + f32 -> f32 token')
 })
 
 test('enhancerVariantTag is inert when the enhancer is off, regardless of tier', (t) => {
-  t.is(enhancerVariantTag('none', 'q4_0'), '', 'no enhancer -> no tier token even for a quant')
-  t.is(enhancerVariantTag('', 'q5_K'), '', "'' enhancer -> no tier token")
+  t.is(enhancerVariantTag('none', 'q8_0'), '', 'no enhancer -> no tier token even for a quant')
+  t.is(enhancerVariantTag('', 'f32'), '', "'' enhancer -> no tier token")
   t.is(enhancerVariantTag(undefined, 'q8_0'), '', 'undefined enhancer -> no tier token')
 })

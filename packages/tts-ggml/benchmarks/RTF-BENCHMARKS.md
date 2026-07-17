@@ -73,7 +73,7 @@ QVAC_TTS_GGML_BENCHMARK_MATRIX_JSON='[
   {"engine":"supertonic-mtl","useGPU":false,"backendHint":"cpu"},
   {"engine":"supertonic","useGPU":false,"backendHint":"cpu","denoiser":"lavasr"},
   {"engine":"supertonic","useGPU":false,"backendHint":"cpu","enhancer":"lavasr"},
-  {"engine":"supertonic","useGPU":false,"backendHint":"cpu","enhancer":"lavasr","enhancerVariant":"q4_0"},
+  {"engine":"supertonic","useGPU":false,"backendHint":"cpu","enhancer":"lavasr","enhancerVariant":"q8_0"},
   {"engine":"supertonic","useGPU":false,"backendHint":"cpu","denoiser":"lavasr","enhancer":"lavasr"}
 ]' npm --prefix packages/tts-ggml run test:benchmark:rtf:matrix
 
@@ -114,7 +114,7 @@ node scripts/perf-report/aggregate-tts-ggml-rtf.js \
 | `QVAC_TTS_GGML_BENCHMARK_ENGINE` | `chatterbox` | One of `chatterbox` / `chatterbox-mtl` / `supertonic` / `supertonic-mtl` / `supertonic3`. |
 | `QVAC_TTS_GGML_BENCHMARK_VARIANT` | `q4` | Label only — one of `q4` / `q8` / `f16` / `mixed`. The GGUF on the registry determines the real quant. |
 | `QVAC_TTS_GGML_BENCHMARK_ENHANCER` | `none` | One of `none` / `lavasr`. `lavasr` layers the LavaSR 48 kHz bandwidth-extension enhancer on top of the engine output. Soft-skips (green) when the enhancer GGUF is not staged. Adds `-lavasr` to the artifact name + a trailing token to the canonical label, and populates the `Enhancer` findings column. |
-| `QVAC_TTS_GGML_BENCHMARK_ENHANCER_VARIANT` | `f16` | Enhancer quant tier: one of `f16` / `f32` / `q8_0` / `q5_0` / `q4_0` / `q6_K` / `q5_K` / `q4_K`. Only meaningful when `ENHANCER=lavasr`; picks which enhancer GGUF is fetched. `f16` is byte-stable (no extra token); any other tier appends `-<tier>` to the artifact name and renders as `lavasr/<tier>` in the `Enhancer` column. Soft-skips (green) until that tier's GGUF is published. |
+| `QVAC_TTS_GGML_BENCHMARK_ENHANCER_VARIANT` | `f16` | Enhancer quant tier: one of `f16` / `f32` / `q8_0`. Only meaningful when `ENHANCER=lavasr`; picks which enhancer GGUF is fetched. `f16` is byte-stable (no extra token); any other tier appends `-<tier>` to the artifact name and renders as `lavasr/<tier>` in the `Enhancer` column. Soft-skips (green) until that tier's GGUF is published. |
 | `QVAC_TTS_GGML_BENCHMARK_DENOISER` | `none` | One of `none` / `lavasr`. `lavasr` runs the LavaSR speech denoiser before the enhancer. Orthogonal to the enhancer, so any of none/denoise/enhance/full can run. Soft-skips (green) when the denoiser GGUF is not staged. Adds `-denoise` to the artifact name + a trailing token to the canonical label, and populates the `Denoiser` findings column. |
 | `QVAC_TTS_GGML_BENCHMARK_USE_GPU` | `0` | `1` / `true` to request GPU. Backend auto-derives from platform (Vulkan / Metal). The enhancer and denoiser share this switch (run on the same GPU backend as the engine). |
 | `QVAC_TTS_GGML_BENCHMARK_BACKEND` | (derived) | `cpu` / `metal` / `vulkan` / `cuda` / `opencl`. Used in reports and to differentiate rows. |
@@ -221,21 +221,20 @@ the desktop "zero artifacts" guard never trips.
 
 The enhancer weights are block-quantizable independently of the engine, so
 `QVAC_TTS_GGML_BENCHMARK_ENHANCER_VARIANT` sweeps the enhancer as its own quant
-axis (the C++ loader dequantizes each tier at load, so the forward math matches
+axis (the C++ loader dequantizes the tier at load, so the forward math matches
 fp32 and only the GGUF shrinks):
 
 | Tier | Built by | On registry today |
 |------|----------|-------------------|
 | `f16` (default) / `f32` | `scripts/convert-lavasr-enhancer-to-gguf.py --ftype <f16\|f32>` | yes |
-| `q8_0` / `q5_0` / `q4_0` | `scripts/requantize-gguf.py <f16.gguf> <out.gguf> <tier>` | not yet (soft-skip) |
-| `q6_K` / `q5_K` / `q4_K` | `lavasr-requantize <f16.gguf> <out.gguf> <tier>` (whisper.cpp K-quants) | not yet (soft-skip) |
+| `q8_0` | `scripts/requantize-gguf.py <f16.gguf> <out.gguf> q8_0` | not yet (soft-skip) |
 
 `f16` is byte-stable: it keeps the historical `lavasr-enhancer.gguf` name, adds no
-artifact/label token, and renders as `lavasr` in the `Enhancer` column. Every
-other tier lives at `lavasr-enhancer-<tier>.gguf`, appends `-<tier>` after the
-`-lavasr` artifact token, and renders as `lavasr/<tier>`. The desktop CI matrix
-sweeps all non-`f16` tiers on `supertonic` across CPU + the platform GPU; each row
-soft-skips (green) until its tier GGUF lands on S3.
+artifact/label token, and renders as `lavasr` in the `Enhancer` column. `f32` and
+`q8_0` live at `lavasr-enhancer-<tier>.gguf`, append `-<tier>` after the `-lavasr`
+artifact token, and render as `lavasr/<tier>`. The desktop CI matrix sweeps the
+non-`f16` tiers on `supertonic` across CPU + the platform GPU; the `q8_0` row
+soft-skips (green) until its GGUF lands on S3.
 
 ### Resolving the denoiser GGUF
 
@@ -282,10 +281,10 @@ npm --prefix packages/tts-ggml run test:benchmark:rtf
 - **Desktop** (`integration-test-tts-ggml.yml`): each matrix branch carries
   `enhancer:"lavasr"` and `denoiser:"lavasr"` rows for `supertonic` + `chatterbox`
   (CPU everywhere, plus Vulkan/Metal on GPU runners), plus an enhancer quant sweep
-  (`enhancerVariant` = `f32` / `q8_0` / `q5_0` / `q4_0` / `q6_K` / `q5_K` / `q4_K`)
-  on `supertonic` across CPU + the platform GPU. They fetch the GGUFs from the
-  registry and collect numbers; a row soft-skips only if its GGUF can't be resolved
-  (so the not-yet-published quant tiers stay green until they land on S3).
+  (`enhancerVariant` = `f32` / `q8_0`) on `supertonic` across CPU + the platform
+  GPU. They fetch the GGUFs from the registry and collect numbers; a row soft-skips
+  only if its GGUF can't be resolved (so the not-yet-published `q8_0` tier stays
+  green until it lands on S3).
 - **Mobile** (`integration-mobile-test-tts-ggml.yml`): the on-device runtime
   reads `QVAC_TTS_GGML_BENCHMARK_ENHANCER` / `QVAC_TTS_GGML_BENCHMARK_ENHANCER_VARIANT`
   / `QVAC_TTS_GGML_BENCHMARK_DENOISER` (all threaded through the inject-env step).
@@ -346,7 +345,7 @@ The aggregated table carries:
   enhancer and/or denoiser GGUF when the `Enhancer` / `Denoiser` column is `lavasr`).
 - **Enhancer**: `lavasr` when the LavaSR 48 kHz bandwidth-extension enhancer was
   layered on the engine (at its default fp16 tier), `lavasr/<tier>` for a non-fp16
-  quant tier (e.g. `lavasr/q4_0`), else `none`. Each `(enhancer, tier)` for the
+  quant tier (e.g. `lavasr/q8_0`), else `none`. Each `(enhancer, tier)` for the
   same `(engine, variant, gpu)` is kept as a separate row.
 - **Denoiser**: `lavasr` when the LavaSR speech denoiser ran before the enhancer,
   else `none`. Combined with `Enhancer`, the none/denoise/enhance/full rows for

@@ -82,18 +82,18 @@ test('buildLabel omits the enhancer quant tier tag for the fp16 default', () => 
 
 test('buildLabel inserts the quant tier tag after -lavasr for a non-default tier', () => {
   assert.equal(
-    buildLabel({ engine: 'supertonic', enhancer: 'lavasr', enhancerVariant: 'q4_0', useGPU: false }, 0),
-    '1-supertonic-lavasr-q4_0-cpu'
+    buildLabel({ engine: 'supertonic', enhancer: 'lavasr', enhancerVariant: 'q8_0', useGPU: false }, 0),
+    '1-supertonic-lavasr-q8_0-cpu'
   )
   assert.equal(
-    buildLabel({ engine: 'supertonic', enhancer: 'lavasr', enhancerVariant: 'q5_K', useGPU: true }, 2),
-    '3-supertonic-lavasr-q5_K-gpu'
+    buildLabel({ engine: 'supertonic', enhancer: 'lavasr', enhancerVariant: 'f32', useGPU: true }, 2),
+    '3-supertonic-lavasr-f32-gpu'
   )
 })
 
 test('buildLabel ignores the quant tier when the enhancer is off (tier inert)', () => {
   assert.equal(
-    buildLabel({ engine: 'supertonic', enhancer: 'none', enhancerVariant: 'q4_0', useGPU: false }, 0),
+    buildLabel({ engine: 'supertonic', enhancer: 'none', enhancerVariant: 'q8_0', useGPU: false }, 0),
     '1-supertonic-cpu'
   )
 })
@@ -101,10 +101,10 @@ test('buildLabel ignores the quant tier when the enhancer is off (tier inert)', 
 test('buildLabel orders enhancer, tier and denoise tokens when all are on', () => {
   assert.equal(
     buildLabel(
-      { engine: 'supertonic', enhancer: 'lavasr', enhancerVariant: 'q4_0', denoiser: 'lavasr', useGPU: true },
+      { engine: 'supertonic', enhancer: 'lavasr', enhancerVariant: 'q8_0', denoiser: 'lavasr', useGPU: true },
       0
     ),
-    '1-supertonic-lavasr-q4_0-denoise-gpu'
+    '1-supertonic-lavasr-q8_0-denoise-gpu'
   )
 })
 
@@ -120,8 +120,8 @@ test('buildEnv forwards the enhancer quant tier, defaulting to fp16', () => {
   const savedTier = process.env.QVAC_TTS_GGML_BENCHMARK_ENHANCER_VARIANT
   delete process.env.QVAC_TTS_GGML_BENCHMARK_ENHANCER_VARIANT
   try {
-    const withTier = buildEnv({ engine: 'supertonic', enhancer: 'lavasr', enhancerVariant: 'q4_0' }, 0)
-    assert.equal(withTier.QVAC_TTS_GGML_BENCHMARK_ENHANCER_VARIANT, 'q4_0')
+    const withTier = buildEnv({ engine: 'supertonic', enhancer: 'lavasr', enhancerVariant: 'q8_0' }, 0)
+    assert.equal(withTier.QVAC_TTS_GGML_BENCHMARK_ENHANCER_VARIANT, 'q8_0')
     assert.equal(withTier.QVAC_TTS_GGML_BENCHMARK_ENHANCER, 'lavasr')
 
     const withoutTier = buildEnv({ engine: 'supertonic', enhancer: 'lavasr' }, 0)

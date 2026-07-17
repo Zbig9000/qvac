@@ -11,8 +11,7 @@
  *     "engine": "chatterbox" | "chatterbox-mtl" | "supertonic" | "supertonic-mtl",
  *     "variant": "q4" | "q8" | "f16" | "mixed",              (optional, default q4)
  *     "enhancer": "none" | "lavasr",                         (optional, default none)
- *     "enhancerVariant": "f16" | "f32" | "q8_0" | "q5_0" | "q4_0" | "q6_K" | "q5_K" | "q4_K",
- *                                                            (optional, default f16; enhancer quant tier)
+ *     "enhancerVariant": "f16" | "f32" | "q8_0",            (optional, default f16; enhancer quant tier)
  *     "denoiser": "none" | "lavasr",                         (optional, default none)
  *     "useGPU": true | false,
  *     "backendHint": "cpu" | "metal" | "vulkan" | "opencl",  (optional)

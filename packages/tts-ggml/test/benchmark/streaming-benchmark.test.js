@@ -62,9 +62,9 @@ const {
   normalizeDenoiser,
   normalizeEnhancerVariant,
   enhancerTag,
-  denoiserTag,
-  enhancerVariantTag
+  denoiserTag
 } = require('../utils/downloadModel')
+const { buildBenchmarkArtifactFileName } = require('../utils/artifactName')
 
 const VALID_ENGINES = [
   'chatterbox',
@@ -262,25 +262,7 @@ function resolveBackend(platformName, useGPU, backendHint) {
 }
 
 function getArtifactFileName(settings) {
-  const parts = [
-    'streaming-benchmark',
-    platformArch,
-    settings.engine,
-    settings.variant,
-    settings.useGPU ? 'gpu' : 'cpu'
-  ]
-  // Insert the enhancer / denoiser tags only when enabled so existing
-  // (enhancer=none, denoiser=none) artifact names stay byte-for-byte stable.
-  const enhancerToken = enhancerTag(settings.enhancer)
-  if (enhancerToken) parts.push(enhancerToken)
-  // A non-default enhancer quant tier (e.g. q4_0) follows the `lavasr` token so
-  // per-tier artifacts don't overwrite each other; fp16 adds nothing (byte-stable).
-  const enhancerVariantToken = enhancerVariantTag(settings.enhancer, settings.enhancerVariant)
-  if (enhancerVariantToken) parts.push(enhancerVariantToken)
-  const denoiserToken = denoiserTag(settings.denoiser)
-  if (denoiserToken) parts.push(denoiserToken)
-  if (settings.label) parts.push(settings.label)
-  return `${parts.join('-')}.json`
+  return buildBenchmarkArtifactFileName('streaming-benchmark', platformArch, settings)
 }
 
 function getBaseDir() {

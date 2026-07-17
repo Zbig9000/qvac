@@ -552,24 +552,24 @@ const SUPERTONIC_MTL_GGUFS = [
 
 // LavaSR 48 kHz bandwidth-extension enhancer (benchmark `enhancer=lavasr` axis).
 // fp16 (~28 MB, the benchmark default) + fp32 (~56 MB) are published on the QVAC
-// registry under the 2026-06-26 build. QVAC-21906 adds the block-quant tiers
-// (q4_0/q5_0/q8_0) and K-quant tiers (q4_K/q5_K/q6_K); the C++ loader dequantizes
-// each at load, so the forward math matches fp32 and only the GGUF shrinks. The
-// `enhancerVariant` axis (default fp16) picks the tier; each tier is fetched from
-// the registry and kept on disk under its own name so tiers can coexist, exactly
-// like the Supertonic 3 tiers below. One generous band spans q4_0 (~8 MB) .. fp32
-// (~56 MB); it is only a truncation guard because every tier has a distinct
-// filename + registry path (so a stale cache can't be mistaken for another tier).
+// registry under the 2026-06-26 build. A q8_0 tier can be layered on top; the C++
+// loader dequantizes it at load, so the forward math matches fp32 and only the
+// GGUF shrinks. The `enhancerVariant` axis (default fp16) picks the tier; each
+// tier is fetched from the registry and kept on disk under its own name so tiers
+// can coexist, exactly like the Supertonic 3 tiers below. One generous band spans
+// q8_0 (~15 MB) .. fp32 (~56 MB); it is only a truncation guard because every tier
+// has a distinct filename + registry path (so a stale cache can't be mistaken for
+// another tier).
 const REGISTRY_DATE_LAVASR = '2026-06-26'
 const SIZE_LAVASR_ENHANCER = { minSize: 4_000_000, maxSize: 80_000_000 }
 
 // Single source of truth for the enhancer quant tiers. fp16 / fp32 are published
-// today; the quantized tiers resolve once QVAC-21906's converter/requantizer
-// output is uploaded (a `lavasr` benchmark row soft-skips until its tier GGUF is
-// fetchable). Shared by normalizeEnhancerVariant + lavasrEnhancerGguf so the axis
-// and the fetch path can never drift.
+// today; the q8_0 tier resolves once its GGUF is uploaded (a `lavasr` benchmark
+// row soft-skips until its tier GGUF is fetchable). Shared by
+// normalizeEnhancerVariant + lavasrEnhancerGguf so the axis and the fetch path can
+// never drift.
 const DEFAULT_ENHANCER_VARIANT = 'f16'
-const VALID_ENHANCER_VARIANTS = ['f16', 'f32', 'q8_0', 'q5_0', 'q4_0', 'q6_K', 'q5_K', 'q4_K']
+const VALID_ENHANCER_VARIANTS = ['f16', 'f32', 'q8_0']
 
 // Canonicalize an enhancer quant tier (case-insensitive, default fp16). Unknown
 // tiers throw so a typo fails loudly instead of silently downgrading to fp16.
@@ -603,23 +603,16 @@ function lavasrEnhancerGguf(variant) {
   }
 }
 
-// Legacy block quants the gguf-python path (requantize-gguf.py) can emit; the
-// K-quants need ggml's own quantizer (the lavasr-requantize C++ tool). fp16 /
-// fp32 come straight from the converter. Used only to print an accurate offline
-// build hint when a tier can't be fetched.
-const ENHANCER_LEGACY_BLOCK_QUANTS = ['q4_0', 'q5_0', 'q8_0']
-
 // One-line "how to build this tier offline" hint, matched to the tool that can
 // actually emit it, so a skipped quant row tells you exactly how to produce it.
+// fp16 / fp32 come straight from the converter; q8_0 is requantized from the fp16
+// GGUF with the gguf-python path (requantize-gguf.py).
 function enhancerOfflineBuildHint(variant) {
   const tier = normalizeEnhancerVariant(variant)
   if (tier === 'f16' || tier === 'f32') {
     return ` scripts/convert-lavasr-enhancer-to-gguf.py --ftype ${tier}, to run offline.`
   }
-  if (ENHANCER_LEGACY_BLOCK_QUANTS.includes(tier)) {
-    return ` scripts/requantize-gguf.py <f16.gguf> <out.gguf> ${tier}, to run offline.`
-  }
-  return ` lavasr-requantize <f16.gguf> <out.gguf> ${tier} (whisper.cpp), to run offline.`
+  return ` scripts/requantize-gguf.py <f16.gguf> <out.gguf> ${tier}, to run offline.`
 }
 
 // LavaSR UL-UNAS speech denoiser (benchmark `denoiser=lavasr` axis). Runs BEFORE
@@ -1187,7 +1180,7 @@ function denoiserTag(value) {
 // Trailing token the enhancer QUANT tier contributes to artifact filenames and
 // matrix run labels. Empty when the enhancer is off OR the tier is the fp16
 // default, so pre-quant `lavasr` artifacts/labels stay byte-for-byte identical;
-// otherwise the canonical tier id (e.g. `q4_0`). Only meaningful next to an
+// otherwise the canonical tier id (e.g. `q8_0`). Only meaningful next to an
 // enhancer token — a non-default tier without `enhancer=lavasr` contributes
 // nothing (the tier is inert when no enhancer runs).
 function enhancerVariantTag(enhancer, variant) {
@@ -1204,9 +1197,9 @@ function enhancerVariantTag(enhancer, variant) {
  *
  * @param {Object} [options]
  * @param {string} [options.targetDir] - preferred dir (default models/lavasr).
- * @param {string} [options.quant] - enhancer quant tier (f16 | f32 | q8_0 | q5_0
- *   | q4_0 | q6_K | q5_K | q4_K; default fp16). Picks both the registry tier GGUF
- *   and the on-disk filename so tiers coexist. Ignored when options.registryPath
+ * @param {string} [options.quant] - enhancer quant tier (f16 | f32 | q8_0;
+ *   default fp16). Picks both the registry tier GGUF and the on-disk filename so
+ *   tiers coexist. Ignored when options.registryPath
  *   is set (the explicit path wins).
  * @param {string} [options.registryPath] - override the resolved registry path
  *   (e.g. a one-off build); also settable via $LAVASR_ENHANCER_REGISTRY_PATH.

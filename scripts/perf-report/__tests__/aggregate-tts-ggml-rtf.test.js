@@ -260,9 +260,9 @@ test('desktop record defaults enhancerVariant to fp16 and surfaces model.enhance
 
   const report = desktopReport(true)
   report.model.enhancer = 'lavasr'
-  report.model.enhancerVariant = 'q4_0'
-  const record = normalizeDesktopRecord(report, 'rtf-benchmark-linux-x64-chatterbox-q4-gpu-lavasr-q4_0.json')
-  assert.equal(record.enhancerVariant, 'q4_0')
+  report.model.enhancerVariant = 'q8_0'
+  const record = normalizeDesktopRecord(report, 'rtf-benchmark-linux-x64-chatterbox-q4-gpu-lavasr-q8_0.json')
+  assert.equal(record.enhancerVariant, 'q8_0')
 })
 
 test('mobile canonical report carries the record-level enhancerVariant (default fp16)', () => {
@@ -271,10 +271,10 @@ test('mobile canonical report carries the record-level enhancerVariant (default 
 
   const report = mobileCanonicalReport()
   report.results[0].test = '[GPU] chatterbox q4 metal lavasr'
-  report.results[0].enhancerVariant = 'q5_K'
+  report.results[0].enhancerVariant = 'q8_0'
   const { records } = expandCanonicalReport(report, '/x/Apple_iPhone_16_Pro/performance-report.json')
   assert.equal(records[0].enhancer, 'lavasr')
-  assert.equal(records[0].enhancerVariant, 'q5_K')
+  assert.equal(records[0].enhancerVariant, 'q8_0')
 })
 
 test('markdown renders the fp16 enhancer as plain lavasr (byte-stable) and a quant tier as lavasr/<tier>', () => {
@@ -285,10 +285,10 @@ test('markdown renders the fp16 enhancer as plain lavasr (byte-stable) and a qua
 
   const quant = desktopReport(true)
   quant.model.enhancer = 'lavasr'
-  quant.model.enhancerVariant = 'q4_0'
-  const quantRecord = normalizeDesktopRecord(quant, 'rtf-benchmark-linux-x64-chatterbox-q4-gpu-lavasr-q4_0.json')
+  quant.model.enhancerVariant = 'q8_0'
+  const quantRecord = normalizeDesktopRecord(quant, 'rtf-benchmark-linux-x64-chatterbox-q4-gpu-lavasr-q8_0.json')
   const markdown = renderMarkdown([quantRecord], [])
-  assert.ok(markdown.includes('| lavasr/q4_0 |'), 'a non-fp16 tier renders as lavasr/<tier>')
+  assert.ok(markdown.includes('| lavasr/q8_0 |'), 'a non-fp16 tier renders as lavasr/<tier>')
 })
 
 test('dedupeRecords keeps rows that differ only by enhancer quant tier as separate rows', () => {
@@ -299,8 +299,8 @@ test('dedupeRecords keeps rows that differ only by enhancer quant tier as separa
     return normalizeDesktopRecord(report, `rtf-benchmark-linux-x64-chatterbox-q4-gpu-lavasr-${enhancerVariant}.json`)
   }
 
-  const deduped = dedupeRecords([lavasrRecord('f16'), lavasrRecord('q4_0'), lavasrRecord('q4_0')])
-  assert.equal(deduped.length, 2, 'f16 and q4_0 survive; the duplicate q4_0 collapses')
+  const deduped = dedupeRecords([lavasrRecord('f16'), lavasrRecord('q8_0'), lavasrRecord('q8_0')])
+  assert.equal(deduped.length, 2, 'f16 and q8_0 survive; the duplicate q8_0 collapses')
   const tiers = deduped.map((r) => r.enhancerVariant).sort()
-  assert.deepEqual(tiers, ['f16', 'q4_0'])
+  assert.deepEqual(tiers, ['f16', 'q8_0'])
 })

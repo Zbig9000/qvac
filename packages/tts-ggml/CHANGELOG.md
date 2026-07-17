@@ -47,20 +47,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shared `normalizeEnhancer()` / `normalizeDenoiser()` helpers. The benchmark/CI
   enhancer and denoiser axes built on these utilities are documented in
   `benchmarks/RTF-BENCHMARKS.md`.
-- **LavaSR enhancer quantization benchmark axis.** New
-  `QVAC_TTS_GGML_BENCHMARK_ENHANCER_VARIANT` selects the enhancer quant tier per
-  run/matrix row — `f16` (default) / `f32` / `q8_0` / `q5_0` / `q4_0` / `q6_K` /
-  `q5_K` / `q4_K` — so the enhancer is swept as its own quant axis independently of
-  the engine. `downloadModel.js` `ensureLavaSREnhancerGguf({ quant })` resolves each
-  tier to its own on-disk file (`lavasr-enhancer.gguf` for the byte-stable `f16`
-  default, `lavasr-enhancer-<tier>.gguf` otherwise) and registry path, with
-  `normalizeEnhancerVariant()` / `enhancerVariantTag()` helpers. Non-`f16` tiers
-  append `-<tier>` to the artifact name after the `-lavasr` token and render as
-  `lavasr/<tier>` in the aggregated `Enhancer` column (each tier dedupes as its own
-  row); the `f16` default stays byte-for-byte identical to pre-quant artifacts and
-  labels. Registry manifest entries and the desktop CI matrix (an enhancer quant
-  sweep on `supertonic` across CPU + Vulkan/Metal) are wired for all tiers; rows
-  soft-skip (green) until each quant GGUF is published to S3. Documented in
+- **LavaSR enhancer quant tier in the shipped `test/utils` helpers.**
+  `downloadModel.js` `ensureLavaSREnhancerGguf({ quant })` now resolves a per-tier
+  enhancer GGUF — `f16` (default) / `f32` / `q8_0` — to its own on-disk file
+  (`lavasr-enhancer.gguf` for the byte-stable `f16` default,
+  `lavasr-enhancer-<tier>.gguf` otherwise) and registry path, with shared
+  `normalizeEnhancerVariant()` / `enhancerVariantTag()` helpers. The benchmark/CI
+  enhancer quant axis built on these utilities is documented in
   `benchmarks/RTF-BENCHMARKS.md`.
 - Opt-in `vulkanCacheDir` (Supertonic + `useGPU: true`): persists the Vulkan pipeline cache (`GGML_VK_PIPELINE_CACHE_DIR`) and pre-warms it at `load()` so the first-dispatch shader-compile cost is paid once per install, not on the first `run()`. Fully opt-in/non-breaking; Vulkan analogue of `openclCacheDir` (QVAC-21910, tetherto/qvac#3120).
 - **Per-call cancellation via `AbortSignal` on `run()`.** `model.run({ input, signal })` now accepts an optional `AbortSignal`; when it aborts, `response.await()` rejects with the abort reason. An already-aborted signal rejects deterministically without dispatching the engine (no native interrupt) — the race-free way to cancel on fast hardware. Additive/non-breaking. Non-streaming `run()` only: **ignored when `streamOutput: true`** (and on `runStream` / `runStreaming`). (QVAC-22247, tetherto/qvac#3260)
