@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Apple-only Core ML (Neural Engine) acceleration for the FastConformer encoder. When a macOS/iOS prebuild is built with the `coreml` feature and a `<model>-encoder.mlmodelc` sits next to the GGUF, the encoder runs on the Apple Neural Engine while mel preprocessing, TDT/CTC decode, and the tokenizer stay on ggml; a missing/incompatible `.mlmodelc` silently falls back to the ggml-Metal encoder. Selection is presence-driven, so non-Apple platforms and Apple bundles without the `.mlmodelc` are unchanged. `getBackendInfo()` now also reports `encoderBackend` (`'coreml'` when the sidecar is active, else mirrors `backendName`) and `encoderOnCoreml`, and `RuntimeStats` gains `encoderOnCoreml` (0/1).
+- `getBackendInfo()` now reports which compute backend ran the FastConformer encoder: `encoderBackend` (`'coreml'` when the Apple Neural Engine Core ML sidecar drives the encoder, else mirrors `backendName`) and `encoderOnCoreml` (boolean). `RuntimeStats` gains `encoderOnCoreml` (0/1). Off Apple, or whenever the Core ML sidecar is absent, both report the ggml backend; the TDT/CTC decoder always runs on ggml.
 
 ### Changed
 

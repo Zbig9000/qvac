@@ -126,6 +126,15 @@ TEST_F(ParakeetModelTest, GetDisplayNameEqualsGetName) {
     EXPECT_EQ(m.getDisplayName(), m.getName());
 }
 
+TEST_F(ParakeetModelTest, EncoderBackendMirrorsBackendNamePreLoad) {
+    ParakeetModel m(cfg);
+    // Pre-load: the Core ML encoder sidecar never activates, so the encoder
+    // backend mirrors the ggml backend name and encoderOnCoreml stays 0.
+    EXPECT_EQ(m.getEncoderBackend(), m.getBackendName());
+    EXPECT_EQ(m.getEncoderBackend(), "CPU");
+    EXPECT_EQ(m.getEncoderOnCoreml(), 0);
+}
+
 TEST_F(ParakeetModelTest, ConfigEquality) {
     ParakeetConfig a;
     ParakeetConfig b;
