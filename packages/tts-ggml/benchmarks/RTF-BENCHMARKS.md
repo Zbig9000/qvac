@@ -292,12 +292,15 @@ npm --prefix packages/tts-ggml run test:benchmark:rtf
   (the `f16`/`f32` enhancer tiers and the denoiser) hard-fails if its GGUF can't be
   fetched, so a real registry failure surfaces instead of a false green, while the
   not-yet-published `q8_0` tier soft-skips (green) until it lands on S3.
-- **Mobile** (`integration-mobile-test-tts-ggml.yml`): the on-device runtime
-  reads `QVAC_TTS_GGML_BENCHMARK_ENHANCER` / `QVAC_TTS_GGML_BENCHMARK_ENHANCER_VARIANT`
-  / `QVAC_TTS_GGML_BENCHMARK_DENOISER` (all threaded through the inject-env step).
-  Device Farm rows for the enhancer / denoiser follow once their GGUFs are listed
-  in the mobile model manifest (mobile pushes pre-staged files rather than fetching
-  from the registry on-device).
+- **Mobile** (`integration-mobile-test-tts-ggml.yml`): Device Farm rows benchmark
+  the fp16 enhancer (CPU + GPU) and the denoiser (CPU) on supertonic + chatterbox.
+  The on-device runtime reads `QVAC_TTS_GGML_BENCHMARK_ENHANCER` /
+  `QVAC_TTS_GGML_BENCHMARK_ENHANCER_VARIANT` / `QVAC_TTS_GGML_BENCHMARK_DENOISER`
+  (threaded through the inject-env step). iOS resolves the GGUFs from the registry
+  on-device (like the engine GGUFs); Android has no on-device network, so the fp16
+  enhancer + denoiser are pre-signed into the mobile model manifest and adb-pushed
+  into `<models>/lavasr/` by the prestage step, where `ensureLavaSR*Gguf` scans for
+  them. The enhancer quant-tier sweep stays desktop-only.
 
 ## How the CI pipeline fits together
 

@@ -59,6 +59,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `classifyEnhancerResolution()` / `classifyDenoiserResolution()`. The benchmark/CI
   enhancer quant axis built on these utilities is documented in
   `benchmarks/RTF-BENCHMARKS.md`.
+- **LavaSR enhancer / denoiser on the mobile Device Farm benchmark.** The
+  `integration-mobile-test-tts-ggml.yml` benchmark matrix now sweeps the fp16
+  enhancer (CPU + GPU) and the denoiser (CPU) on supertonic + chatterbox for both
+  Android and iOS. iOS resolves the GGUFs from the registry on-device; Android has
+  no on-device network, so `scripts/generate-mobile-model-manifest.js` pre-signs
+  the fp16 enhancer + denoiser and `scripts/generate-prestage-block.js` adb-pushes
+  them into `<models>/lavasr/`, where `ensureLavaSREnhancerGguf` /
+  `ensureLavaSRDenoiserGguf` (now scanning the Android prestage dirs) pick them up.
+  The label and perf-report artifact name gain the `lavasr` / `denoise` tags so the
+  new rows don't collide with the engine-only rows. CI-only; not shipped with the
+  npm package.
 - Opt-in `vulkanCacheDir` (Supertonic + `useGPU: true`): persists the Vulkan pipeline cache (`GGML_VK_PIPELINE_CACHE_DIR`) and pre-warms it at `load()` so the first-dispatch shader-compile cost is paid once per install, not on the first `run()`. Fully opt-in/non-breaking; Vulkan analogue of `openclCacheDir` (QVAC-21910, tetherto/qvac#3120).
 - **Per-call cancellation via `AbortSignal` on `run()`.** `model.run({ input, signal })` now accepts an optional `AbortSignal`; when it aborts, `response.await()` rejects with the abort reason. An already-aborted signal rejects deterministically without dispatching the engine (no native interrupt) — the race-free way to cancel on fast hardware. Additive/non-breaking. Non-streaming `run()` only: **ignored when `streamOutput: true`** (and on `runStream` / `runStreaming`). (QVAC-22247, tetherto/qvac#3260)
 

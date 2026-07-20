@@ -716,6 +716,22 @@ const ANDROID_CANDIDATE_DIRS = [
   '/data/local/tmp/qvac-tts-ggml/models'
 ]
 
+// Map models dirs to the `lavasr/<fileName>` path the prestage step pushes into.
+// Pure so the join logic is unit-testable without an Android platform.
+function lavasrCandidatePaths(dirs, fileName) {
+  return dirs.map((dir) => path.join(dir, 'lavasr', fileName))
+}
+
+// LavaSR GGUFs are adb-pushed into a `lavasr/` subdir of each Android models
+// dir (mobile has no on-device registry on Android, so the benchmark's
+// prestage step stages them there). The enhancer/denoiser resolvers scan these
+// so a pushed file is found without a network fetch; empty off-Android, where
+// resolution falls through to the on-device registry.
+function androidLavasrCandidates(fileName) {
+  if (!(isMobile && platform === 'android')) return []
+  return lavasrCandidatePaths(ANDROID_CANDIDATE_DIRS, fileName)
+}
+
 /** Optional `TTS_GGML_LOCAL_MODELS_DIR` env override + a desktop dev
  *  fallback that points at chatterbox.cpp's converter output dir.
  *  Both are appended to the candidate list AFTER the caller-supplied
@@ -1271,7 +1287,8 @@ async function ensureLavaSREnhancerGguf(options = {}) {
   const candidates = [
     path.join(requestedDir, fileName),
     path.join(baseDir, 'models', 'lavasr', fileName),
-    path.join(baseDir, 'models', fileName)
+    path.join(baseDir, 'models', fileName),
+    ...androidLavasrCandidates(fileName)
   ]
   for (const p of candidates) {
     if (fs.existsSync(p)) {
@@ -1335,7 +1352,8 @@ async function ensureLavaSRDenoiserGguf(options = {}) {
   const candidates = [
     path.join(requestedDir, fileName),
     path.join(baseDir, 'models', 'lavasr', fileName),
-    path.join(baseDir, 'models', fileName)
+    path.join(baseDir, 'models', fileName),
+    ...androidLavasrCandidates(fileName)
   ]
   for (const p of candidates) {
     if (fs.existsSync(p)) {
@@ -1516,5 +1534,8 @@ module.exports = {
   DEFAULT_DENOISER,
   VALID_ENHANCER_VARIANTS,
   DEFAULT_ENHANCER_VARIANT,
-  PUBLISHED_ENHANCER_VARIANTS
+  PUBLISHED_ENHANCER_VARIANTS,
+  ANDROID_CANDIDATE_DIRS,
+  lavasrCandidatePaths,
+  androidLavasrCandidates
 }
