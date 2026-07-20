@@ -90,6 +90,10 @@ const Q8_MODELS = [
 // sweep is desktop-only). The target keeps the on-disk names the on-device
 // resolver expects under a `lavasr/` subdir (ensureLavaSR*Gguf scans
 // <modelsDir>/lavasr), so they never collide with the flat engine GGUFs.
+// The registry dates below must match REGISTRY_DATE_LAVASR /
+// REGISTRY_DATE_LAVASR_DENOISER in test/utils/downloadModel.js (the resolver that
+// fetches the same GGUFs); generate-mobile-model-manifest.test.js pins them so a
+// drift fails there, since this Node script can't require that Bare-only module.
 const LAVASR_MODELS = [
   model(
     'lavasr-enhancer-f16.gguf',

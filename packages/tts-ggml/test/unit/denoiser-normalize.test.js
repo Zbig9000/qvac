@@ -18,8 +18,14 @@ test('normalizeDenoiser defaults empty / unset input to the shared default', (t)
   t.is(DEFAULT_DENOISER, 'none', 'default denoiser is none (denoiser stage off)')
   t.ok(VALID_DENOISERS.includes('lavasr'), 'lavasr is a valid denoiser')
   t.is(normalizeDenoiser(''), DEFAULT_DENOISER, "'' -> default")
+  t.is(normalizeDenoiser('  '), DEFAULT_DENOISER, 'whitespace-only -> default (not an error)')
   t.is(normalizeDenoiser(undefined), DEFAULT_DENOISER, 'undefined -> default')
   t.is(normalizeDenoiser(null), DEFAULT_DENOISER, 'null -> default')
+})
+
+test('normalizeDenoiser trims surrounding whitespace before validating', (t) => {
+  t.is(normalizeDenoiser('  lavasr  '), 'lavasr', 'a padded value is trimmed, not rejected')
+  t.is(normalizeDenoiser(' none '), 'none', 'a padded default value is trimmed')
 })
 
 test('normalizeDenoiser throws on an unknown denoiser so a typo fails loudly', (t) => {

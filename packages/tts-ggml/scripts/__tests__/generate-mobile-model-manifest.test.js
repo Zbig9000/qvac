@@ -44,11 +44,16 @@ test('the lavasr section targets the on-device lavasr/ subdir names the resolver
   )
 })
 
+// The registry dates are pinned so a change to the prestage manifest paths fails
+// here as a reminder to keep them in lockstep with REGISTRY_DATE_LAVASR /
+// REGISTRY_DATE_LAVASR_DENOISER in test/utils/downloadModel.js (the resolver that
+// fetches the same GGUFs). That module is Bare-only, so this Node test can't
+// require it to compare the constants directly.
 test('the lavasr entries are signed from the published fp16 registry paths', () => {
   const { manifest } = buildManifest(fakePresign)
   const [enhancer, denoiser] = manifest.lavasr
-  assert.match(enhancer.url, /ggml\/lavasr\/.*lavasr-enhancer-f16\.gguf$/)
-  assert.match(denoiser.url, /ggml\/lavasr\/.*lavasr-denoiser-f16\.gguf$/)
+  assert.match(enhancer.url, /ggml\/lavasr\/2026-06-26\/lavasr-enhancer-f16\.gguf$/)
+  assert.match(denoiser.url, /ggml\/lavasr\/2026-07-03\/lavasr-denoiser-f16\.gguf$/)
 })
 
 test('LAVASR_MODELS keeps the fp16 registry key / on-disk target split', () => {

@@ -247,12 +247,12 @@ resolver, in order:
 
 1. `LAVASR_DENOISER_GGUF` (absolute path to a local GGUF);
 2. a locally-staged `models/lavasr/lavasr-denoiser.gguf` (and a couple of fallbacks);
-3. the QVAC registry — `TTS_DENOISER_LAVASR_FP16` by default, or the path in
-   `LAVASR_DENOISER_REGISTRY_PATH` (+ optional `LAVASR_DENOISER_REGISTRY_SOURCE`,
-   default `s3`).
+3. the QVAC registry — `qvac_models_compiled/ggml/lavasr/2026-07-03/lavasr-denoiser-f16.gguf`
+   by default, or the path in `LAVASR_DENOISER_REGISTRY_PATH` (+ optional
+   `LAVASR_DENOISER_REGISTRY_SOURCE`, default `s3`).
 
-The denoiser GGUF is published on the QVAC registry (fp16 `TTS_DENOISER_LAVASR_FP16`
-~0.5 MB, under `qvac_models_compiled/ggml/lavasr/2026-07-03/`), so
+The denoiser GGUF is published on the QVAC registry (fp16 ~0.5 MB, under
+`qvac_models_compiled/ggml/lavasr/2026-07-03/`), so
 `denoiser=lavasr` desktop rows fetch it automatically. Because it's published, an
 unresolved denoiser **hard-fails** (like the engine GGUF and the published
 enhancer tiers) rather than soft-skipping, so a real fetch failure surfaces

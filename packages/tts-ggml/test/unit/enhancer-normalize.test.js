@@ -18,8 +18,14 @@ test('normalizeEnhancer defaults empty / unset input to the shared default', (t)
   t.is(DEFAULT_ENHANCER, 'none', 'default enhancer is none (engine as-is)')
   t.ok(VALID_ENHANCERS.includes('lavasr'), 'lavasr is a valid enhancer')
   t.is(normalizeEnhancer(''), DEFAULT_ENHANCER, "'' -> default")
+  t.is(normalizeEnhancer('  '), DEFAULT_ENHANCER, 'whitespace-only -> default (not an error)')
   t.is(normalizeEnhancer(undefined), DEFAULT_ENHANCER, 'undefined -> default')
   t.is(normalizeEnhancer(null), DEFAULT_ENHANCER, 'null -> default')
+})
+
+test('normalizeEnhancer trims surrounding whitespace before validating', (t) => {
+  t.is(normalizeEnhancer('  lavasr  '), 'lavasr', 'a padded value is trimmed, not rejected')
+  t.is(normalizeEnhancer(' none '), 'none', 'a padded default value is trimmed')
 })
 
 test('normalizeEnhancer throws on an unknown enhancer so a typo fails loudly', (t) => {

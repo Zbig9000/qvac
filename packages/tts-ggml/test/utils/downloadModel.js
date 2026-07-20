@@ -560,6 +560,11 @@ const SUPERTONIC_MTL_GGUFS = [
 // q8_0 (~15 MB) .. fp32 (~56 MB); it is only a truncation guard because every tier
 // has a distinct filename + registry path (so a stale cache can't be mistaken for
 // another tier).
+// REGISTRY_DATE_LAVASR / REGISTRY_DATE_LAVASR_DENOISER are mirrored in
+// scripts/generate-mobile-model-manifest.js (LAVASR_MODELS) for the Android
+// prestage; keep them in sync. generate-mobile-model-manifest.test.js pins the
+// dates so a drift fails there (that Node script can't require this Bare-only
+// module to share the constant directly).
 const REGISTRY_DATE_LAVASR = '2026-06-26'
 const SIZE_LAVASR_ENHANCER = { minSize: 4_000_000, maxSize: 80_000_000 }
 
@@ -1208,8 +1213,12 @@ const DEFAULT_DENOISER = 'none'
 // unambiguous when both appear in one canonical label or artifact name.
 const DENOISER_LABEL_TOKEN = 'denoise'
 
+// Trims first, then defaults blank input, so a padded or whitespace-only env
+// value behaves like the unset default instead of throwing. Mirrors
+// normalizeEnhancerVariant so all three benchmark axes canonicalize identically.
 function normalizeAxisValue(kind, validValues, defaultValue, value) {
-  const normalized = String(value || defaultValue).toLowerCase()
+  const raw = String(value === undefined || value === null ? '' : value).trim()
+  const normalized = (raw === '' ? defaultValue : raw).toLowerCase()
   if (!validValues.includes(normalized)) {
     throw new Error(`Invalid benchmark ${kind}: ${normalized}. Valid: ${validValues.join(', ')}`)
   }
