@@ -237,6 +237,28 @@ test('run recovers on the same model after a malformed buffer fails', async (t) 
   t.is(await model.status(), 'listening', 'Model should return to listening after recovery')
 })
 
+test('A rejected end-of-job append drains the buffered audio', async (t) => {
+  const binding = new MockedBinding()
+  binding.runJob = () => false
+
+  const model = createMockedModel({ binding })
+  await model.load()
+
+  await model.addon.append({ type: 'audio', input: new Uint8Array([1, 2, 3, 4]) })
+  try {
+    await model.addon.append({ type: 'end of job' })
+    t.fail('A rejected job should fail the end-of-job append')
+  } catch (error) {
+    t.ok(
+      error.message.includes('a job is already set or being processed'),
+      'A rejected job should surface the busy native error'
+    )
+  }
+
+  t.is(model.addon._bufferedBytes, 0, 'A rejected job should drain the buffered audio')
+  t.is(model.addon._bufferedAudio.length, 0, 'A rejected job should leave no buffered chunks')
+})
+
 test('WhisperInterface runJob preserves active job when native rejects new job', async (t) => {
   const binding = new MockedBinding()
   const addon = new WhisperInterface(
