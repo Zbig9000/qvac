@@ -2,14 +2,15 @@
 # Sourced from the parakeet-cpp/ subfolder of tetherto/qvac-ext-lib-whisper.cpp;
 # consumes the ggml-speech port.
 #
-# QVAC-22367: bound offline-transcription memory on long audio. transcribe_samples
+# Long-audio memory fix: bound offline-transcription memory. transcribe_samples
 # / transcribe_samples_stream previously ran the conformer encoder over the whole
 # input in a single graph (O(T_enc^2) self-attention), OOMing on multi-hour files
-# (~100 GB for a 90 min file, SIGKILL). This pin slides the encoder over the audio
-# in overlapping windows and trims the shared context at the interior seams;
-# inputs that fit one window keep the bit-identical single-pass path. Layered on
-# top of master ecac5bb7 (PR #85, EOU RNN-T decoder as ggml graphs on GPU).
-# Requires ggml-speech >= 2026-07-15 (unchanged from the previous pin).
+# (~100 GB for a 90 min file, SIGKILL). This pin computes the mel once (global
+# CMVN) and slides the encoder over it in overlapping windows, trimming the
+# shared context at the interior seams; inputs that fit one window keep the
+# bit-identical single-pass path. Layered on top of master ecac5bb7 (PR #85, EOU
+# RNN-T decoder as ggml graphs on GPU). Requires ggml-speech >= 2026-07-15
+# (unchanged from the previous pin).
 #
 # WIP: REPO/REF/HEAD_REF point at the Zbig9000 fork branch pending the upstream
 # PR merge (SHA512 is the hash of that fork tarball). NOTE: master has since
@@ -25,8 +26,8 @@ set(VCPKG_BUILD_TYPE release)
 vcpkg_from_github(
     OUT_SOURCE_PATH WHISPER_CPP_SRC
     REPO Zbig9000/qvac-ext-lib-whisper.cpp
-    REF 963b28db7601c827df1cc8ad17e903a802864c3e
-    SHA512 34b157a031c42af95ef50eb05707ed90d5806f97a2f349c23e952bfce6e1a0586df236fb55b9c1194ee8204083bb6cd5d5b71dfc62a727b43ba5f456bad098d4
+    REF e5f22556bffb791be0c230281edb8e1a06564ee4
+    SHA512 894078f9e6f96e95193d28552100b29b03e077358bb1aa8a8f4d694dcd78fe85ca863c680cd36560a4cab6d2d9f1eb1d49161be4f320a3bbcd7c5f4baac2e8d1
     HEAD_REF QVAC-22367-parakeet-long-audio
 )
 
