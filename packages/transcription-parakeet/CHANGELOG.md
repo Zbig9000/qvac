@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bundled `parakeet-cpp` (bumped to `2026-07-21#0`) now slides the encoder over
   long inputs in overlapping windows with bounded memory; short inputs keep the
   identical single-pass path. `transcribeStream` was already bounded and is
-  unchanged (QVAC-22367).
+  unchanged.
 
 ### Changed
 
