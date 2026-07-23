@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   identical single-pass path. `transcribeStream` was already bounded and is
   unchanged.
 
+## [0.10.1] - 2026-07-20
+
 ### Changed
 
 - Migrated the published JavaScript wrapper to generated TypeScript sources and added declarations for the supported `./parakeet` subpath export, while preserving the existing CommonJS runtime API.

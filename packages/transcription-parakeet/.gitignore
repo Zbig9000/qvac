@@ -22,7 +22,6 @@ Makefile
 !CMakeLists.txt
 !cmake/*.cmake
 !vcpkg/**/*.cmake
-!vcpkg-overlays/**/*.cmake
 compile_commands.json
 .vscode/
 .idea/

@@ -37,17 +37,6 @@
       "host": true
     }
   ],
-  "overrides": [
-    {
-      "name": "parakeet-cpp",
-      "version": "2026-07-21",
-      "port-version": 0
-    },
-    {
-      "name": "qvac-lib-inference-addon-cpp",
-      "version": "1.2.4"
-    }
-  ],
   "features": {
     "tests": {
       "description": "Build tests",
