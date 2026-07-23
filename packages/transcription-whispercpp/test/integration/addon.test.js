@@ -2,6 +2,8 @@
 const fs = require('bare-fs')
 const path = require('bare-path')
 const test = require('brittle')
+const process = require('bare-process')
+const { spawnSync } = require('bare-subprocess')
 const { WhisperInterface } = require('../../whisper')
 const binding = require('../../binding')
 const {
@@ -19,6 +21,8 @@ const {
 const platform = detectPlatform()
 const { modelPath, vadModelPath, audioPath } = getTestPaths()
 const backendsDir = getBackendsDir()
+const activationRunnerPath = path.resolve(__dirname, 'activate-without-backends-dir.runner.js')
+const ACTIVATION_TIMEOUT_MS = 120000
 
 test('[low level] Real C++ addon bindings work correctly', async (t) => {
   await ensureWhisperModel(modelPath)
@@ -181,6 +185,28 @@ test('[low level] Real addon state transitions work correctly', async (t) => {
     } catch {}
   }
 })
+
+function runActivationWithoutBackendsDir() {
+  return spawnSync(process.execPath, [activationRunnerPath, modelPath], {
+    encoding: 'utf8',
+    timeout: ACTIVATION_TIMEOUT_MS
+  })
+}
+
+test(
+  '[low level] activating without backendsDir does not abort the process',
+  { timeout: ACTIVATION_TIMEOUT_MS },
+  async (t) => {
+    const whisperResult = await ensureWhisperModel(modelPath)
+    const result = runActivationWithoutBackendsDir()
+
+    t.absent(result.signal, 'activation without backendsDir must not abort via signal')
+
+    if (whisperResult.isReal) {
+      t.is(result.status, 0, 'activation without backendsDir should exit cleanly with a real model')
+    }
+  }
+)
 
 test('Real addon can handle multiple audio chunks', { timeout: 120000 }, async (t) => {
   await ensureWhisperModel(modelPath)
