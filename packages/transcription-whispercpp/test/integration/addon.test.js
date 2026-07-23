@@ -12,11 +12,13 @@ const {
   generateTestAudio,
   makePcmNoise,
   setupJsLogger,
-  getTestPaths
+  getTestPaths,
+  getBackendsDir
 } = require('./helpers.js')
 
 const platform = detectPlatform()
 const { modelPath, vadModelPath, audioPath } = getTestPaths()
+const backendsDir = getBackendsDir()
 
 test('[low level] Real C++ addon bindings work correctly', async (t) => {
   await ensureWhisperModel(modelPath)
@@ -47,7 +49,8 @@ test('[low level] Real C++ addon bindings work correctly', async (t) => {
     },
     miscConfig: {
       caption_enabled: false
-    }
+    },
+    backendsDir
   }
 
   let model
@@ -132,7 +135,8 @@ test('[low level] Real addon state transitions work correctly', async (t) => {
     },
     miscConfig: {
       caption_enabled: false
-    }
+    },
+    backendsDir
   }
 
   let model
