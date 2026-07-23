@@ -48,6 +48,7 @@ jobs:
         with:
           repository: ${{ inputs.repository || github.repository }}
           ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # 6.3.0
@@ -87,6 +88,7 @@ jobs:
         with:
           repository: ${{ inputs.repository || github.repository }}
           ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
 
       # Runtime deps the freshly-built linux-x64 prebuild dlopen's (matches the
       # desktop integration-test set): libgomp/libomp for OpenMP, libblas for
