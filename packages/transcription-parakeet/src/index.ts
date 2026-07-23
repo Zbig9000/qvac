@@ -583,12 +583,6 @@ namespace TranscriptionParakeet {
     backendDevice: number;
     backendId: number;
     gpuUnsupported: number;
-    /**
-     * 1 when the FastConformer encoder ran on the Apple Neural Engine (Core ML)
-     * sidecar instead of the ggml backend; 0 otherwise. Always 0 off Apple and
-     * whenever the sidecar is absent or failed to initialise (ggml-Metal
-     * fallback). The TDT/CTC decoder always runs on the ggml backend.
-     */
     encoderOnCoreml: number;
   }
 

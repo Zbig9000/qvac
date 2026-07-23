@@ -66,14 +66,7 @@ export interface BackendInfo {
   backendId: number;
   backendName: string;
   backendDescription: string;
-  /**
-   * FastConformer encoder compute backend. `'coreml'` when the Apple Neural
-   * Engine (Core ML) sidecar drives the encoder; otherwise identical to
-   * `backendName`. The TDT/CTC decoder always runs on the `backendName` ggml
-   * backend. Always mirrors `backendName` off Apple.
-   */
   encoderBackend: string;
-  /** `true` when the encoder ran on the Apple Neural Engine (Core ML) sidecar; `false` on the ggml backend. Always `false` off Apple. */
   encoderOnCoreml: boolean;
 }
 
