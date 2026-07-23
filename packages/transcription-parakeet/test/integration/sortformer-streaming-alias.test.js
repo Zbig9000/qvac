@@ -26,6 +26,7 @@ const {
   MODEL_TYPE_ALIASES,
   getTestPaths
 } = require('./helpers.js')
+const { restoreEnvVar } = require('./env.js')
 
 const ALIAS = 'sortformer-streaming'
 const CANONICAL = 'sortformerStreaming'
@@ -62,15 +63,7 @@ test('ensureGgufForType(sortformer-streaming) resolves via the canonical env-key
   process.env[envKey] = sentinel
 
   t.teardown(() => {
-    // Bare's process.env proxy rejects `delete` (deleteProperty returns false),
-    // which would abort the whole test process; best-effort unset instead.
-    if (previous === undefined) {
-      try {
-        delete process.env[envKey]
-      } catch (_) {}
-    } else {
-      process.env[envKey] = previous
-    }
+    restoreEnvVar(envKey, previous)
     try {
       fs.unlinkSync(sentinel)
     } catch (_) {}
