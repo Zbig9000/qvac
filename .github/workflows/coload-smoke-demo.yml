@@ -1,0 +1,112 @@
+# DEMO ONLY -- lives on the demo-coload-ci branch, not on the PR.
+#
+# The real desktop co-load (coload-smoke.yml) is a workflow_call reusable that
+# runs inside an addon's on-pr pipeline and overlays THIS PR's freshly-built
+# linux-x64 prebuild before co-loading. A fork cannot produce that prebuild
+# artifact, so this dispatchable copy co-loads the PUBLISHED npm baseline
+# instead. It exists purely to show the harness (prepare -> matrix -> co-load,
+# with the false-green guard) running live on GitHub Actions. It is otherwise a
+# faithful copy of coload-smoke.yml's steps.
+
+name: Co-load smoke (CI demo, published baseline)
+
+on:
+  workflow_dispatch:
+    inputs:
+      changed:
+        description: "Addon short name to build the combo matrix around (e.g. tts-ggml)."
+        required: false
+        default: "tts-ggml"
+        type: string
+      require_installed:
+        description: "Fail if a combo addon is not installed (false-green guard)."
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      combos: ${{ steps.gen.outputs.combos }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # 6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # 6.3.0
+        with:
+          node-version: lts/*
+
+      - name: Compute co-load combinations for ${{ inputs.changed }}
+        id: gen
+        working-directory: packages/ggml-coload-smoke
+        shell: bash
+        env:
+          CHANGED: ${{ inputs.changed }}
+        run: node scripts/coload-combinations.mjs --changed "$CHANGED"
+
+  coload:
+    needs: prepare
+    if: ${{ needs.prepare.outputs.combos != '' && needs.prepare.outputs.combos != '[]' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        combo: ${{ fromJSON(needs.prepare.outputs.combos) }}
+    name: coload-${{ matrix.combo.name }}
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # 6.3.0
+        with:
+          node-version: lts/*
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # 6.0.2
+        with:
+          persist-credentials: false
+
+      # Runtime deps the linux-x64 prebuilds dlopen (matches coload-smoke.yml).
+      - name: Install linux runtime dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgomp1 libomp5 libblas3 mesa-vulkan-drivers
+
+      - name: Install bare tooling
+        shell: bash
+        run: npm install -g --force bare bare-make
+
+      - name: Install co-load harness deps
+        working-directory: packages/ggml-coload-smoke
+        shell: bash
+        run: npm install
+
+      - name: Install combo addons (published baseline)
+        working-directory: packages/ggml-coload-smoke
+        shell: bash
+        env:
+          ADDONS: ${{ matrix.combo.addons }}
+        run: |
+          set -euo pipefail
+          PKGS=""
+          for a in ${ADDONS//,/ }; do PKGS="$PKGS @qvac/$a"; done
+          echo "Installing combo '${{ matrix.combo.name }}' baseline:$PKGS"
+          npm install --no-save $PKGS
+
+      - name: Co-load smoke (published baseline)
+        working-directory: packages/ggml-coload-smoke
+        shell: bash
+        env:
+          COLOAD_ADDONS: ${{ matrix.combo.addons }}
+          COLOAD_REQUIRE_INSTALLED: ${{ inputs.require_installed && '1' || '0' }}
+        run: bare test/coload.test.js
