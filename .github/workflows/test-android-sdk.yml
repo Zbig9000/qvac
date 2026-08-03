@@ -84,8 +84,16 @@ on:
       # (see jobs with `environment: release`). They are declared required: false
       # here so `secrets: inherit` from a caller with no repo-level values does
       # not fail at the workflow_call boundary; the jobs that consume them have
-      # environment access. AWS auth uses OIDC via AWS_OIDC_ROLE_ARN, so
-      # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY are not declared.
+      # environment access. AWS auth uses OIDC, so AWS_ACCESS_KEY_ID /
+      # AWS_SECRET_ACCESS_KEY are not declared.
+      #
+      # AWS_OIDC_ROLE_ARN is deliberately not declared below (test-ios-sdk.yml
+      # declares it required: true). It is a repository secret that the
+      # `environment: release` jobs cannot resolve on their own, and an explicit
+      # caller `secrets:` map cannot pass a name this workflow never declared.
+      # Callers must therefore use `secrets: inherit`; anything else leaves
+      # role-to-assume empty and every Device Farm job fails to authenticate.
+      # Enforced by .github/scripts/test/ci-trust-policy.test.mjs.
       PAT_TOKEN:
         required: true
       NPM_TOKEN:
