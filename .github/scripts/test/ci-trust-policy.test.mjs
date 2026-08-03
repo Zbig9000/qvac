@@ -797,6 +797,72 @@ test('coload smoke: Device Farm leg is co-load + mobile-label and authorisation 
   }
 })
 
+const AWS_OIDC_SECRET = 'AWS_OIDC_ROLE_ARN'
+
+const MOBILE_SDK_WORKFLOWS = [
+  './.github/workflows/test-android-sdk.yml',
+  './.github/workflows/test-ios-sdk.yml',
+]
+
+function workflowPaths() {
+  return readdirSync(join(root, '.github/workflows'))
+    .filter((name) => name.endsWith('.yml'))
+    .map((name) => `.github/workflows/${name}`)
+}
+
+function jobNames(source) {
+  return [...source.matchAll(/\n {2}([A-Za-z0-9_-]+):\n/g)].map(([, job]) => job)
+}
+
+function jobsCalling(source, reusable) {
+  return jobNames(source)
+    .map((job) => ({ job, block: jobBlock(source, job) }))
+    .filter(({ block }) => block.includes(`uses: ${reusable}`))
+}
+
+function callersOf(reusable) {
+  return workflowPaths().flatMap((path) =>
+    jobsCalling(read(path), reusable).map((caller) => ({ ...caller, path })),
+  )
+}
+
+function withoutComments(block) {
+  return block
+    .split('\n')
+    .filter((line) => !line.trimStart().startsWith('#'))
+    .join('\n')
+}
+
+function forwardsSecret(block, secret) {
+  const yaml = withoutComments(block)
+  return (
+    /^\s*secrets: inherit\s*$/m.test(yaml) ||
+    new RegExp(`^\\s*${secret}:`, 'm').test(yaml)
+  )
+}
+
+function assertForwardsAwsRole(reusable, { path, job, block }) {
+  assert.ok(
+    forwardsSecret(block, AWS_OIDC_SECRET),
+    `${path} job '${job}' forwards ${AWS_OIDC_SECRET} to ${reusable}`,
+  )
+}
+
+function assertCallersForwardAwsRole(reusable) {
+  const callers = callersOf(reusable)
+  assert.ok(callers.length > 0, `${reusable} is called by at least one workflow`)
+  callers.forEach((caller) => assertForwardsAwsRole(reusable, caller))
+}
+
+test('mobile SDK callers forward the AWS OIDC role to Device Farm jobs', () => {
+  // test-android-sdk.yml and test-ios-sdk.yml authenticate to Device Farm with
+  // `role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}`. That is a repository
+  // secret, so the `environment: release` jobs cannot resolve it on their own:
+  // a caller passing an explicit secrets map without it renders an empty role
+  // and every Device Farm job dies on "Could not load credentials".
+  MOBILE_SDK_WORKFLOWS.forEach(assertCallersForwardAwsRole)
+})
+
 test('npm integration uses a dedicated run label, not verified', () => {
   const source = read('.github/workflows/public-reusable-npm.yml')
   const integrationStep = source.slice(
