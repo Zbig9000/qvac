@@ -19,17 +19,33 @@ inline constexpr double kEnhancerReceptiveFieldSeconds = 8192.0 / 24000.0;
 // Crossfade length across consecutive enhance windows (~11 ms).
 inline constexpr double kEnhancerCrossfadeSeconds = 256.0 / 24000.0;
 
-// Context/margin and crossfade sample counts for an input rate. These reproduce
-// the StreamingEnhancer constructor defaults at 24 kHz (Chatterbox's native
-// rate); engines with a different native rate — Parler at 44.1 kHz — must pass
-// these so the window still covers the same span of audio rather than the same
-// sample count.
+// Context/margin and crossfade sample counts for an input rate. StreamingEnhancer
+// derives its own defaults from these, so the margins span the same audio at any
+// engine rate — 8192/256 at Chatterbox's 24 kHz, proportionally more at Parler's
+// 44.1 kHz — rather than a fixed sample count that only covers the receptive
+// field at 24 kHz.
 inline int enhancerContextSamples(int inRate) {
   return static_cast<int>(std::lround(kEnhancerReceptiveFieldSeconds * inRate));
 }
 
 inline int enhancerCrossfadeSamples(int inRate) {
   return static_cast<int>(std::lround(kEnhancerCrossfadeSeconds * inRate));
+}
+
+// Sentinel for the StreamingEnhancer margin parameters: size this margin from
+// the input rate rather than pinning it to a sample count.
+inline constexpr int kEnhancerMarginFromRate = -1;
+
+inline int resolveEnhancerContextSamples(int requested, int inRate) {
+  if (requested == kEnhancerMarginFromRate)
+    return enhancerContextSamples(inRate);
+  return std::max(0, requested);
+}
+
+inline int resolveEnhancerCrossfadeSamples(int requested, int inRate) {
+  if (requested == kEnhancerMarginFromRate)
+    return enhancerCrossfadeSamples(inRate);
+  return std::max(0, requested);
 }
 
 /**
@@ -93,16 +109,17 @@ public:
    *                  have right-context; also the added algorithmic latency
    * @param crossfadeIn crossfade length (inRate) across window seams
    *
-   * Defaults are sized for the LavaSR enhancer at 24 kHz input: ~0.34 s of
-   * context/margin (its ConvNeXt receptive field of ~31 mel frames at hop 512,
-   * 48 kHz, plus the STFT/ISTFT window) and a ~11 ms crossfade. At any other
-   * input rate pass enhancerContextSamples(inRate) /
-   * enhancerCrossfadeSamples(inRate) instead — the margins must span a fixed
-   * duration, not a fixed sample count.
+   * Each margin defaults to kEnhancerMarginFromRate, which sizes it from
+   * inRate: the LavaSR enhancer's ~0.34 s receptive field (its ConvNeXt field
+   * of ~31 mel frames at hop 512, 48 kHz, plus the STFT/ISTFT window) and a
+   * ~11 ms crossfade, whatever the engine's rate is. Explicit sample counts are
+   * for tests that want cheaper margins.
    */
   explicit StreamingEnhancer(
-      EnhanceFn fn, int inRate, int outRate, int contextIn = 8192,
-      int marginIn = 8192, int crossfadeIn = 256)
+      EnhanceFn fn, int inRate, int outRate,
+      int contextIn = kEnhancerMarginFromRate,
+      int marginIn = kEnhancerMarginFromRate,
+      int crossfadeIn = kEnhancerMarginFromRate)
       : fn_(std::move(fn)),
         ratio_(static_cast<double>(outRate) / static_cast<double>(inRate)),
         // Reduced denominator of outRate/inRate. Window/commit boundaries are
@@ -112,8 +129,9 @@ public:
         // windows align sample-for-sample even when the ratio is non-integral
         // (Q == 1 for the integer 24k->48k case, so this is a no-op there).
         alignQ_(std::max(1, inRate / std::gcd(inRate, outRate))),
-        contextIn_(std::max(0, contextIn)), marginIn_(std::max(0, marginIn)),
-        crossfadeIn_(std::max(0, crossfadeIn)) {}
+        contextIn_(resolveEnhancerContextSamples(contextIn, inRate)),
+        marginIn_(resolveEnhancerContextSamples(marginIn, inRate)),
+        crossfadeIn_(resolveEnhancerCrossfadeSamples(crossfadeIn, inRate)) {}
 
   /**
    * Append raw input samples and return whatever finalized enhanced output is

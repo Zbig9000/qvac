@@ -142,6 +142,20 @@ function assertStreamedChunksReportEnhancedRate(t, updates) {
   }
 }
 
+// While streaming, the engine's SynthesisResult still reports the native rate
+// and the un-enhanced sample count, so the addon has to tally what it actually
+// emitted. Stats read off the engine instead would under-count the samples and
+// mis-scale the duration.
+function assertStreamedStatsMatchEmittedAudio(t, stats, emittedSamples) {
+  t.ok(stats, 'runtimeStats returned (constructed with stats:true)')
+  t.is(stats.totalSamples, emittedSamples, 'totalSamples counts emitted samples')
+  const expectedMs = (emittedSamples * 1000) / 48000
+  t.ok(
+    Math.abs(stats.audioDurationMs - expectedMs) < 1,
+    `audioDurationMs ${stats.audioDurationMs} matches ${expectedMs} at the enhanced 48 kHz rate`
+  )
+}
+
 // ---- Construct-time regression tests (no models, always run) ----
 
 test('Chatterbox: enhancer + streamChunkTokens constructs and forwards both', (t) => {
@@ -253,7 +267,7 @@ test('enhancer block with no GGUF path leaves enhancement off (no throw)', (t) =
 // exactly these params and turns them into tts_cpp::lavasr::EnhancerOptions
 // (use_gpu), which routes the ConvNeXt backbone + spec head onto a ggml GPU
 // backend (Vulkan/Metal/CUDA/OpenCL). These pin that the JS layer forwards the
-// switch alongside the enhancer path, for both engines.
+// switch alongside the enhancer path, for all three engines.
 
 for (const [engineName, engine, files] of [
   [
@@ -647,6 +661,7 @@ test(
       t.ok(updates.length >= 1, 'streamed at least one chunk event')
       t.ok(total > 0, 'streamed enhanced audio produced samples')
       assertStreamedChunksReportEnhancedRate(t, updates)
+      assertStreamedStatsMatchEmittedAudio(t, response.stats, total)
       const isLastCount = updates.filter((u) => u.isLast === true).length
       t.ok(isLastCount <= 1, 'at most one isLast=true across streamed chunks')
     } finally {

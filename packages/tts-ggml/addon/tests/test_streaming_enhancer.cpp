@@ -217,7 +217,7 @@ TEST(StreamingEnhancer, MemoryStaysBounded) {
 
 TEST(StreamingEnhancer, MarginHelpersReproduceDefaultsAt24k) {
   // Chatterbox feeds 24 kHz and relies on the constructor defaults, so the
-  // helpers must agree with them exactly there.
+  // helpers must reproduce the pre-scaling constants exactly there.
   EXPECT_EQ(enhancerContextSamples(24000), 8192);
   EXPECT_EQ(enhancerCrossfadeSamples(24000), 256);
 }
@@ -240,25 +240,84 @@ TEST(StreamingEnhancer, MarginHelpersScaleWithInputRate) {
 }
 
 TEST(StreamingEnhancer, ScaledMarginsKeepBatchParityAt44k) {
-  // The Parler wiring: 44.1 kHz in, rate-scaled margins, streamed output must
+  // The Parler wiring: 44.1 kHz in, rate-derived margins, streamed output must
   // still match the one-shot transform sample for sample.
   const auto in = sine(180.0f, 3.0f, 44100);
-  const int context = enhancerContextSamples(44100);
-  StreamingEnhancer se(
-      upsample2, 44100, 88200, context, context,
-      enhancerCrossfadeSamples(44100));
-  std::vector<float> streamed;
-  const std::size_t chunk = 4410;
-  for (std::size_t off = 0; off < in.size(); off += chunk) {
-    const std::size_t n = std::min(chunk, in.size() - off);
-    const auto part = se.feed(in.data() + off, n);
-    streamed.insert(streamed.end(), part.begin(), part.end());
-  }
-  const auto tail = se.flush();
-  streamed.insert(streamed.end(), tail.begin(), tail.end());
+  StreamingEnhancer se(upsample2, 44100, 88200); // margins derived from 44.1k
+  const auto streamed = streamChunks(se, in, /*chunk=*/4410);
 
   const auto batch = upsample2(in);
   ASSERT_EQ(streamed.size(), batch.size());
   for (std::size_t i = 0; i < batch.size(); ++i)
     ASSERT_FLOAT_EQ(streamed[i], batch[i]) << "mismatch at sample " << i;
+}
+
+TEST(StreamingEnhancer, DefaultMarginsScaleWithInputRate) {
+  // Behavioural proof that the constructor derives its margins rather than
+  // pinning 8192: 0.3 s at 44.1 kHz (13230 samples) is inside the derived
+  // ~0.34 s margin, so nothing may finalize before flush. With the old 24 kHz
+  // default of 8192 this input would have been long enough to emit early.
+  const auto in = sine(300.0f, 0.3f, 44100);
+  ASSERT_GT(in.size(), 8192u) << "input must exceed the pre-scaling default";
+  ASSERT_LT(in.size(), static_cast<std::size_t>(enhancerContextSamples(44100)));
+
+  StreamingEnhancer se(upsample2, 44100, 88200);
+  const auto early = se.feed(in.data(), in.size());
+  EXPECT_TRUE(early.empty()) << "nothing should finalize within the margin";
+
+  const auto tail = se.flush();
+  const auto batch = upsample2(in);
+  ASSERT_EQ(tail.size(), batch.size());
+  for (std::size_t i = 0; i < batch.size(); ++i)
+    ASSERT_FLOAT_EQ(tail[i], batch[i]) << "mismatch at sample " << i;
+}
+
+TEST(StreamingEnhancer, ProductionRatioTracksBatchAt44kTo48k) {
+  // The rate pair Parler actually ships: 44.1 kHz -> 48 kHz. Non-integral, so
+  // alignQ_ == 147 and the grid-snapping path is exercised (the 88200 parity
+  // test above collapses to alignQ_ == 1). Index mapping rounds, so assert
+  // near-parity like NonIntegerRatioTracksBatch does.
+  const int inRate = 44100, outRate = 48000;
+  const auto in = sine(200.0f, 3.0f, inRate);
+  auto fn = linearResampler(inRate, outRate);
+  const auto batch = fn(in);
+
+  StreamingEnhancer se(fn, inRate, outRate); // margins derived from 44.1k
+  const auto streamed = streamChunks(se, in, /*chunk=*/4410);
+
+  ASSERT_NEAR(
+      static_cast<double>(streamed.size()),
+      static_cast<double>(batch.size()),
+      4.0);
+  const std::size_t cmp = std::min(streamed.size(), batch.size());
+  double maxDiff = 0.0;
+  for (std::size_t i = 0; i < cmp; ++i) {
+    ASSERT_TRUE(std::isfinite(streamed[i]));
+    maxDiff = std::max(
+        maxDiff, std::fabs(static_cast<double>(streamed[i] - batch[i])));
+  }
+  EXPECT_LT(maxDiff, 1e-3) << "streamed resample drifts from batch";
+}
+
+TEST(StreamingEnhancer, ApplySizesMarginsFromInputRate) {
+  // apply() takes an inRate, so it must size its margins from it. Counting the
+  // transform invocations discriminates: an input inside the derived 44.1 kHz
+  // margin is enhanced as a single window, whereas fixed 24 kHz margins would
+  // finalize part of it on the feed and re-enhance the tail on the flush.
+  const auto in = sine(180.0f, 0.3f, 44100);
+  ASSERT_GT(in.size(), 8192u) << "input must exceed the pre-scaling default";
+  ASSERT_LT(in.size(), static_cast<std::size_t>(enhancerContextSamples(44100)));
+
+  int windows = 0;
+  auto counted = [&windows](const std::vector<float>& w) {
+    ++windows;
+    return upsample2(w);
+  };
+  const auto applied = StreamingEnhancer::apply(counted, in, 44100, 88200);
+  EXPECT_EQ(windows, 1) << "margins did not scale to the 44.1 kHz input rate";
+
+  const auto batch = upsample2(in);
+  ASSERT_EQ(applied.size(), batch.size());
+  for (std::size_t i = 0; i < batch.size(); ++i)
+    ASSERT_FLOAT_EQ(applied[i], batch[i]) << "mismatch at sample " << i;
 }

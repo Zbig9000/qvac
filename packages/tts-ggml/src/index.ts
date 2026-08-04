@@ -1084,8 +1084,8 @@ class TTSGgml {
           "runStream() / runStreaming() / run({ streamOutput: true }) APIs.",
       );
     }
-    // Parler option consistency runs between the supertonic and denoiser
-    // streaming guards, matching the pre-migration single-method throw order.
+    // Runs before the denoiser guard so a Parler description/template conflict
+    // is reported ahead of the engine-agnostic streaming constraints.
     this._assertParlerOptionConsistency();
     if (
       this._denoiserGgufPath &&

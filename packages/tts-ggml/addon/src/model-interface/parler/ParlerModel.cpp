@@ -22,6 +22,7 @@
 #include "addon/TTSErrors.hpp"
 #include "inference-addon-cpp/Errors.hpp"
 #include "model-interface/BackendUtils.hpp"
+#include "model-interface/DenoiserLoader.hpp"
 #include "model-interface/EnhancerLoader.hpp"
 #include "model-interface/OutputResampler.hpp"
 #include "model-interface/PcmConversion.hpp"
@@ -123,10 +124,10 @@ EnhancerRates resolveEnhancerRates(
 // Wraps the one-shot enhancer as a streaming stage: enhance at the engine's
 // native rate, then resample to the streaming final rate when they differ.
 // Resampling inside the enhance window (rather than per emitted chunk) is what
-// keeps the requested output rate seam-free while streaming. The context and
-// crossfade spans are scaled to Parler's 44.1 kHz input — StreamingEnhancer's
-// defaults assume Chatterbox's 24 kHz and would under-cover the enhancer's
-// receptive field here.
+// keeps the requested output rate seam-free while streaming. StreamingEnhancer
+// sizes its context and crossfade from the 44.1 kHz input it is given, so the
+// margins cover the enhancer's receptive field in seconds rather than in
+// Chatterbox-sized samples.
 std::shared_ptr<StreamingEnhancer> makeStreamingEnhancer(
     const std::shared_ptr<tts_cpp::lavasr::Enhancer>& enhancer,
     const EnhancerRates& rates) {
@@ -134,7 +135,6 @@ std::shared_ptr<StreamingEnhancer> makeStreamingEnhancer(
     return nullptr;
   const int workRate = rates.workRate;
   const int finalRate = rates.streamFinalRate;
-  const int context = enhancerContextSamples(kParlerNativeSampleRate);
   return std::make_shared<StreamingEnhancer>(
       [enhancer, workRate, finalRate](const std::vector<float>& raw) {
         std::vector<float> enhanced =
@@ -144,8 +144,7 @@ std::shared_ptr<StreamingEnhancer> makeStreamingEnhancer(
         }
         return enhanced;
       },
-      kParlerNativeSampleRate, finalRate, context, context,
-      enhancerCrossfadeSamples(kParlerNativeSampleRate));
+      kParlerNativeSampleRate, finalRate);
 }
 
 // Per-chunk post-processing for the native streaming path: an optional
@@ -471,19 +470,8 @@ void ParlerModel::loadLocked() {
   enhancerBackendDevice_ = loaded.backendDevice;
   enhancerBackendId_ = loaded.backendId;
 
-  // LavaSR denoiser: load when a GGUF path is set (runs before the enhancer).
-  if (!cfg_.denoiserGgufPath.empty()) {
-    try {
-      denoiser_ = tts_cpp::lavasr::Denoiser::load(cfg_.denoiserGgufPath);
-    } catch (const std::exception& e) {
-      denoiser_.reset();
-      throw createTTSError(
-          TTSErrorCode::InitializationFailed,
-          std::string("ParlerModel::load: lavasr denoiser: ") + e.what());
-    }
-  } else {
-    denoiser_.reset();
-  }
+  denoiser_ = loadDenoiser(
+      cfg_.denoiserGgufPath, "ParlerModel::load: lavasr denoiser: ");
 }
 
 void ParlerModel::unloadLocked() {
