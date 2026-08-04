@@ -132,6 +132,16 @@ async function runAndCollect(model, text) {
   return { samples, sampleRate, stats: response.stats || null }
 }
 
+// Every chunk that carries audio must be tagged at the enhanced 48 kHz rate
+// rather than the engine's native rate — the mislabel this feature prevents.
+function assertStreamedChunksReportEnhancedRate(t, updates) {
+  for (const u of updates) {
+    if (u.outputArray.length > 0 && u.sampleRate != null) {
+      t.is(u.sampleRate, 48000, 'streamed enhanced chunk reports 48 kHz')
+    }
+  }
+}
+
 // ---- Construct-time regression tests (no models, always run) ----
 
 test('Chatterbox: enhancer + streamChunkTokens constructs and forwards both', (t) => {
@@ -497,13 +507,7 @@ test(
       const total = updates.reduce((acc, u) => acc + u.outputArray.length, 0)
       t.ok(updates.length >= 1, 'streamed at least one chunk event')
       t.ok(total > 0, 'streamed enhanced audio produced samples')
-      // Every chunk that carries audio must be tagged at the enhanced 48 kHz rate
-      // (not the engine's native 24 kHz) — the mislabel this feature prevents.
-      for (const u of updates) {
-        if (u.outputArray.length > 0 && u.sampleRate != null) {
-          t.is(u.sampleRate, 48000, 'streamed enhanced chunk reports 48 kHz')
-        }
-      }
+      assertStreamedChunksReportEnhancedRate(t, updates)
       const isLastCount = updates.filter((u) => u.isLast === true).length
       t.ok(isLastCount <= 1, 'at most one isLast=true across streamed chunks')
     } finally {
@@ -642,13 +646,7 @@ test(
       const total = updates.reduce((acc, u) => acc + u.outputArray.length, 0)
       t.ok(updates.length >= 1, 'streamed at least one chunk event')
       t.ok(total > 0, 'streamed enhanced audio produced samples')
-      // Every chunk that carries audio must be tagged at the enhanced 48 kHz rate
-      // (not the engine's native 44.1 kHz) — the mislabel this feature prevents.
-      for (const u of updates) {
-        if (u.outputArray.length > 0 && u.sampleRate != null) {
-          t.is(u.sampleRate, 48000, 'streamed enhanced chunk reports 48 kHz')
-        }
-      }
+      assertStreamedChunksReportEnhancedRate(t, updates)
       const isLastCount = updates.filter((u) => u.isLast === true).length
       t.ok(isLastCount <= 1, 'at most one isLast=true across streamed chunks')
     } finally {
