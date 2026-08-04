@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **LavaSR enhancer and denoiser support for Parler.** The LavaSR post-processing
+  stages were previously rejected for the Parler engine; supplying
+  `files.lavasrEnhancer` (or `enhancer.enhancerPath`) now bandwidth-extends
+  Parler output to 48 kHz the same way it does for Chatterbox and Supertonic, and
+  `files.lavasrDenoiser` cleans the signal before it (rate-preserving). Parler is
+  natively 44.1 kHz, so enhancement buys spectral detail rather than raw
+  bandwidth. Both stages are opt-in and default off, so existing Parler callers
+  are unaffected. `response.stats.enhancerBackendDevice` /
+  `enhancerBackendId` now report where the Parler enhancer ran, and
+  `examples/parler-enhanced.js` demonstrates the batch path.
+- **Enhanced Parler native chunk streaming.** With `streamChunkTokens > 0` the
+  enhancer runs per chunk through the same overlap-reprocess streaming wrapper
+  Chatterbox uses, so streamed chunks are enhanced seam-free at the cost of
+  ~0.34 s of look-ahead latency. The denoiser stays batch-only and is rejected
+  with streaming, as it is for Chatterbox.
+
+### Changed
+
+- **Parler streaming accepts `config.outputSampleRate` when the enhancer is
+  active.** Parler natively streams at 44.1 kHz and rejected a different output
+  rate while streaming, because the engine has no seam-free per-chunk resampler.
+  With the enhancer active the requested rate is applied inside the enhancer's
+  overlap windows, so the combination is now accepted; without the enhancer it is
+  still rejected, with the error naming the enhancer as an option.
+
 ## [0.6.2] - 2026-08-03
 
 ### Changed

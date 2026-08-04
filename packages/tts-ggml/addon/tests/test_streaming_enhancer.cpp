@@ -18,6 +18,8 @@
 
 #include "model-interface/StreamingEnhancer.hpp"
 
+using qvac::ttsggml::enhancerContextSamples;
+using qvac::ttsggml::enhancerCrossfadeSamples;
 using qvac::ttsggml::StreamingEnhancer;
 
 namespace {
@@ -206,6 +208,54 @@ TEST(StreamingEnhancer, MemoryStaysBounded) {
   // A non-compacting impl would hold all 288k input samples. Bound generously
   // at context + margin + chunk + slack (~19k), ~15x below the total.
   EXPECT_LT(maxResident, static_cast<std::size_t>(8192 + 8192 + 2400 + 4096));
+
+  const auto batch = upsample2(in);
+  ASSERT_EQ(streamed.size(), batch.size());
+  for (std::size_t i = 0; i < batch.size(); ++i)
+    ASSERT_FLOAT_EQ(streamed[i], batch[i]) << "mismatch at sample " << i;
+}
+
+TEST(StreamingEnhancer, MarginHelpersReproduceDefaultsAt24k) {
+  // Chatterbox feeds 24 kHz and relies on the constructor defaults, so the
+  // helpers must agree with them exactly there.
+  EXPECT_EQ(enhancerContextSamples(24000), 8192);
+  EXPECT_EQ(enhancerCrossfadeSamples(24000), 256);
+}
+
+TEST(StreamingEnhancer, MarginHelpersScaleWithInputRate) {
+  // The margins must span a fixed duration, not a fixed sample count: at
+  // Parler's 44.1 kHz the 24 kHz defaults would cover only ~0.19 s of the
+  // enhancer's ~0.34 s receptive field.
+  EXPECT_GT(enhancerContextSamples(44100), 8192);
+  const double seconds24 =
+      static_cast<double>(enhancerContextSamples(24000)) / 24000.0;
+  const double seconds44 =
+      static_cast<double>(enhancerContextSamples(44100)) / 44100.0;
+  EXPECT_NEAR(seconds44, seconds24, 1e-4);
+  const double fade24 =
+      static_cast<double>(enhancerCrossfadeSamples(24000)) / 24000.0;
+  const double fade44 =
+      static_cast<double>(enhancerCrossfadeSamples(44100)) / 44100.0;
+  EXPECT_NEAR(fade44, fade24, 1e-4);
+}
+
+TEST(StreamingEnhancer, ScaledMarginsKeepBatchParityAt44k) {
+  // The Parler wiring: 44.1 kHz in, rate-scaled margins, streamed output must
+  // still match the one-shot transform sample for sample.
+  const auto in = sine(180.0f, 3.0f, 44100);
+  const int context = enhancerContextSamples(44100);
+  StreamingEnhancer se(
+      upsample2, 44100, 88200, context, context,
+      enhancerCrossfadeSamples(44100));
+  std::vector<float> streamed;
+  const std::size_t chunk = 4410;
+  for (std::size_t off = 0; off < in.size(); off += chunk) {
+    const std::size_t n = std::min(chunk, in.size() - off);
+    const auto part = se.feed(in.data() + off, n);
+    streamed.insert(streamed.end(), part.begin(), part.end());
+  }
+  const auto tail = se.flush();
+  streamed.insert(streamed.end(), tail.begin(), tail.end());
 
   const auto batch = upsample2(in);
   ASSERT_EQ(streamed.size(), batch.size());

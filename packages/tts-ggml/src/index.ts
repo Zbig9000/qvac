@@ -275,14 +275,15 @@ interface TTSGgmlOptions extends ParlerDescriptionFields {
   /**
    * LavaSR neural speech enhancement. Opt-in CPU/GGML bandwidth extension to
    * 48 kHz, enabled by a GGUF path here or through `files.lavasrEnhancer`.
-   * Works for both engines, including Chatterbox native chunk streaming.
+   * Works for every engine, including Chatterbox and Parler native chunk
+   * streaming.
    */
   enhancer?: LavaSREnhancerOptions;
   /**
    * LavaSR neural speech denoiser (UL-UNAS). Opt-in preprocessing that runs
    * before the enhancer and preserves the sample rate. Enabled by a GGUF path
-   * here or through `files.lavasrDenoiser`; rejected with Chatterbox native
-   * chunk streaming.
+   * here or through `files.lavasrDenoiser`; rejected with native chunk
+   * streaming.
    */
   denoiser?: LavaSRDenoiserOptions;
   /** Directory the addon scans for dynamically loaded ggml backends. */
@@ -340,7 +341,8 @@ interface TTSOutputChunk {
   outputArray: ArrayBuffer;
   /**
    * Output sample rate. The native engine rate (24000 for Chatterbox,
-   * 44100 for Supertonic), or 48000 when the LavaSR enhancer is active.
+   * 44100 for Supertonic and Parler), or 48000 when the LavaSR enhancer is
+   * active.
    */
   sampleRate?: number;
 }
@@ -1092,7 +1094,7 @@ class TTSGgml {
     ) {
       throw new Error(
         "tts-ggml: the LavaSR denoiser is not yet supported with " +
-          "Chatterbox native chunk streaming (streamChunkTokens / " +
+          "native chunk streaming (streamChunkTokens / " +
           "streamFirstChunkTokens). Use batch synthesis, or drop the " +
           "denoiser for streaming. Streaming denoise is a planned " +
           "follow-up (needs a stateful streaming denoiser).",
@@ -1102,13 +1104,6 @@ class TTSGgml {
 
   private _assertParlerOptionConsistency(): void {
     if (this._engineType === ENGINE_PARLER) {
-      if (this._enhancerGgufPath || this._denoiserGgufPath) {
-        throw new Error(
-          "tts-ggml: the LavaSR enhancer/denoiser are not supported with " +
-            "the parler engine (native 44.1 kHz output needs no bandwidth " +
-            "extension). Drop lavasrEnhancer / lavasrDenoiser.",
-        );
-      }
       assertParlerDescFieldsConsistent(
         pickParlerDescFields({
           description: this._description,
@@ -1735,6 +1730,7 @@ class TTSGgml {
     if (this._config.useGPU != null) {
       parameters.useGPU = !!this._config.useGPU;
     }
+    this._assignLavasrParams(parameters);
     if (this._backendsDir) {
       parameters.backendsDir = this._backendsDir;
     }
@@ -1755,17 +1751,22 @@ class TTSGgml {
     if (this._config.useGPU != null) {
       parameters.useGPU = !!this._config.useGPU;
     }
-    if (this._enhancerGgufPath) {
-      parameters.lavasrEnhancerPath = this._enhancerGgufPath;
-    }
-    if (this._denoiserGgufPath) {
-      parameters.lavasrDenoiserPath = this._denoiserGgufPath;
-    }
+    this._assignLavasrParams(parameters);
     if (this._backendsDir) {
       parameters.backendsDir = this._backendsDir;
     }
     if (this._openclCacheDir) {
       parameters.openclCacheDir = this._openclCacheDir;
+    }
+  }
+
+  /** LavaSR post-processing paths, shared by every engine that supports them. */
+  private _assignLavasrParams(parameters: TTSConfigurationParams): void {
+    if (this._enhancerGgufPath) {
+      parameters.lavasrEnhancerPath = this._enhancerGgufPath;
+    }
+    if (this._denoiserGgufPath) {
+      parameters.lavasrDenoiserPath = this._denoiserGgufPath;
     }
   }
 

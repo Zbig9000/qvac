@@ -250,8 +250,9 @@ python scripts/convert-lavasr-enhancer-to-gguf.py \
 
 Notes:
 
-- Works for Supertonic and Chatterbox, on the batch path, sentence-level
-  streaming, **and** Chatterbox native chunk streaming (`streamChunkTokens > 0`).
+- Works for all three engines — Chatterbox, Supertonic and Parler — on the batch
+  path, sentence-level streaming, **and** Chatterbox / Parler native chunk
+  streaming (`streamChunkTokens > 0`).
 - For native chunk streaming the enhancer runs over a sliding window with
   look-ahead + crossfade so each emitted chunk is bandwidth-extended seam-free.
   This adds **~0.34 s of look-ahead latency** (inherent to the enhancer's
@@ -260,6 +261,12 @@ Notes:
 - The enhancer always runs at 48 kHz internally. By default the emitted audio
   is 48 kHz; set `config.outputSampleRate` to resample the enhanced output to a
   different rate (`TTSOutputChunk.sampleRate` reports the actual rate).
+- Parler is natively 44.1 kHz, so enhancement there buys spectral detail rather
+  than raw bandwidth. It also lifts a streaming restriction: Parler normally
+  rejects `config.outputSampleRate` together with `streamChunkTokens` (the engine
+  has no seam-free per-chunk resampler), but with the enhancer active the
+  requested rate is applied inside the enhancer's overlap windows and is
+  accepted.
 - With `opts.stats`, `response.stats.enhancerBackendDevice` (`-1` none / `0` CPU
   / `1` GPU) and `enhancerBackendId` report where the enhancer actually ran.
 
@@ -269,7 +276,7 @@ LavaSR's first stage — the UL-UNAS **denoiser**, which cleans the signal befor
 the enhancer bandwidth-extends it — is wired through the addon. It is enabled the
 same way as the enhancer, via `files.lavasrDenoiser` (or a
 `denoiser: { type: 'lavasr', denoiserPath }` block), and runs before the
-enhancer (rate-preserving) on the batch path for both engines:
+enhancer (rate-preserving) on the batch path for all three engines:
 
 ```js
 const model = new TTSGgml({
@@ -299,9 +306,9 @@ Notes:
 - The UL-UNAS forward runs at 16 kHz internally (resampled in/out), so the
   denoiser is **rate-preserving**: the emitted audio keeps the engine's sample
   rate. With no denoiser path the output is unchanged (full backward compat).
-- Denoiser + Chatterbox native chunk streaming (`streamChunkTokens > 0`) is
-  rejected up front — a stateful streaming denoiser is the follow-up. Use batch
-  synthesis, or drop the denoiser for streaming.
+- Denoiser + native chunk streaming (`streamChunkTokens > 0`, Chatterbox or
+  Parler) is rejected up front — a stateful streaming denoiser is the follow-up.
+  Use batch synthesis, or drop the denoiser for streaming.
 - The tts-cpp UL-UNAS forward is implemented in
   [qvac-ext-lib-whisper.cpp#78](https://github.com/tetherto/qvac-ext-lib-whisper.cpp/pull/78)
   (scalar CPU port, validated bit-close to the ONNX reference); it requires a
@@ -500,6 +507,7 @@ Runnable demos under `examples/`:
 | `supertonic-sentence-stream-tts.js` | Supertonic sentence-level streaming |
 | `supertonic-enhanced.js` | Supertonic + LavaSR 48 kHz enhancement. `bare examples/supertonic-enhanced.js "Hello"` |
 | `parler-tts.js` | Parler batch synth with voice/emotion templates. `bare examples/parler-tts.js "Hello" Laura happy` |
+| `parler-enhanced.js` | Parler + LavaSR 48 kHz enhancement. `bare examples/parler-enhanced.js "Hello" Laura happy` |
 
 The two streaming examples feed PCM into a single long-running
 `sox play` / `ffplay` process so chunks play back-to-back without any

@@ -10,10 +10,32 @@
 
 namespace qvac::ttsggml {
 
+// The LavaSR enhancer's temporal receptive field: ~31 ConvNeXt mel frames at
+// hop 512 / 48 kHz plus the STFT/ISTFT window. Left context and look-ahead
+// margin must each span this much *audio* for an emitted window to track the
+// batch result, so they scale with the input rate.
+inline constexpr double kEnhancerReceptiveFieldSeconds = 8192.0 / 24000.0;
+
+// Crossfade length across consecutive enhance windows (~11 ms).
+inline constexpr double kEnhancerCrossfadeSeconds = 256.0 / 24000.0;
+
+// Context/margin and crossfade sample counts for an input rate. These reproduce
+// the StreamingEnhancer constructor defaults at 24 kHz (Chatterbox's native
+// rate); engines with a different native rate — Parler at 44.1 kHz — must pass
+// these so the window still covers the same span of audio rather than the same
+// sample count.
+inline int enhancerContextSamples(int inRate) {
+  return static_cast<int>(std::lround(kEnhancerReceptiveFieldSeconds * inRate));
+}
+
+inline int enhancerCrossfadeSamples(int inRate) {
+  return static_cast<int>(std::lround(kEnhancerCrossfadeSeconds * inRate));
+}
+
 /**
  * Stateful streaming wrapper around the one-shot LavaSR enhancer so the
- * Chatterbox native chunk-streaming path can emit enhanced (bandwidth-extended)
- * audio chunk-by-chunk instead of only on the batch path.
+ * native chunk-streaming paths (Chatterbox, Parler) can emit enhanced
+ * (bandwidth-extended) audio chunk-by-chunk instead of only on the batch path.
  *
  * WHY this is non-trivial: `tts_cpp::lavasr::Enhancer::enhance()` is a
  * whole-signal operation. Its ConvNeXt backbone is convolutional over mel
@@ -73,7 +95,10 @@ public:
    *
    * Defaults are sized for the LavaSR enhancer at 24 kHz input: ~0.34 s of
    * context/margin (its ConvNeXt receptive field of ~31 mel frames at hop 512,
-   * 48 kHz, plus the STFT/ISTFT window) and a ~11 ms crossfade.
+   * 48 kHz, plus the STFT/ISTFT window) and a ~11 ms crossfade. At any other
+   * input rate pass enhancerContextSamples(inRate) /
+   * enhancerCrossfadeSamples(inRate) instead — the margins must span a fixed
+   * duration, not a fixed sample count.
    */
   explicit StreamingEnhancer(
       EnhanceFn fn, int inRate, int outRate, int contextIn = 8192,

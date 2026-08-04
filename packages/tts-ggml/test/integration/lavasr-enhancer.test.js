@@ -3,13 +3,13 @@
 // LavaSR enhancer integration + regression tests.
 //
 // The construct-time tests need no models and always run in CI. They pin:
-// enhancer + Chatterbox native chunk streaming is now supported (constructs and
-// forwards both knobs — the addon enhances each chunk seam-free), and a
-// misconfigured enhancer can't silently become a no-op (an unknown
-// enhancer.type throws). The model-backed tests assert the enhanced output is
-// reported as 48 kHz for both engines (incl. Chatterbox native streaming);
-// they are gated on the converted enhancer GGUF being staged, and skip cleanly
-// otherwise.
+// enhancer + Chatterbox / Parler native chunk streaming is now supported
+// (constructs and forwards both knobs — the addon enhances each chunk
+// seam-free), and a misconfigured enhancer can't silently become a no-op (an
+// unknown enhancer.type throws). The model-backed tests assert the enhanced
+// output is reported as 48 kHz for all three engines (incl. Chatterbox and
+// Parler native streaming); they are gated on the converted enhancer GGUF being
+// staged, and skip cleanly otherwise.
 //
 // Stage the enhancer GGUF via scripts/convert-lavasr-enhancer-to-gguf.py (from
 // the public LavaSRcpp ONNX release) into models/lavasr/lavasr-enhancer.gguf,
@@ -24,7 +24,8 @@ const TTSGgml = require('@qvac/tts-ggml')
 const {
   ensureLavaSREnhancerGguf,
   ensureSupertonicModel,
-  ensureChatterboxModels
+  ensureChatterboxModels,
+  ensureParlerModel
 } = require('../utils/downloadModel')
 const { resolveRefWavPath } = require('../utils/runChatterboxTTS')
 
@@ -156,6 +157,57 @@ test('Chatterbox: enhancer + streamChunkTokens constructs and forwards both', (t
   )
 })
 
+test('Parler: enhancer + streamChunkTokens constructs and forwards both', (t) => {
+  // Parler used to reject the enhancer outright; it now enhances both the batch
+  // path and native chunk streaming (seam-free via the streaming enhancer).
+  const model = new TTSGgml({
+    engine: TTSGgml.ENGINE_PARLER,
+    files: {
+      parlerModel: './models/parler-mini-v1-q8_0.gguf',
+      lavasrEnhancer: './models/lavasr/lavasr-enhancer.gguf'
+    },
+    streamChunkTokens: 43,
+    config: { language: 'en' }
+  })
+  const params = model._buildTtsParams()
+  t.is(params.streamChunkTokens, 43, 'streamChunkTokens forwarded')
+  t.is(
+    params.lavasrEnhancerPath,
+    './models/lavasr/lavasr-enhancer.gguf',
+    'enhancer path forwarded alongside streamChunkTokens'
+  )
+})
+
+test('Parler: denoiser forwards on the batch path and is rejected while streaming', (t) => {
+  const model = new TTSGgml({
+    engine: TTSGgml.ENGINE_PARLER,
+    files: {
+      parlerModel: './models/parler-mini-v1-q8_0.gguf',
+      lavasrDenoiser: './models/lavasr/lavasr-denoiser.gguf'
+    },
+    config: { language: 'en' }
+  })
+  t.is(
+    model._buildTtsParams().lavasrDenoiserPath,
+    './models/lavasr/lavasr-denoiser.gguf',
+    'denoiser path forwarded on the batch path'
+  )
+  t.exception(
+    () =>
+      new TTSGgml({
+        engine: TTSGgml.ENGINE_PARLER,
+        files: {
+          parlerModel: './models/parler-mini-v1-q8_0.gguf',
+          lavasrDenoiser: './models/lavasr/lavasr-denoiser.gguf'
+        },
+        streamChunkTokens: 43,
+        config: { language: 'en' }
+      }),
+    /denoiser is not yet supported with native chunk streaming/,
+    'denoiser + native chunk streaming throws (streaming denoise is a follow-up)'
+  )
+})
+
 test('enhancer with an unknown type is rejected at construction', (t) => {
   t.exception(
     () =>
@@ -208,6 +260,14 @@ for (const [engineName, engine, files] of [
     {
       t3Model: './models/chatterbox-t3-turbo.gguf',
       s3genModel: './models/chatterbox-s3gen.gguf',
+      lavasrEnhancer: './models/lavasr/lavasr-enhancer.gguf'
+    }
+  ],
+  [
+    'Parler',
+    TTSGgml.ENGINE_PARLER,
+    {
+      parlerModel: './models/parler-mini-v1-q8_0.gguf',
       lavasrEnhancer: './models/lavasr/lavasr-enhancer.gguf'
     }
   ]
@@ -439,6 +499,151 @@ test(
       t.ok(total > 0, 'streamed enhanced audio produced samples')
       // Every chunk that carries audio must be tagged at the enhanced 48 kHz rate
       // (not the engine's native 24 kHz) — the mislabel this feature prevents.
+      for (const u of updates) {
+        if (u.outputArray.length > 0 && u.sampleRate != null) {
+          t.is(u.sampleRate, 48000, 'streamed enhanced chunk reports 48 kHz')
+        }
+      }
+      const isLastCount = updates.filter((u) => u.isLast === true).length
+      t.ok(isLastCount <= 1, 'at most one isLast=true across streamed chunks')
+    } finally {
+      try {
+        await model.unload()
+      } catch (_e) {}
+    }
+  }
+)
+
+test(
+  'Parler + LavaSR enhancer (batch) reports 48 kHz enhanced output',
+  { timeout: 900000 },
+  async (t) => {
+    const baseDir = getBaseDir()
+    const enh = await ensureLavaSREnhancerGguf({
+      targetDir: path.join(baseDir, 'models', 'lavasr')
+    })
+    if (!enh.success) {
+      t.comment('LavaSR enhancer GGUF not staged; skipping.')
+      t.pass('skipped — no enhancer GGUF')
+      return
+    }
+    const dl = await ensureParlerModel({ targetDir: path.join(baseDir, 'models') })
+    if (!dl.success) {
+      t.fail('Parler GGUF not available — registry fetch failed.')
+      return
+    }
+
+    const model = new TTSGgml({
+      engine: TTSGgml.ENGINE_PARLER,
+      files: { parlerModel: dl.path, lavasrEnhancer: enh.path },
+      voice: 'Laura',
+      config: { useGPU: false },
+      opts: { stats: true }
+    })
+    await model.load()
+    try {
+      const r = await runAndCollect(
+        model,
+        'Parler output neurally enhanced to forty-eight kilohertz.'
+      )
+      // Parler is natively 44.1 kHz, so this also pins that the enhancer's rate
+      // wins over the engine's native rate all the way out to the JS handler.
+      t.is(r.sampleRate, 48000, 'enhanced parler output reports 48 kHz')
+      t.ok(r.samples > 0, 'enhanced synthesis produced audio')
+      t.ok(r.stats, 'runtimeStats returned (constructed with stats:true)')
+      t.is(
+        r.stats.enhancerBackendDevice,
+        0,
+        'useGPU:false -> enhancer on CPU (enhancerBackendDevice=0)'
+      )
+      t.is(r.stats.enhancerBackendId, 0, 'useGPU:false -> enhancer backendId=0 (CPU)')
+    } finally {
+      try {
+        await model.unload()
+      } catch (_e) {}
+    }
+  }
+)
+
+test(
+  'Parler without enhancer reports native 44.1 kHz (backward compat)',
+  { timeout: 900000 },
+  async (t) => {
+    const baseDir = getBaseDir()
+    const dl = await ensureParlerModel({ targetDir: path.join(baseDir, 'models') })
+    if (!dl.success) {
+      t.fail('Parler GGUF not available — registry fetch failed.')
+      return
+    }
+
+    const model = new TTSGgml({
+      engine: TTSGgml.ENGINE_PARLER,
+      files: { parlerModel: dl.path },
+      voice: 'Laura',
+      config: { useGPU: false },
+      opts: { stats: true }
+    })
+    await model.load()
+    try {
+      const r = await runAndCollect(model, 'No enhancement here, just the native engine output.')
+      t.is(r.sampleRate, 44100, 'un-enhanced parler reports 44.1 kHz')
+      t.ok(r.samples > 0, 'synthesis produced audio')
+      t.ok(r.stats, 'runtimeStats returned (constructed with stats:true)')
+      t.is(r.stats.enhancerBackendDevice, -1, 'no enhancer loaded -> enhancerBackendDevice=-1')
+    } finally {
+      try {
+        await model.unload()
+      } catch (_e) {}
+    }
+  }
+)
+
+test(
+  'Parler + LavaSR enhancer + native chunk streaming emits 48 kHz chunks',
+  { timeout: 900000 },
+  async (t) => {
+    const baseDir = getBaseDir()
+    const enh = await ensureLavaSREnhancerGguf({
+      targetDir: path.join(baseDir, 'models', 'lavasr')
+    })
+    if (!enh.success) {
+      t.comment('LavaSR enhancer GGUF not staged; skipping.')
+      t.pass('skipped — no enhancer GGUF')
+      return
+    }
+    const dl = await ensureParlerModel({ targetDir: path.join(baseDir, 'models') })
+    if (!dl.success) {
+      t.fail('Parler GGUF not available — registry fetch failed.')
+      return
+    }
+
+    const model = new TTSGgml({
+      engine: TTSGgml.ENGINE_PARLER,
+      files: { parlerModel: dl.path, lavasrEnhancer: enh.path },
+      voice: 'Laura',
+      streamChunkTokens: 43, // native chunk streaming + enhancer (the path)
+      config: { useGPU: false },
+      opts: { stats: true }
+    })
+    await model.load()
+    try {
+      const updates = []
+      const response = await model.run({
+        input:
+          'Streaming Parler audio, neurally enhanced to forty-eight kilohertz, one chunk at a time.',
+        type: 'text'
+      })
+      await response
+        .onUpdate((d) => {
+          if (d && d.outputArray) updates.push(d)
+        })
+        .await()
+
+      const total = updates.reduce((acc, u) => acc + u.outputArray.length, 0)
+      t.ok(updates.length >= 1, 'streamed at least one chunk event')
+      t.ok(total > 0, 'streamed enhanced audio produced samples')
+      // Every chunk that carries audio must be tagged at the enhanced 48 kHz rate
+      // (not the engine's native 44.1 kHz) — the mislabel this feature prevents.
       for (const u of updates) {
         if (u.outputArray.length > 0 && u.sampleRate != null) {
           t.is(u.sampleRate, 48000, 'streamed enhanced chunk reports 48 kHz')

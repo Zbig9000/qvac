@@ -4,18 +4,24 @@
 //
 // Real-GGUF round-trip is gated behind QVAC_TEST_PARLER_GGUF.
 
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <memory>
 #include <string>
+#include <variant>
 
 #include <gtest/gtest.h>
 
 #include "inference-addon-cpp/Errors.hpp"
+#include "model-interface/BackendUtils.hpp"
 #include "model-interface/parler/ParlerConfig.hpp"
 #include "model-interface/parler/ParlerModel.hpp"
 
+using qvac::ttsggml::kBackendDeviceNone;
+using qvac::ttsggml::kBackendIdNone;
+using qvac::ttsggml::parler::kParlerNativeSampleRate;
 using qvac::ttsggml::parler::ParlerConfig;
 using qvac::ttsggml::parler::ParlerDescriptionFields;
 using qvac::ttsggml::parler::ParlerModel;
@@ -45,6 +51,12 @@ ParlerConfig minimallyValidStubConfig() {
   cfg.modelGgufPath = tempPath("parler-stub.gguf").string();
   std::ofstream(cfg.modelGgufPath, std::ios::binary) << "stub";
   return cfg;
+}
+
+std::string stubFile(const std::string& name) {
+  const auto path = tempPath(name);
+  std::ofstream(path, std::ios::binary) << "stub";
+  return path.string();
 }
 
 } // namespace
@@ -128,12 +140,91 @@ TEST(ParlerValidate, StreamingRejectsNonNativeOutputSampleRate) {
   cfg.streamChunkTokens = 40;
   cfg.outputSampleRate = 16000;
   EXPECT_THROW(ParlerModel{cfg}, StatusError);
-  cfg.outputSampleRate = 44100; // native — allowed
+  cfg.outputSampleRate = kParlerNativeSampleRate; // native — allowed
   EXPECT_NO_THROW(ParlerModel{cfg});
   cfg.outputSampleRate = 0; // native default — allowed
   EXPECT_NO_THROW(ParlerModel{cfg});
   cfg.outputSampleRate.reset(); // unset — allowed
   EXPECT_NO_THROW(ParlerModel{cfg});
+}
+
+// ─────────────────────────────────────────────────────────────────────
+//  LavaSR enhancer / denoiser configuration.
+// ─────────────────────────────────────────────────────────────────────
+
+TEST(ParlerLavasr, MissingEnhancerGgufRejected) {
+  auto cfg = minimallyValidStubConfig();
+  cfg.enhancerGgufPath = "/definitely/does/not/exist/enhancer.gguf";
+  EXPECT_THROW(ParlerModel{cfg}, StatusError);
+}
+
+TEST(ParlerLavasr, MissingDenoiserGgufRejected) {
+  auto cfg = minimallyValidStubConfig();
+  cfg.denoiserGgufPath = "/definitely/does/not/exist/denoiser.gguf";
+  EXPECT_THROW(ParlerModel{cfg}, StatusError);
+}
+
+TEST(ParlerLavasr, ExistingEnhancerAndDenoiserAccepted) {
+  // Validation only checks the paths exist; the GGUFs are parsed on load().
+  auto cfg = minimallyValidStubConfig();
+  cfg.enhancerGgufPath = stubFile("parler-enhancer-stub.gguf");
+  cfg.denoiserGgufPath = stubFile("parler-denoiser-stub.gguf");
+  EXPECT_NO_THROW(ParlerModel{cfg});
+}
+
+TEST(ParlerLavasr, DenoiserWithStreamingRejected) {
+  // tts-cpp only exposes a one-shot denoise(), so streaming denoise would drop
+  // the stage silently; reject the combination instead.
+  auto cfg = minimallyValidStubConfig();
+  cfg.denoiserGgufPath = stubFile("parler-denoiser-stub.gguf");
+  cfg.streamChunkTokens = 40;
+  EXPECT_THROW(ParlerModel{cfg}, StatusError);
+  cfg.streamChunkTokens = 0; // batch — allowed
+  EXPECT_NO_THROW(ParlerModel{cfg});
+}
+
+TEST(ParlerLavasr, EnhancerWithStreamingAccepted) {
+  // StreamingEnhancer makes per-chunk enhancement seam-free, so unlike the
+  // denoiser the enhancer composes with native chunk streaming.
+  auto cfg = minimallyValidStubConfig();
+  cfg.enhancerGgufPath = stubFile("parler-enhancer-stub.gguf");
+  cfg.streamChunkTokens = 40;
+  EXPECT_NO_THROW(ParlerModel{cfg});
+}
+
+TEST(ParlerLavasr, EnhancerLiftsStreamingOutputRateRestriction) {
+  // Without the enhancer a non-native rate while streaming is rejected; with it
+  // StreamingEnhancer resamples inside its overlap windows, so seams survive.
+  auto cfg = minimallyValidStubConfig();
+  cfg.streamChunkTokens = 40;
+  cfg.outputSampleRate = 16000;
+  EXPECT_THROW(ParlerModel{cfg}, StatusError);
+  cfg.enhancerGgufPath = stubFile("parler-enhancer-stub.gguf");
+  EXPECT_NO_THROW(ParlerModel{cfg});
+}
+
+TEST(ParlerLavasr, DefaultsDisableBothStages) {
+  ParlerConfig cfg;
+  EXPECT_TRUE(cfg.enhancerGgufPath.empty());
+  EXPECT_TRUE(cfg.denoiserGgufPath.empty());
+}
+
+TEST(ParlerLavasr, StatsExposeEnhancerBackendSentinels) {
+  // No enhancer loaded -> the kBackend*None sentinels (-1), so a host can tell
+  // "no enhancer" apart from "enhancer ran on the CPU" (0).
+  auto cfg = minimallyValidStubConfig();
+  ParlerModel m(cfg);
+  const auto stats = m.runtimeStats();
+  const auto find = [&stats](const std::string& key) -> int64_t {
+    for (const auto& entry : stats) {
+      if (entry.first == key)
+        return std::get<int64_t>(entry.second);
+    }
+    ADD_FAILURE() << "missing runtimeStats key: " << key;
+    return 0;
+  };
+  EXPECT_EQ(find("enhancerBackendDevice"), kBackendDeviceNone);
+  EXPECT_EQ(find("enhancerBackendId"), kBackendIdNone);
 }
 
 TEST(ParlerValidate, UseGpuTrueAcceptedAtConstruction) {
