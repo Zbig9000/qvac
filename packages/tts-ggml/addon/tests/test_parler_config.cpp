@@ -9,7 +9,10 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <random>
+#include <stdexcept>
 #include <string>
+#include <system_error>
 #include <variant>
 
 #include <gtest/gtest.h>
@@ -33,11 +36,43 @@ const char* kFallbackCaption =
     "The speaker speaks naturally. "
     "The recording is very high quality with no background noise.";
 
-std::filesystem::path tempPath(const std::string& suffix) {
-  auto dir =
-      std::filesystem::temp_directory_path() / "qvac-tts-ggml-parler-tests";
+constexpr const char* kStubDirPrefix = "qvac-tts-ggml-parler-tests-";
+constexpr const char* kStubContents = "stub";
+
+// The directory name carries entropy because CI shares one /tmp across parallel
+// self-hosted runners: a fixed name is created by whichever job runs first and
+// is then unwritable by the rest, which silently drops every later stub write.
+std::filesystem::path createStubDir() {
+  std::random_device entropy;
+  auto dir = std::filesystem::temp_directory_path() /
+             (std::string(kStubDirPrefix) + std::to_string(entropy()));
   std::filesystem::create_directories(dir);
-  return dir / suffix;
+  return dir;
+}
+
+class StubDir {
+public:
+  StubDir() : path_(createStubDir()) {}
+  ~StubDir() {
+    std::error_code ignored;
+    std::filesystem::remove_all(path_, ignored);
+  }
+  StubDir(const StubDir&) = delete;
+  StubDir& operator=(const StubDir&) = delete;
+
+  const std::filesystem::path& path() const { return path_; }
+
+private:
+  std::filesystem::path path_;
+};
+
+const std::filesystem::path& stubDir() {
+  static const StubDir dir;
+  return dir.path();
+}
+
+std::filesystem::path tempPath(const std::string& suffix) {
+  return stubDir() / suffix;
 }
 
 std::string envOrEmpty(const char* name) {
@@ -46,17 +81,22 @@ std::string envOrEmpty(const char* name) {
   return "";
 }
 
-ParlerConfig minimallyValidStubConfig() {
-  ParlerConfig cfg;
-  cfg.modelGgufPath = tempPath("parler-stub.gguf").string();
-  std::ofstream(cfg.modelGgufPath, std::ios::binary) << "stub";
-  return cfg;
+std::string writeStub(const std::string& name) {
+  const auto path = tempPath(name);
+  std::ofstream out(path, std::ios::binary);
+  out << kStubContents;
+  out.close();
+  if (!out || !std::filesystem::exists(path)) {
+    throw std::runtime_error("test setup: could not write stub file " +
+                             path.string());
+  }
+  return path.string();
 }
 
-std::string stubFile(const std::string& name) {
-  const auto path = tempPath(name);
-  std::ofstream(path, std::ios::binary) << "stub";
-  return path.string();
+ParlerConfig minimallyValidStubConfig() {
+  ParlerConfig cfg;
+  cfg.modelGgufPath = writeStub("parler-stub.gguf");
+  return cfg;
 }
 
 } // namespace
@@ -167,8 +207,8 @@ TEST(ParlerLavasr, MissingDenoiserGgufRejected) {
 TEST(ParlerLavasr, ExistingEnhancerAndDenoiserAccepted) {
   // Validation only checks the paths exist; the GGUFs are parsed on load().
   auto cfg = minimallyValidStubConfig();
-  cfg.enhancerGgufPath = stubFile("parler-enhancer-stub.gguf");
-  cfg.denoiserGgufPath = stubFile("parler-denoiser-stub.gguf");
+  cfg.enhancerGgufPath = writeStub("parler-enhancer-stub.gguf");
+  cfg.denoiserGgufPath = writeStub("parler-denoiser-stub.gguf");
   EXPECT_NO_THROW(ParlerModel{cfg});
 }
 
@@ -176,7 +216,7 @@ TEST(ParlerLavasr, DenoiserWithStreamingRejected) {
   // tts-cpp only exposes a one-shot denoise(), so streaming denoise would drop
   // the stage silently; reject the combination instead.
   auto cfg = minimallyValidStubConfig();
-  cfg.denoiserGgufPath = stubFile("parler-denoiser-stub.gguf");
+  cfg.denoiserGgufPath = writeStub("parler-denoiser-stub.gguf");
   cfg.streamChunkTokens = 40;
   EXPECT_THROW(ParlerModel{cfg}, StatusError);
   cfg.streamChunkTokens = 0; // batch — allowed
@@ -187,7 +227,7 @@ TEST(ParlerLavasr, EnhancerWithStreamingAccepted) {
   // StreamingEnhancer makes per-chunk enhancement seam-free, so unlike the
   // denoiser the enhancer composes with native chunk streaming.
   auto cfg = minimallyValidStubConfig();
-  cfg.enhancerGgufPath = stubFile("parler-enhancer-stub.gguf");
+  cfg.enhancerGgufPath = writeStub("parler-enhancer-stub.gguf");
   cfg.streamChunkTokens = 40;
   EXPECT_NO_THROW(ParlerModel{cfg});
 }
@@ -199,7 +239,7 @@ TEST(ParlerLavasr, EnhancerLiftsStreamingOutputRateRestriction) {
   cfg.streamChunkTokens = 40;
   cfg.outputSampleRate = 16000;
   EXPECT_THROW(ParlerModel{cfg}, StatusError);
-  cfg.enhancerGgufPath = stubFile("parler-enhancer-stub.gguf");
+  cfg.enhancerGgufPath = writeStub("parler-enhancer-stub.gguf");
   EXPECT_NO_THROW(ParlerModel{cfg});
 }
 
