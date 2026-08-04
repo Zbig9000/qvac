@@ -1,0 +1,609 @@
+#!/usr/bin/env node
+'use strict'
+
+/**
+ * Aggregate ACE-Step (audiogen-ggml) RTF benchmark artifacts — desktop, mobile
+ * and manual drops — into a single findings table (Markdown + JSON).
+ *
+ * Three input shapes are understood:
+ *   1. desktop  `rtf-benchmark-*.json` written by
+ *      packages/audiogen-ggml/test/benchmark/rtf-benchmark.test.js
+ *   2. mobile   `performance-report.json` reassembled from the Device Farm log
+ *      markers by scripts/perf-report/extract-from-log.js
+ *   3. manual   any JSON under --manual-dir, for backends CI cannot cover
+ *
+ * ACE-Step notes:
+ *   - one engine (acestep); the model axis is the DiT variant
+ *     (turbo-q4 / turbo-q8 both ~8-step, sft ~50-step and far slower)
+ *   - GPU backends: vulkan (linux/win32/android), metal (darwin/ios).
+ *     CUDA and OpenCL are outside the default audiogen-cpp cascade and only
+ *     appear from a manual drop or an explicit backend hint.
+ *   - canonical reports are tagged `addon: 'audiogen-ggml'`
+ *
+ * Usage:
+ *   node scripts/perf-report/aggregate-audiogen-ggml-rtf.js \
+ *     --dir benchmark-artifacts \
+ *     --manual-dir packages/audiogen-ggml/benchmarks/manual-results \
+ *     --output benchmark-artifacts/audiogen-ggml-performance-findings.md \
+ *     --output-json benchmark-artifacts/audiogen-ggml-performance-findings.json
+ */
+
+const fs = require('fs')
+const path = require('path')
+
+const ENGINE = 'acestep'
+const ADDON = 'audiogen-ggml'
+const CANONICAL_SCHEMA_VERSION = '1.0'
+
+// Backends the default audiogen-cpp cascade can reach on CI hardware. Anything
+// missing from a run is called out under the table so a gap is visible rather
+// than silently absent.
+const SUPPORTED_GPU_BACKENDS = ['vulkan', 'metal']
+const VALID_BACKENDS = ['cpu', 'gpu', 'vulkan', 'metal', 'cuda', 'opencl', 'mobile-accelerated']
+const VALID_DIT_VARIANTS = ['turbo-q4', 'turbo-q8', 'sft']
+
+const NOISY_STDDEV_RATIO = 0.15
+const DEFAULT_DIT_VARIANT = 'turbo-q4'
+const DEFAULT_MANUAL_DIR = 'packages/audiogen-ggml/benchmarks/manual-results'
+const BYTES_PER_MB = 1024 * 1024
+
+function parseArgs (argv) {
+  const args = {
+    input: '',
+    output: '',
+    jsonOutput: '',
+    manualDir: path.resolve(DEFAULT_MANUAL_DIR)
+  }
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]
+    const next = argv[i + 1]
+    if ((arg === '--input' || arg === '--dir') && next) {
+      args.input = next
+      i++
+    } else if (arg === '--output' && next) {
+      args.output = next
+      i++
+    } else if ((arg === '--json-output' || arg === '--output-json') && next) {
+      args.jsonOutput = next
+      i++
+    } else if (arg === '--manual-dir' && next) {
+      args.manualDir = next
+      i++
+    }
+  }
+
+  if (!args.input) throw new Error('Missing required --input / --dir argument')
+  return args
+}
+
+function walkFiles (dir) {
+  const files = []
+  if (!fs.existsSync(dir)) return files
+
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path.join(dir, entry.name)
+    if (entry.isDirectory()) {
+      files.push(...walkFiles(fullPath))
+      continue
+    }
+    files.push(fullPath)
+  }
+  return files
+}
+
+function toNumberOrNull (value) {
+  if (value === null || value === undefined) return null
+  const num = Number(value)
+  return Number.isFinite(num) ? num : null
+}
+
+function formatNumber (value, digits = 4) {
+  if (value === null || value === undefined || Number.isNaN(value)) return 'n/a'
+  return Number(value).toFixed(digits)
+}
+
+function formatMaybeInteger (value) {
+  if (value === null || value === undefined || Number.isNaN(value)) return 'n/a'
+  return String(Math.round(Number(value)))
+}
+
+// audiogen-cpp resolves Metal on darwin/ios and Vulkan on linux/win32/android.
+// An explicit hint (a manual CUDA/OpenCL drop, say) always wins.
+function normalizeBackend (platformName, useGPU, backendHint) {
+  const hint = String(backendHint || '').toLowerCase()
+  if (hint && hint !== 'gpu' && hint !== 'mobile-accelerated') return hint
+  if (!useGPU) return 'cpu'
+
+  switch (String(platformName || '').toLowerCase()) {
+    case 'ios':
+    case 'darwin':
+      return 'metal'
+    case 'android':
+    case 'linux':
+    case 'win32':
+      return 'vulkan'
+    default:
+      return hint || 'gpu'
+  }
+}
+
+function normalizeDitVariant (value) {
+  const variant = String(value || '').toLowerCase()
+  return VALID_DIT_VARIANTS.includes(variant) ? variant : ''
+}
+
+function isCanonicalReport (report) {
+  return Boolean(
+    report &&
+    report.schema_version === CANONICAL_SCHEMA_VERSION &&
+    (report.addon === ADDON || report.addon_type === ADDON) &&
+    Array.isArray(report.results) &&
+    report.device
+  )
+}
+
+function isDesktopArtifact (report) {
+  return Boolean(report && report.engine === ENGINE && report.summary && report.model)
+}
+
+// Canonical labels are built by the benchmark as
+// `[CPU|GPU] acestep <ditVariant> <backend>`; the tail is matched by meaning
+// rather than position so an extra token cannot shift the columns.
+function parseCanonicalTestLabel (testLabel) {
+  const matched = String(testLabel || '')
+    .trim()
+    .match(/^\[(CPU|GPU)\]\s+(\S+)(?:\s+(.+))?$/)
+  if (!matched) return null
+
+  const tokens = (matched[3] || '').trim().split(/\s+/).filter(Boolean)
+  const takeToken = (predicate) => {
+    const index = tokens.findIndex(predicate)
+    return index === -1 ? null : tokens.splice(index, 1)[0]
+  }
+  const backendHint = takeToken((token) => VALID_BACKENDS.includes(token.toLowerCase()))
+  const ditVariant = takeToken((token) => Boolean(normalizeDitVariant(token)))
+
+  return {
+    useGPU: matched[1] === 'GPU',
+    engine: matched[2],
+    ditVariant: ditVariant ? normalizeDitVariant(ditVariant) : '',
+    backendHint
+  }
+}
+
+function deriveNoisy (summary) {
+  if (summary && typeof summary.noisy === 'boolean') return summary.noisy
+  const rtf = (summary && summary.rtf) || {}
+  const mean = toNumberOrNull(rtf.mean)
+  const stddev = toNumberOrNull(rtf.stddev)
+  if (mean === null || stddev === null || mean <= 0) return null
+  return stddev / mean > NOISY_STDDEV_RATIO
+}
+
+function memoryFromSummary (summary) {
+  const memory = (summary && summary.memory) || {}
+  return {
+    avgRssMb: toNumberOrNull(memory.avgRssMb),
+    peakRssMb: toNumberOrNull(memory.peakRssMb),
+    reclaimedMb: toNumberOrNull(memory.reclaimedMb)
+  }
+}
+
+function bytesToMbOrNull (bytes) {
+  const value = toNumberOrNull(bytes)
+  return value === null ? null : value / BYTES_PER_MB
+}
+
+function normalizeDesktopRecord (report, sourceFile) {
+  const summary = report.summary || {}
+  const rtf = summary.rtf || {}
+  const wallMs = summary.wallMs || {}
+  const audioMs = summary.audioDurationMs || {}
+  const memory = memoryFromSummary(summary)
+  const labels = report.labels || {}
+  const config = report.config || {}
+  const platformFamily = report.platformName || ''
+  const useGPU = Boolean(config.useGPU)
+
+  return {
+    source: 'desktop-ci',
+    device: labels.device || labels.runner || report.platform || 'unknown',
+    platform: report.platform || 'unknown',
+    platformFamily: platformFamily || 'unknown',
+    ditVariant:
+      normalizeDitVariant((report.model && report.model.ditVariant) || config.ditVariant) ||
+      DEFAULT_DIT_VARIANT,
+    gpu: useGPU ? 'gpu' : 'cpu',
+    backend: normalizeBackend(platformFamily, useGPU, labels.activeBackend || labels.backend),
+    gpuModel: labels.gpuModel || null,
+    label: String(labels.label || ''),
+    durationS: toNumberOrNull(config.durationS),
+    inferenceSteps: toNumberOrNull(config.inferenceSteps),
+    numThreads: toNumberOrNull(config.numThreads),
+    meanRtf: toNumberOrNull(rtf.mean),
+    p50: toNumberOrNull(rtf.p50),
+    p95: toNumberOrNull(rtf.p95),
+    stddev: toNumberOrNull(rtf.stddev),
+    coldRtf: toNumberOrNull(summary.coldRtf),
+    wallMs: toNumberOrNull(wallMs.mean),
+    audioMs: toNumberOrNull(audioMs.mean),
+    modelLoadMs: toNumberOrNull(summary.modelLoadMs),
+    avgRssMb: memory.avgRssMb,
+    peakRssMb: memory.peakRssMb,
+    reclaimedMb: memory.reclaimedMb,
+    modelSizeMb: bytesToMbOrNull(summary.modelSizeBytes || (report.model && report.model.sizeBytes)),
+    noisy: deriveNoisy(summary),
+    runId: (report.correlation && report.correlation.githubRunId) || '',
+    sha: (report.correlation && report.correlation.githubSha) || '',
+    notes: sourceFile ? path.basename(sourceFile) : ''
+  }
+}
+
+function canonicalResultToRecord (result, report, sourceFile) {
+  const parsed = parseCanonicalTestLabel(result.test)
+  if (!parsed || parsed.engine !== ENGINE) return null
+
+  const metrics = result.metrics || {}
+  const device = report.device || {}
+  const platformFamily = String(device.platform || '').toLowerCase()
+  const platform = device.arch ? `${platformFamily}-${device.arch}` : platformFamily
+  const useGPU = parsed.useGPU || result.execution_provider === 'gpu'
+  const ditVariant =
+    parsed.ditVariant || normalizeDitVariant(result.ditVariant) || DEFAULT_DIT_VARIANT
+
+  return {
+    source: 'mobile-ci',
+    device: device.name || platform || 'unknown',
+    platform: platform || 'unknown',
+    platformFamily: platformFamily || 'unknown',
+    ditVariant,
+    gpu: useGPU ? 'gpu' : 'cpu',
+    backend: normalizeBackend(platformFamily, useGPU, parsed.backendHint),
+    gpuModel: device.gpu || null,
+    label: `${platformFamily}-${ditVariant}`,
+    durationS: null,
+    inferenceSteps: null,
+    numThreads: null,
+    meanRtf: toNumberOrNull(metrics.real_time_factor),
+    p50: toNumberOrNull(metrics.rtf_p50),
+    p95: toNumberOrNull(metrics.rtf_p95),
+    stddev: null,
+    coldRtf: toNumberOrNull(metrics.cold_rtf),
+    wallMs: toNumberOrNull(metrics.wall_time_ms),
+    audioMs: toNumberOrNull(metrics.audio_duration_ms),
+    modelLoadMs: toNumberOrNull(metrics.model_load_ms),
+    avgRssMb: toNumberOrNull(metrics.avg_rss_mb),
+    peakRssMb: toNumberOrNull(metrics.peak_rss_mb),
+    reclaimedMb: toNumberOrNull(metrics.reclaimed_mb),
+    modelSizeMb: null,
+    noisy: null,
+    runId: report.run_number || '',
+    sha: '',
+    notes: sourceFile ? path.basename(sourceFile) : ''
+  }
+}
+
+function expandCanonicalReport (report, sourceFile) {
+  if (!isCanonicalReport(report)) return []
+  return report.results
+    .map((result) => canonicalResultToRecord(result, report, sourceFile))
+    .filter(Boolean)
+}
+
+// Hand-authored drops are flat by design: a human filling in a template should
+// not have to reproduce the benchmark's nested summary shape.
+function normalizeManualRecord (record, sourceFile) {
+  const platformFamily = String(record.platformFamily || record.platformName || '').toLowerCase()
+  const useGPU = Boolean(record.useGPU || record.gpu === 'gpu')
+
+  return {
+    source: 'manual',
+    device: record.device || record.deviceLabel || 'unknown',
+    platform: record.platform || 'unknown',
+    platformFamily: platformFamily || 'unknown',
+    ditVariant:
+      normalizeDitVariant(record.ditVariant || (record.model && record.model.ditVariant)) ||
+      DEFAULT_DIT_VARIANT,
+    gpu: useGPU ? 'gpu' : 'cpu',
+    backend: normalizeBackend(platformFamily, useGPU, record.backend),
+    gpuModel: record.gpuModel || record.gpu_model || null,
+    label: String(record.label || ''),
+    durationS: toNumberOrNull(record.durationS),
+    inferenceSteps: toNumberOrNull(record.inferenceSteps),
+    numThreads: toNumberOrNull(record.numThreads),
+    meanRtf: toNumberOrNull(record.meanRtf),
+    p50: toNumberOrNull(record.p50),
+    p95: toNumberOrNull(record.p95),
+    stddev: toNumberOrNull(record.stddev),
+    coldRtf: toNumberOrNull(record.coldRtf),
+    wallMs: toNumberOrNull(record.wallMs),
+    audioMs: toNumberOrNull(record.audioMs),
+    modelLoadMs: toNumberOrNull(record.modelLoadMs),
+    avgRssMb: toNumberOrNull(record.avgRssMb),
+    peakRssMb: toNumberOrNull(record.peakRssMb),
+    reclaimedMb: toNumberOrNull(record.reclaimedMb),
+    modelSizeMb: toNumberOrNull(record.modelSizeMb),
+    noisy: typeof record.noisy === 'boolean' ? record.noisy : null,
+    runId: '',
+    sha: '',
+    notes: record.notes || (sourceFile ? path.basename(sourceFile) : '')
+  }
+}
+
+function readJson (file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'))
+  } catch (err) {
+    console.error(`Failed to parse ${file}: ${err.message}`)
+    return null
+  }
+}
+
+function isBenchmarkArtifactName (file) {
+  const base = path.basename(file)
+  return /^rtf-benchmark-.*\.json$/.test(base) || base === 'performance-report.json'
+}
+
+function loadArtifactRecords (inputDir) {
+  const records = []
+  for (const file of walkFiles(inputDir).filter(isBenchmarkArtifactName)) {
+    const report = readJson(file)
+    if (!report) continue
+
+    if (isCanonicalReport(report)) {
+      records.push(...expandCanonicalReport(report, file))
+    } else if (isDesktopArtifact(report)) {
+      records.push(normalizeDesktopRecord(report, file))
+    }
+  }
+  return records
+}
+
+function manualItemToRecord (item, file) {
+  if (isDesktopArtifact(item)) {
+    return { ...normalizeDesktopRecord(item, file), source: 'manual' }
+  }
+  if (isCanonicalReport(item)) {
+    return expandCanonicalReport(item, file).map((record) => ({ ...record, source: 'manual' }))
+  }
+  return normalizeManualRecord(item, file)
+}
+
+function loadManualRecords (manualDir) {
+  const records = []
+  if (!fs.existsSync(manualDir)) return records
+
+  for (const file of walkFiles(manualDir).filter((f) => f.endsWith('.json'))) {
+    const payload = readJson(file)
+    if (!payload) continue
+
+    const items = Array.isArray(payload) ? payload : payload.records || [payload]
+    for (const item of items) {
+      const converted = manualItemToRecord(item, file)
+      if (Array.isArray(converted)) records.push(...converted)
+      else records.push(converted)
+    }
+  }
+  return records
+}
+
+function recordKey (record) {
+  return [
+    record.source,
+    record.platform,
+    record.ditVariant,
+    record.gpu,
+    record.backend,
+    record.device,
+    record.label || '',
+    record.durationS === null ? '' : String(record.durationS),
+    record.numThreads === null ? '' : String(record.numThreads)
+  ].join('::')
+}
+
+// Same-platform runners emit identically named artifacts, so the summarize job
+// downloads them into per-artifact subdirectories and this keeps the first of
+// any true duplicate rather than letting one clobber the others.
+function dedupeRecords (records) {
+  const byKey = new Map()
+  for (const record of records) {
+    const key = recordKey(record)
+    if (!byKey.has(key)) byKey.set(key, record)
+  }
+  return [...byKey.values()]
+}
+
+function sortKey (record) {
+  return [record.source, record.platform, record.ditVariant, record.gpu, record.device].join('|')
+}
+
+function sortRecords (records) {
+  return records.sort((a, b) => sortKey(a).localeCompare(sortKey(b)))
+}
+
+function formatModelSize (mb) {
+  if (mb === null || mb === undefined || Number.isNaN(mb)) return 'n/a'
+  return Number(mb).toFixed(1)
+}
+
+function formatNoisy (noisy) {
+  if (noisy === null || noisy === undefined) return '-'
+  return noisy ? 'yes' : 'no'
+}
+
+function missingGpuBackends (records) {
+  const covered = new Set(records.filter((r) => r.gpu === 'gpu').map((r) => r.backend))
+  return SUPPORTED_GPU_BACKENDS.filter((backend) => !covered.has(backend))
+}
+
+const TABLE_COLUMNS = [
+  'Source',
+  'Device',
+  'Platform',
+  'DiT Variant',
+  'GPU',
+  'Backend',
+  'GPU Model',
+  'Label',
+  'Clip (s)',
+  'Mean RTF',
+  'P50',
+  'P95',
+  'Cold RTF',
+  'Mean Wall (ms)',
+  'Audio (ms)',
+  'Load (ms)',
+  'Avg RSS (MB)',
+  'Peak RSS (MB)',
+  'Reclaimed (MB)',
+  'Model (MB)',
+  'Noisy',
+  'Run'
+]
+
+function renderRow (record) {
+  return (
+    '| ' +
+    [
+      record.source,
+      record.device,
+      record.platform,
+      record.ditVariant,
+      record.gpu,
+      record.backend,
+      record.gpuModel || '-',
+      record.label || '-',
+      record.durationS === null ? '-' : formatNumber(record.durationS, 0),
+      formatNumber(record.meanRtf),
+      formatNumber(record.p50),
+      formatNumber(record.p95),
+      formatNumber(record.coldRtf),
+      formatMaybeInteger(record.wallMs),
+      formatMaybeInteger(record.audioMs),
+      formatMaybeInteger(record.modelLoadMs),
+      formatModelSize(record.avgRssMb),
+      formatModelSize(record.peakRssMb),
+      formatModelSize(record.reclaimedMb),
+      formatModelSize(record.modelSizeMb),
+      formatNoisy(record.noisy),
+      record.runId || '-'
+    ].join(' | ') +
+    ' |'
+  )
+}
+
+function renderHeader () {
+  return [
+    '| ' + TABLE_COLUMNS.join(' | ') + ' |',
+    '|' + TABLE_COLUMNS.map(() => '---').join('|') + '|'
+  ]
+}
+
+function renderIntro () {
+  return [
+    '## ACE-Step (audiogen-ggml) Performance Findings',
+    '',
+    'RTF = generation_time / audio_duration. Lower is faster; RTF < 1 is faster than real-time.',
+    '',
+    'The DiT variant is the model axis: `turbo-q4` and `turbo-q8` share the ~8-step turbo schedule, ' +
+      '`sft` runs the ~50-step schedule and is expected to be several times slower.',
+    '',
+    '`Cold RTF` is the first warmup run after load (cold-path latency). ' +
+      `\`Noisy\` flags rows where stddev / mean > ${Math.round(NOISY_STDDEV_RATIO * 100)}%.`,
+    ''
+  ]
+}
+
+function renderFooter (records) {
+  const lines = ['']
+  const noisyCount = records.filter((r) => r.noisy === true).length
+  const missing = missingGpuBackends(records)
+
+  lines.push(`Rows: ${records.length}. Noisy rows: ${noisyCount}.`)
+  lines.push('')
+  if (missing.length > 0) {
+    lines.push(
+      `> GPU backends with no coverage in this run: ${missing.join(', ')}. ` +
+        `Drop a JSON record into \`${DEFAULT_MANUAL_DIR}/\` to fill a gap CI cannot reach.`
+    )
+    lines.push('')
+  }
+  return lines
+}
+
+function renderMarkdown (records) {
+  const lines = [...renderIntro(), ...renderHeader()]
+  if (records.length === 0) {
+    lines.push('| _no benchmark artifacts found_ |' + TABLE_COLUMNS.slice(1).map(() => ' - |').join(''))
+  }
+  for (const record of records) lines.push(renderRow(record))
+  lines.push(...renderFooter(records))
+  return lines.join('\n') + '\n'
+}
+
+function buildJsonReport (records) {
+  return {
+    schemaVersion: 1,
+    addon: ADDON,
+    engine: ENGINE,
+    generatedAt: new Date().toISOString(),
+    recordCount: records.length,
+    missingGpuBackends: missingGpuBackends(records),
+    records
+  }
+}
+
+function writeOutput (file, contents) {
+  if (!file) return
+  const dir = path.dirname(file)
+  if (dir && !fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(file, contents)
+  console.log(`Wrote ${file}`)
+}
+
+function collectRecords (args) {
+  return sortRecords(
+    dedupeRecords([...loadArtifactRecords(args.input), ...loadManualRecords(args.manualDir)])
+  )
+}
+
+function main () {
+  const args = parseArgs(process.argv.slice(2))
+  const records = collectRecords(args)
+  const markdown = renderMarkdown(records)
+
+  if (args.output) writeOutput(args.output, markdown)
+  else console.log(markdown)
+
+  if (args.jsonOutput) {
+    writeOutput(args.jsonOutput, JSON.stringify(buildJsonReport(records), null, 2) + '\n')
+  }
+}
+
+if (require.main === module) {
+  main()
+}
+
+module.exports = {
+  ENGINE,
+  ADDON,
+  SUPPORTED_GPU_BACKENDS,
+  VALID_DIT_VARIANTS,
+  NOISY_STDDEV_RATIO,
+  parseArgs,
+  normalizeBackend,
+  normalizeDitVariant,
+  isCanonicalReport,
+  isDesktopArtifact,
+  parseCanonicalTestLabel,
+  deriveNoisy,
+  normalizeDesktopRecord,
+  expandCanonicalReport,
+  normalizeManualRecord,
+  dedupeRecords,
+  sortRecords,
+  missingGpuBackends,
+  renderMarkdown,
+  buildJsonReport
+}

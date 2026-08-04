@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- RTF (Real-Time Factor) benchmark for the ACE-Step engine, measuring
+  generation time against rendered audio duration, plus cold-path latency,
+  model load time and process RSS (average, peak, reclaimed after unload).
+  Renders use a fixed seed and caption corpus so only the hardware varies.
+- `npm run test:benchmark:rtf` benchmarks one (DiT variant, GPU) combination;
+  `npm run test:benchmark:rtf:matrix` sweeps several in one process and keeps
+  going when an entry fails. Both are configured through
+  `QVAC_AUDIOGEN_GGML_BENCHMARK_*` environment variables.
+- The same measurement runs on-device as `testRtfBenchmark`, reporting through
+  the canonical `[PERF_REPORT_START]` log markers. Desktop and mobile share one
+  implementation so their numbers stay comparable.
+- `npm run download-models:registry:all` fetches every DiT variant, which a
+  full sweep needs.
+- `benchmarks/RTF-BENCHMARKS.md` documents the metrics and how to run a sweep;
+  `benchmarks/manual-results/` accepts hand-authored records for backends CI
+  cannot reach (CUDA, OpenCL).
+- `@qvac/audiogen-ggml/test/benchmark-runner` subpath export, so the on-device
+  harness can reach the shared benchmark implementation.
+
 ## [0.1.1] - 2026-08-03
 
 ### Changed

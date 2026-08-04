@@ -16,21 +16,26 @@
     "check:generated": "node scripts/check-generated.mjs",
     "test:dts": "tsc --noEmit -p tsconfig.dts.json",
     "test:types": "npm run typecheck && npm run test:dts && npm run check:generated",
-    "test:unit": "npm run build:ts && brittle-bare test/unit/**/*.test.js",
+    "test:unit": "npm run build:ts && brittle-bare test/unit/**/*.test.js && npm run test:node",
+    "test:node": "node --test scripts/__tests__/*.test.js",
     "test:integration": "npm run build:ts && brittle-bare test/integration/**/*.test.js",
+    "test:benchmark:rtf": "npm run build:ts && brittle-bare test/benchmark/rtf-benchmark.test.js",
+    "test:benchmark:rtf:matrix": "node scripts/run-rtf-benchmark-matrix.js",
     "test": "npm run test:types && npm run test:unit && npm run test:integration",
     "lint": "npm run lint:js && npm run lint:ts && npm run test:types",
-    "lint:js": "prettier --check \"binding.js\" \"lib/*.js\" \"scripts/*.js\" \"test/**/*.js\" && lunte \"binding.js\" \"lib/*.js\" \"scripts/*.js\" \"test/**/*.js\"",
+    "lint:js": "prettier --check \"binding.js\" \"lib/*.js\" \"scripts/**/*.js\" \"test/**/*.js\" && lunte \"binding.js\" \"lib/*.js\" \"scripts/**/*.js\" \"test/**/*.js\"",
     "lint:ts": "eslint \"src/**/*.ts\" --max-warnings=0",
     "lint:ts:fix": "eslint \"src/**/*.ts\" --fix",
     "lint-cpp": "clang-tidy -p build $(find addon/src -name '*.cpp')",
-    "format": "prettier --write \"binding.js\" \"lib/*.js\" \"scripts/*.js\" \"test/**/*.js\"",
-    "download-models:registry": "node scripts/download-audiogen-ggml-models.js"
+    "format": "prettier --write \"binding.js\" \"lib/*.js\" \"scripts/**/*.js\" \"test/**/*.js\"",
+    "download-models:registry": "node scripts/download-audiogen-ggml-models.js",
+    "download-models:registry:all": "node scripts/download-audiogen-ggml-models.js --variant all"
   },
   "exports": {
     "./package": "./package.json",
     ".": "./index.js",
-    "./models": "./models.js"
+    "./models": "./models.js",
+    "./test/benchmark-runner": "./test/utils/benchmark-runner.js"
   },
   "files": [
     "binding.js",
@@ -45,6 +50,10 @@
     "test/integration",
     "test/utils/downloadModel.js",
     "test/utils/runAudioGen.js",
+    "test/utils/benchmark-runner.js",
+    "test/utils/benchmark-report.js",
+    "test/utils/benchmark-stats.js",
+    "test/utils/memory-usage.js",
     "test/mobile",
     "README.md",
     "CHANGELOG.md",

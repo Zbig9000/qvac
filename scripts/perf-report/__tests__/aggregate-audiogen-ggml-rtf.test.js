@@ -1,0 +1,340 @@
+'use strict'
+
+/**
+ * Unit tests for the ACE-Step perf-report normalizers in
+ * scripts/perf-report/aggregate-audiogen-ggml-rtf.js.
+ *
+ * Covers the behaviour the benchmark workflows depend on:
+ *   1. Desktop `rtf-benchmark-*.json` artifacts normalize into report rows,
+ *      including the DiT-variant axis and the memory block.
+ *   2. Mobile canonical `[PERF_REPORT_START]` reports expand into rows with the
+ *      variant and backend recovered from the test label.
+ *   3. Same-platform runners emitting identically named artifacts dedupe on the
+ *      row identity rather than clobbering each other.
+ *   4. The markdown table renders the DiT variant and flags uncovered GPU
+ *      backends.
+ *
+ * Pure-function code paths only — no fixtures on disk.
+ *
+ * Run locally:
+ *   node --test scripts/perf-report/__tests__/aggregate-audiogen-ggml-rtf.test.js
+ */
+
+const test = require('node:test')
+const assert = require('node:assert/strict')
+
+const {
+  parseCanonicalTestLabel,
+  normalizeBackend,
+  normalizeDitVariant,
+  isCanonicalReport,
+  isDesktopArtifact,
+  deriveNoisy,
+  normalizeDesktopRecord,
+  expandCanonicalReport,
+  normalizeManualRecord,
+  dedupeRecords,
+  sortRecords,
+  missingGpuBackends,
+  renderMarkdown,
+  buildJsonReport
+} = require('../aggregate-audiogen-ggml-rtf')
+
+const MB = 1024 * 1024
+
+function desktopReport (overrides = {}) {
+  return {
+    schemaVersion: 1,
+    platform: 'linux-x64',
+    platformName: 'linux',
+    engine: 'acestep',
+    model: { type: 'acestep', ditVariant: 'turbo-q4', sizeBytes: 3200 * MB },
+    labels: {
+      device: 'qvac-ubuntu2404-x64-gpu',
+      runner: 'qvac-ubuntu2404-x64-gpu',
+      backend: 'vulkan',
+      activeBackend: 'vulkan',
+      requestedBackend: 'gpu',
+      label: '1-turbo-q4-gpu'
+    },
+    config: {
+      useGPU: true,
+      ditVariant: 'turbo-q4',
+      durationS: 15,
+      inferenceSteps: null,
+      numThreads: null,
+      warmupRuns: 1,
+      benchmarkRuns: 3
+    },
+    correlation: { githubRunId: '4242', githubSha: 'deadbeef' },
+    summary: {
+      rtf: { mean: 1.25, p50: 1.2, p95: 1.4, stddev: 0.05, count: 3 },
+      wallMs: { mean: 18750.4 },
+      audioDurationMs: { mean: 15000 },
+      coldRtf: 1.9,
+      modelLoadMs: 4210.6,
+      modelSizeBytes: 3200 * MB,
+      memory: { avgRssMb: 3200.5, peakRssMb: 4100.25, reclaimedMb: 2900.1 },
+      noisy: false,
+      ...overrides.summary
+    },
+    ...overrides.report
+  }
+}
+
+function mobileCanonicalReport (testLabel = '[GPU] acestep turbo-q8 vulkan') {
+  return {
+    schema_version: '1.0',
+    addon: 'audiogen-ggml',
+    addon_type: 'audiogen-ggml',
+    timestamp: '2026-08-04T10:00:00.000Z',
+    run_number: '99',
+    device: {
+      name: 'Google Pixel 8 Pro',
+      platform: 'android',
+      arch: 'arm64',
+      gpu: 'Mali-G715',
+      runner: 'aws-device-farm-Android'
+    },
+    results: [
+      {
+        test: testLabel,
+        execution_provider: 'gpu',
+        engine: 'acestep',
+        ditVariant: 'turbo-q8',
+        metrics: {
+          real_time_factor: 6.5,
+          rtf_p50: 6.4,
+          rtf_p95: 6.9,
+          wall_time_ms: 97500,
+          audio_duration_ms: 15000,
+          cold_rtf: 8.1,
+          model_load_ms: 30500,
+          avg_rss_mb: 3600.5,
+          peak_rss_mb: 4200.75,
+          reclaimed_mb: 3100.25
+        }
+      }
+    ]
+  }
+}
+
+test('normalizeDitVariant accepts the three published DiT variants only', () => {
+  assert.equal(normalizeDitVariant('turbo-q4'), 'turbo-q4')
+  assert.equal(normalizeDitVariant('TURBO-Q8'), 'turbo-q8')
+  assert.equal(normalizeDitVariant('sft'), 'sft')
+  assert.equal(normalizeDitVariant('q4'), '', 'a tts-style quant token is not a DiT variant')
+  assert.equal(normalizeDitVariant(undefined), '')
+})
+
+test('normalizeBackend follows the audiogen-cpp cascade and honours a hint', () => {
+  assert.equal(normalizeBackend('linux', true, ''), 'vulkan')
+  assert.equal(normalizeBackend('win32', true, ''), 'vulkan')
+  assert.equal(normalizeBackend('android', true, ''), 'vulkan')
+  assert.equal(normalizeBackend('darwin', true, ''), 'metal')
+  assert.equal(normalizeBackend('ios', true, ''), 'metal')
+  assert.equal(normalizeBackend('linux', false, ''), 'cpu')
+  assert.equal(normalizeBackend('linux', true, 'cuda'), 'cuda', 'an explicit hint wins')
+  assert.equal(
+    normalizeBackend('linux', true, 'gpu'),
+    'vulkan',
+    'the generic gpu hint defers to the cascade'
+  )
+})
+
+test('report shape detection distinguishes desktop, canonical and neither', () => {
+  assert.ok(isDesktopArtifact(desktopReport()))
+  assert.ok(isCanonicalReport(mobileCanonicalReport()))
+  assert.ok(!isDesktopArtifact(mobileCanonicalReport()))
+  assert.ok(!isCanonicalReport(desktopReport()))
+  assert.ok(!isCanonicalReport({ schema_version: '1.0', addon: 'tts-ggml', results: [], device: {} }))
+  assert.ok(!isDesktopArtifact({ engine: 'chatterbox', summary: {}, model: {} }))
+})
+
+test('parseCanonicalTestLabel recovers provider, variant and backend', () => {
+  assert.deepEqual(parseCanonicalTestLabel('[GPU] acestep turbo-q4 vulkan'), {
+    useGPU: true,
+    engine: 'acestep',
+    ditVariant: 'turbo-q4',
+    backendHint: 'vulkan'
+  })
+  assert.deepEqual(parseCanonicalTestLabel('[CPU] acestep sft cpu'), {
+    useGPU: false,
+    engine: 'acestep',
+    ditVariant: 'sft',
+    backendHint: 'cpu'
+  })
+})
+
+test('parseCanonicalTestLabel tolerates a missing or unknown tail', () => {
+  assert.deepEqual(parseCanonicalTestLabel('[CPU] acestep'), {
+    useGPU: false,
+    engine: 'acestep',
+    ditVariant: '',
+    backendHint: null
+  })
+  assert.equal(parseCanonicalTestLabel('not a label'), null)
+  assert.equal(parseCanonicalTestLabel(''), null)
+})
+
+test('normalizeDesktopRecord carries the variant, memory and correlation through', () => {
+  const record = normalizeDesktopRecord(desktopReport(), '/tmp/rtf-benchmark-linux-x64-turbo-q4-gpu.json')
+
+  assert.equal(record.source, 'desktop-ci')
+  assert.equal(record.ditVariant, 'turbo-q4')
+  assert.equal(record.gpu, 'gpu')
+  assert.equal(record.backend, 'vulkan')
+  assert.equal(record.device, 'qvac-ubuntu2404-x64-gpu')
+  assert.equal(record.meanRtf, 1.25)
+  assert.equal(record.coldRtf, 1.9)
+  assert.equal(record.durationS, 15)
+  assert.equal(record.avgRssMb, 3200.5)
+  assert.equal(record.peakRssMb, 4100.25)
+  assert.equal(record.reclaimedMb, 2900.1)
+  assert.equal(record.modelSizeMb, 3200)
+  assert.equal(record.runId, '4242')
+  assert.equal(record.sha, 'deadbeef')
+  assert.equal(record.notes, 'rtf-benchmark-linux-x64-turbo-q4-gpu.json')
+})
+
+test('normalizeDesktopRecord treats a CPU run as cpu regardless of the backend label', () => {
+  const report = desktopReport()
+  report.config.useGPU = false
+  report.labels.backend = 'cpu'
+  report.labels.activeBackend = 'cpu'
+
+  const record = normalizeDesktopRecord(report, 'artifact.json')
+  assert.equal(record.gpu, 'cpu')
+  assert.equal(record.backend, 'cpu')
+})
+
+test('normalizeDesktopRecord prefers the backend the engine actually ran on', () => {
+  const report = desktopReport()
+  report.labels.backend = 'vulkan'
+  report.labels.activeBackend = 'cpu'
+
+  const record = normalizeDesktopRecord(report, 'artifact.json')
+  assert.equal(record.backend, 'cpu', 'a GPU run that fell back to CPU is reported as CPU')
+})
+
+test('deriveNoisy prefers the recorded flag and otherwise computes the ratio', () => {
+  assert.equal(deriveNoisy({ noisy: true, rtf: { mean: 1, stddev: 0 } }), true)
+  assert.equal(deriveNoisy({ rtf: { mean: 1, stddev: 0.3 } }), true)
+  assert.equal(deriveNoisy({ rtf: { mean: 1, stddev: 0.05 } }), false)
+  assert.equal(deriveNoisy({ rtf: { mean: 0, stddev: 0.3 } }), null, 'no mean means no verdict')
+  assert.equal(deriveNoisy({}), null)
+})
+
+test('expandCanonicalReport turns a mobile report into rows', () => {
+  const records = expandCanonicalReport(mobileCanonicalReport(), '/tmp/performance-report.json')
+
+  assert.equal(records.length, 1)
+  const [record] = records
+  assert.equal(record.source, 'mobile-ci')
+  assert.equal(record.device, 'Google Pixel 8 Pro')
+  assert.equal(record.platform, 'android-arm64')
+  assert.equal(record.ditVariant, 'turbo-q8')
+  assert.equal(record.gpu, 'gpu')
+  assert.equal(record.backend, 'vulkan')
+  assert.equal(record.gpuModel, 'Mali-G715')
+  assert.equal(record.meanRtf, 6.5)
+  assert.equal(record.peakRssMb, 4200.75)
+  assert.equal(record.runId, '99')
+})
+
+test('expandCanonicalReport falls back to the record field when the label lacks a variant', () => {
+  const [record] = expandCanonicalReport(mobileCanonicalReport('[GPU] acestep vulkan'), 'file.json')
+  assert.equal(record.ditVariant, 'turbo-q8', 'the result-level ditVariant fills the gap')
+})
+
+test('expandCanonicalReport ignores results from another engine', () => {
+  const report = mobileCanonicalReport()
+  report.results[0].test = '[GPU] chatterbox q4 vulkan'
+  assert.deepEqual(expandCanonicalReport(report, 'file.json'), [])
+})
+
+test('normalizeManualRecord reads the flat shape a human fills in', () => {
+  const record = normalizeManualRecord(
+    {
+      device: 'Mac Studio M2 Ultra',
+      platform: 'darwin-arm64',
+      platformFamily: 'darwin',
+      ditVariant: 'sft',
+      useGPU: true,
+      meanRtf: 3.2,
+      peakRssMb: 5200,
+      notes: 'local Metal run'
+    },
+    '/manual/metal.json'
+  )
+
+  assert.equal(record.source, 'manual')
+  assert.equal(record.ditVariant, 'sft')
+  assert.equal(record.backend, 'metal')
+  assert.equal(record.meanRtf, 3.2)
+  assert.equal(record.notes, 'local Metal run')
+})
+
+test('normalizeManualRecord defaults an unknown variant rather than dropping the row', () => {
+  const record = normalizeManualRecord({ device: 'box', ditVariant: 'mystery' }, 'file.json')
+  assert.equal(record.ditVariant, 'turbo-q4')
+})
+
+test('dedupeRecords keeps distinct variants and backends but folds true duplicates', () => {
+  const base = normalizeDesktopRecord(desktopReport(), 'a.json')
+  const sameRunnerOtherVariant = { ...base, ditVariant: 'sft' }
+  const sameRunnerOtherBackend = { ...base, gpu: 'cpu', backend: 'cpu' }
+  const exactDuplicate = { ...base }
+
+  const deduped = dedupeRecords([base, sameRunnerOtherVariant, sameRunnerOtherBackend, exactDuplicate])
+  assert.equal(deduped.length, 3)
+})
+
+test('sortRecords groups rows by source, platform and variant', () => {
+  const rows = sortRecords([
+    { source: 'mobile-ci', platform: 'android-arm64', ditVariant: 'turbo-q4', gpu: 'gpu', device: 'p8' },
+    { source: 'desktop-ci', platform: 'linux-x64', ditVariant: 'sft', gpu: 'cpu', device: 'box' },
+    { source: 'desktop-ci', platform: 'linux-x64', ditVariant: 'turbo-q4', gpu: 'cpu', device: 'box' }
+  ])
+
+  assert.deepEqual(
+    rows.map((row) => `${row.source}/${row.ditVariant}`),
+    ['desktop-ci/sft', 'desktop-ci/turbo-q4', 'mobile-ci/turbo-q4']
+  )
+})
+
+test('missingGpuBackends reports only backends with no GPU row', () => {
+  const vulkanRow = { gpu: 'gpu', backend: 'vulkan' }
+  const cpuRow = { gpu: 'cpu', backend: 'cpu' }
+
+  assert.deepEqual(missingGpuBackends([vulkanRow, cpuRow]), ['metal'])
+  assert.deepEqual(missingGpuBackends([vulkanRow, { gpu: 'gpu', backend: 'metal' }]), [])
+  assert.deepEqual(missingGpuBackends([cpuRow]), ['vulkan', 'metal'])
+})
+
+test('renderMarkdown emits the DiT variant column and a coverage warning', () => {
+  const markdown = renderMarkdown([normalizeDesktopRecord(desktopReport(), 'a.json')])
+
+  assert.match(markdown, /## ACE-Step \(audiogen-ggml\) Performance Findings/)
+  assert.match(markdown, /\| DiT Variant \|/)
+  assert.match(markdown, /\| turbo-q4 \| gpu \| vulkan \|/)
+  assert.match(markdown, /1\.2500/, 'mean RTF is rendered to four decimals')
+  assert.match(markdown, /GPU backends with no coverage in this run: metal/)
+})
+
+test('renderMarkdown still produces a table when nothing was collected', () => {
+  const markdown = renderMarkdown([])
+
+  assert.match(markdown, /no benchmark artifacts found/)
+  assert.match(markdown, /Rows: 0\./)
+})
+
+test('buildJsonReport carries the records and the coverage gap', () => {
+  const report = buildJsonReport([normalizeDesktopRecord(desktopReport(), 'a.json')])
+
+  assert.equal(report.addon, 'audiogen-ggml')
+  assert.equal(report.engine, 'acestep')
+  assert.equal(report.recordCount, 1)
+  assert.deepEqual(report.missingGpuBackends, ['metal'])
+  assert.equal(report.records[0].ditVariant, 'turbo-q4')
+})
