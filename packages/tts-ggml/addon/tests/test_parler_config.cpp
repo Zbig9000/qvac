@@ -24,7 +24,7 @@
 
 using qvac::ttsggml::kBackendDeviceNone;
 using qvac::ttsggml::kBackendIdNone;
-using qvac::ttsggml::parler::kParlerNativeSampleRate;
+using qvac::ttsggml::parler::PARLER_NATIVE_SAMPLE_RATE;
 using qvac::ttsggml::parler::ParlerConfig;
 using qvac::ttsggml::parler::ParlerDescriptionFields;
 using qvac::ttsggml::parler::ParlerModel;
@@ -87,8 +87,8 @@ std::string writeStub(const std::string& name) {
   out << kStubContents;
   out.close();
   if (!out || !std::filesystem::exists(path)) {
-    throw std::runtime_error("test setup: could not write stub file " +
-                             path.string());
+    throw std::runtime_error(
+        "test setup: could not write stub file " + path.string());
   }
   return path.string();
 }
@@ -180,7 +180,7 @@ TEST(ParlerValidate, StreamingRejectsNonNativeOutputSampleRate) {
   cfg.streamChunkTokens = 40;
   cfg.outputSampleRate = 16000;
   EXPECT_THROW(ParlerModel{cfg}, StatusError);
-  cfg.outputSampleRate = kParlerNativeSampleRate; // native — allowed
+  cfg.outputSampleRate = PARLER_NATIVE_SAMPLE_RATE; // native — allowed
   EXPECT_NO_THROW(ParlerModel{cfg});
   cfg.outputSampleRate = 0; // native default — allowed
   EXPECT_NO_THROW(ParlerModel{cfg});

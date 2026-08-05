@@ -8,7 +8,7 @@ namespace qvac::ttsggml::parler {
 // The parler engine's native output rate. Un-enhanced output is tagged with it
 // and the streaming enhancer is fed at it, so the model, AddonJs and the
 // streaming path can't disagree on the un-enhanced native rate.
-inline constexpr int kParlerNativeSampleRate = 44100;
+inline constexpr int PARLER_NATIVE_SAMPLE_RATE = 44100;
 
 /**
  * Voice-description inputs shared by the constructor config and the

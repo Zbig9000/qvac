@@ -19,11 +19,11 @@ inline constexpr double kEnhancerReceptiveFieldSeconds = 8192.0 / 24000.0;
 // Crossfade length across consecutive enhance windows (~11 ms).
 inline constexpr double kEnhancerCrossfadeSeconds = 256.0 / 24000.0;
 
-// Context/margin and crossfade sample counts for an input rate. StreamingEnhancer
-// derives its own defaults from these, so the margins span the same audio at any
-// engine rate — 8192/256 at Chatterbox's 24 kHz, proportionally more at Parler's
-// 44.1 kHz — rather than a fixed sample count that only covers the receptive
-// field at 24 kHz.
+// Context/margin and crossfade sample counts for an input rate.
+// StreamingEnhancer derives its own defaults from these, so the margins span
+// the same audio at any engine rate — 8192/256 at Chatterbox's 24 kHz,
+// proportionally more at Parler's 44.1 kHz — rather than a fixed sample count
+// that only covers the receptive field at 24 kHz.
 inline int enhancerContextSamples(int inRate) {
   return static_cast<int>(std::lround(kEnhancerReceptiveFieldSeconds * inRate));
 }

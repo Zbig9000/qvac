@@ -183,13 +183,14 @@ std::shared_ptr<StreamingEnhancer> makeStreamingEnhancer(
   return std::make_shared<StreamingEnhancer>(
       [enhancer, workRate, finalRate](const std::vector<float>& raw) {
         std::vector<float> enhanced =
-            enhancer->enhance(raw, kChatterboxNativeSampleRate);
+            enhancer->enhance(raw, CHATTERBOX_NATIVE_SAMPLE_RATE);
         if (finalRate != workRate) {
           enhanced = OutputResampler::resample(enhanced, workRate, finalRate);
         }
         return enhanced;
       },
-      kChatterboxNativeSampleRate, finalRate);
+      CHATTERBOX_NATIVE_SAMPLE_RATE,
+      finalRate);
 }
 
 // Per-chunk post-processing for the native streaming path: an optional

@@ -172,13 +172,14 @@ std::shared_ptr<StreamingEnhancer> makeStreamingEnhancer(
   return std::make_shared<StreamingEnhancer>(
       [enhancer, workRate, finalRate](const std::vector<float>& raw) {
         std::vector<float> enhanced =
-            enhancer->enhance(raw, kParlerNativeSampleRate);
+            enhancer->enhance(raw, PARLER_NATIVE_SAMPLE_RATE);
         if (finalRate != workRate) {
           enhanced = OutputResampler::resample(enhanced, workRate, finalRate);
         }
         return enhanced;
       },
-      kParlerNativeSampleRate, finalRate);
+      PARLER_NATIVE_SAMPLE_RATE,
+      finalRate);
 }
 
 // Per-chunk post-processing for the native streaming path: an optional
@@ -190,8 +191,8 @@ struct StreamChunkPostProcessor {
   std::shared_ptr<StreamingEnhancer> streamEnhancer;
   std::size_t& emittedSamples;
 
-  std::vector<float> enhanceStage(
-      const float* pcm, std::size_t samples, bool isLast) const {
+  std::vector<float>
+  enhanceStage(const float* pcm, std::size_t samples, bool isLast) const {
     std::vector<float> audio = streamEnhancer->feed(pcm, samples);
     if (isLast) {
       const std::vector<float> tail = streamEnhancer->flush();
@@ -229,8 +230,8 @@ void applyBatchDenoiser(
 }
 
 // The parler engine has no output-rate knob, so a requested rate is applied
-// addon-side. Batch only: streaming resamples inside StreamingEnhancer (with the
-// enhancer) or is validated to the native rate (without it).
+// addon-side. Batch only: streaming resamples inside StreamingEnhancer (with
+// the enhancer) or is validated to the native rate (without it).
 void applyRequestedOutputRate(
     tts_cpp::parler::SynthesisResult& result,
     const std::optional<int>& outputSampleRate) {
@@ -422,7 +423,7 @@ void ParlerModel::validateConfig(const ParlerConfig& cfg) {
   // inside its overlap-reprocess windows, so the seams survive.
   if (cfg.streamChunkTokens.value_or(0) > 0 && cfg.enhancerGgufPath.empty() &&
       cfg.outputSampleRate.has_value() && *cfg.outputSampleRate != 0 &&
-      *cfg.outputSampleRate != kParlerNativeSampleRate) {
+      *cfg.outputSampleRate != PARLER_NATIVE_SAMPLE_RATE) {
     throw StatusError(
         general_error::InvalidArgument,
         "Parler native streaming emits at 44100 Hz; drop outputSampleRate, "
@@ -483,7 +484,8 @@ void ParlerModel::loadLocked() {
   // requested switch, so an engine that fell back to CPU keeps the enhancer on
   // CPU instead of forcing it onto the GPU alone.
   LoadedEnhancer enhancer = loadEnhancer(
-      cfg_.enhancerGgufPath, backend.device == kBackendDeviceGpu,
+      cfg_.enhancerGgufPath,
+      backend.device == kBackendDeviceGpu,
       "ParlerModel::load: lavasr enhancer: ");
   auto denoiser = loadDenoiser(
       cfg_.denoiserGgufPath, "ParlerModel::load: lavasr denoiser: ");
@@ -595,12 +597,16 @@ ParlerModel::SynthResult ParlerModel::synthesize(const AnyInput& input) {
     const std::string streamDesc =
         description.empty() ? resolveDescription(cfg_.desc) : description;
     result = runStreamingSynthesis(
-        *engine, input.text, streamDesc, input.chunkCallback, enhancer, rates,
+        *engine,
+        input.text,
+        streamDesc,
+        input.chunkCallback,
+        enhancer,
+        rates,
         streamedSamples);
   } else {
     result = runBatchSynthesis(*engine, input.text, description);
-    applyBatchPostProcessing(
-        result, denoiser, enhancer, cfg_.outputSampleRate);
+    applyBatchPostProcessing(result, denoiser, enhancer, cfg_.outputSampleRate);
   }
 
   const auto t1 = std::chrono::steady_clock::now();
@@ -608,8 +614,8 @@ ParlerModel::SynthResult ParlerModel::synthesize(const AnyInput& input) {
   // While streaming, chunks are emitted at streamFinalRate (the enhancer path)
   // or at the engine's native rate; result.sample_rate stays native either way.
   // On the batch path it already reflects denoise/enhance/resample.
-  sampleRate_ = (wasStreaming && enhancer) ? rates.streamFinalRate
-                                           : result.sample_rate;
+  sampleRate_ =
+      (wasStreaming && enhancer) ? rates.streamFinalRate : result.sample_rate;
   totalSamples_ = wasStreaming ? static_cast<int64_t>(streamedSamples)
                                : static_cast<int64_t>(result.pcm.size());
   audioDurationMs_ = sampleRate_ > 0

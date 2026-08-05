@@ -23,8 +23,8 @@ namespace qvac::ttsggml {
 // The UL-UNAS forward is implemented in qvac-ext-lib-whisper.cpp PR #78; an
 // older tts-cpp pin (pre-#78) makes Denoiser::load throw, surfacing here as a
 // clean InitializationFailed error.
-inline std::shared_ptr<tts_cpp::lavasr::Denoiser> loadDenoiser(
-    const std::string& ggufPath, const std::string& errorContext) {
+inline std::shared_ptr<tts_cpp::lavasr::Denoiser>
+loadDenoiser(const std::string& ggufPath, const std::string& errorContext) {
   if (ggufPath.empty())
     return nullptr;
   try {
