@@ -32,7 +32,8 @@ const here = dirname(fileURLToPath(import.meta.url))
 const { ADDONS, allNames, pluginsOf, withPlugins, stacks } = require(join(here, '..', 'addons.js'))
 
 // Below this, a mobile combo bundles too few plugin-backed addons to co-load
-// anything on device.
+// anything on device. test/combinations.unit.test.js restates the value rather
+// than importing it, so both have to move together.
 const MIN_MOBILE_COLOAD_ADDONS = 2
 
 function parseArgs (argv) {

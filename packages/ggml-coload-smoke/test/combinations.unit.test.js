@@ -14,6 +14,8 @@ const { writeFileSync, rmSync } = require('node:fs')
 const { withPlugins } = require('../addons.js')
 
 const SCRIPT = join(__dirname, '..', 'scripts', 'coload-combinations.mjs')
+// Restates MIN_MOBILE_COLOAD_ADDONS from the script under test on purpose: the
+// test asserts the contract, so importing the value would make it unfalsifiable.
 const MIN_MOBILE_ADDONS = 2
 
 function run (args) {
@@ -105,6 +107,7 @@ test('--mobile keeps only combos that co-load two or more plugin-backed addons',
 
 test('an addon backing several plugins contributes all of them to the bundle', () => {
   const [speech] = run(['--mobile', '--only', 'stack-speech'])
+  assert.ok(speech, '--mobile filtered stack-speech out, so the assertions below prove nothing')
   const plugins = speech.plugins.split(',')
   assert.ok(plugins.includes('@qvac/sdk/parakeet-transcription/plugin'))
   assert.ok(plugins.includes('@qvac/sdk/whispercpp-transcription/plugin'))

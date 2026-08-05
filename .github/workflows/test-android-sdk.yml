@@ -171,6 +171,7 @@ jobs:
           repository: ${{ inputs.repository || github.repository }}
           ref: ${{ inputs.test-version || github.event.pull_request.head.sha || github.sha }}
           token: ${{ secrets.PAT_TOKEN }}
+          persist-credentials: false
           sparse-checkout: ${{ inputs.project-directory }}
 
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # 6.3.0
@@ -479,6 +480,7 @@ jobs:
         with:
           repository: ${{ inputs.repository || github.repository }}
           ref: ${{ inputs.test-version || github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
           sparse-checkout: ${{ inputs.working-directory }}/device-farm
 
       - name: Download APK artifact
@@ -695,6 +697,7 @@ jobs:
           repository: ${{ inputs.repository || github.repository }}
           ref: ${{ inputs.test-version || github.event.pull_request.head.sha || github.sha }}
           token: ${{ secrets.PAT_TOKEN }}
+          persist-credentials: false
           sparse-checkout: |
             ${{ inputs.project-directory }}
             .github/actions/sdk-e2e-fail-on-failures

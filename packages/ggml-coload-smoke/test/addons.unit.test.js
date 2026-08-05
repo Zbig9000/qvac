@@ -29,14 +29,14 @@ function builtinPlugins () {
 function assertSdkShipsAddon (deps, name) {
   assert.ok(
     deps[ADDONS[name].specifier],
-    `${ADDONS[name].specifier} (addons.js "${name}") is still a dependency of @qvac/sdk`
+    `${ADDONS[name].specifier} (addons.js "${name}") is no longer a dependency of @qvac/sdk -- drop the entry, or repoint it at whatever the SDK replaced it with`
   )
 }
 
 function assertPluginIsBuiltin (builtins, name, plugin) {
   assert.ok(
     builtins.includes(plugin),
-    `plugin "${plugin}" of addons.js "${name}" is a real SDK built-in plugin`
+    `plugin "${plugin}" of addons.js "${name}" is not an SDK built-in -- check BUILTIN_PLUGINS in packages/sdk/commands/bundle/constants.ts`
   )
 }
 
@@ -63,7 +63,7 @@ test('every declared plugin is a real SDK built-in plugin', () => {
   const builtins = builtinPlugins()
   assert.ok(
     builtins.length >= MIN_PARSED_BUILTINS,
-    `parsed ${builtins.length} built-in plugins from the SDK -- the parser still matches`
+    `parsed only ${builtins.length} built-in plugins from packages/sdk/commands/bundle/constants.ts -- BUILTIN_PLUGIN_RE no longer matches how that file is formatted`
   )
   allNames().forEach(name => assertPluginsAreBuiltin(builtins, name))
 })
