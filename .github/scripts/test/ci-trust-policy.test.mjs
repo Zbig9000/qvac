@@ -825,6 +825,36 @@ test('mobile SDK callers forward the AWS OIDC role to Device Farm jobs', () => {
   MOBILE_SDK_WORKFLOWS.forEach(assertCallersForwardAwsRole)
 })
 
+function declaresRepositoryInput(path) {
+  return /^ {6}repository:/m.test(workflowCallHeader(read(path)))
+}
+
+function assertPinsRepositoryWithRef(reusable, { path, job }) {
+  const block = withoutComments(job.text)
+  if (!/^\s*test-version:/m.test(block)) return
+  if (!declaresRepositoryInput(path)) return
+  assert.match(
+    block,
+    /^\s*repository:/m,
+    `${path} job "${job.name}" forwards repository alongside test-version to ${reusable}`,
+  )
+}
+
+test('mobile SDK callers that can target a fork forward the repository too', () => {
+  // These workflows check out `test-version` from `inputs.repository ||
+  // github.repository`. A caller that can be pointed at a fork but forwards
+  // only the ref makes them resolve that ref against THIS repo: a fork-only
+  // branch fails to fetch, and a branch name that also exists here silently
+  // builds the wrong code while still reporting on the caller's addon.
+  // Callers with no `repository` input of their own are same-repo by
+  // construction and stay exempt.
+  MOBILE_SDK_WORKFLOWS.forEach((reusable) => {
+    const callers = callersOf(reusable)
+    assertEveryCallWasParsed(reusable, callers)
+    callers.forEach((caller) => assertPinsRepositoryWithRef(reusable, caller))
+  })
+})
+
 test('npm integration uses a dedicated run label, not verified', () => {
   const source = read('.github/workflows/public-reusable-npm.yml')
   const integrationStep = source.slice(
