@@ -43,6 +43,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `files.lavasrDenoiser` / `denoiser` stage runs before it on the batch path.
   `enhancerBackendDevice` / `enhancerBackendId` are reported in runtime stats,
   matching the other engines.
+- **Audio8 engine (QVAC-23199).** Fifth engine family under the same
+  `TTSGgml` surface: a DualAR model (24-layer semantic transformer +
+  4-layer acoustic head over 8 codebooks) with a DAC-style codec, native
+  44.1 kHz, CPU-only in this release. Detection via `engine: 'audio8'`,
+  `files.audio8Lm` / `files.audio8CodecDecoder`, or a `modelDir` containing
+  `audio8-lm[-<quant>].gguf` (q8_0 > f16 > q4_0 > f32 within a role). It
+  ships as three GGUFs rather than one because they have different
+  lifetimes: the language model and the codec's synthesis half are needed
+  for every synthesis, the codec's analysis half only to enrol a voice, so
+  a text-only deployment can omit `files.audio8CodecEncoder` entirely.
+- **Audio8 voice cloning, fully in-process.** `referenceAudio` plus
+  `referenceText` (what the recording says) enrol a speaker; the codec's
+  analysis half encodes the recording to codes inside the addon, with no
+  Python side-car and no pre-baked profile. The transcript is required, not
+  optional — the model conditions on it as the turn the reference answers,
+  so a missing one degrades the clone silently. Both fields are also
+  accepted **per call** (`run({ input, referenceAudio, referenceText })`,
+  `runStream`/`runStreaming` options), and the engine caches the codes for
+  the most recent reference, so repeating one across calls skips the
+  encoder.
+- **Audio8 sampling/generation knobs.** `temperature`, `topK`, `topP`,
+  `maxFrames`, `greedy`, `seed`, `threads`, `config.outputSampleRate`
+  (engine-side resample from the native 44.1 kHz), all optional with the
+  engine's own defaults. Sampling is repetition-aware: a token repeated
+  from the recent window is re-drawn under a narrower nucleus.
+  `temperature`/`topK`/`topP`/`maxFrames` are now shared with Parler rather
+  than Parler-only, so the "parler-only" rejection for those four names
+  reads "parler/audio8-only". Requires a `tts-cpp` pin that ships the
+  audio8 engine (qvac-ext-lib-whisper.cpp
+  [PR #128](https://github.com/tetherto/qvac-ext-lib-whisper.cpp/pull/128)).
+  New `examples/audio8-tts.js`, JS unit suite, and C++ config tests.
 
 ### Fixed
 
