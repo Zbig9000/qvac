@@ -101,6 +101,40 @@ tts_cpp::parler::EngineOptions toEngineOptions(const ParlerConfig& cfg) {
   return opts;
 }
 
+std::shared_ptr<tts_cpp::parler::Engine> makeEngine(const ParlerConfig& cfg) {
+  try {
+    return std::make_shared<tts_cpp::parler::Engine>(toEngineOptions(cfg));
+  } catch (const std::exception& e) {
+    throw createTTSError(
+        TTSErrorCode::InitializationFailed,
+        std::string("ParlerModel::load: ") + e.what());
+  }
+}
+
+struct EngineBackend {
+  std::string name;
+  int device = kBackendDeviceNone;
+  int id = kBackendIdNone;
+  bool gpuUnsupported = false;
+};
+
+bool wantsGpu(const ParlerConfig& cfg) {
+  return cfg.nGpuLayers.has_value() ? (*cfg.nGpuLayers != 0)
+                                    : cfg.useGpu.value_or(false);
+}
+
+EngineBackend resolveEngineBackend(
+    const tts_cpp::parler::Engine& engine, const ParlerConfig& cfg) {
+  EngineBackend backend;
+  backend.name = engine.backend_name();
+  backend.device = backendDeviceCode(engine.backend_device());
+  backend.id = backendIdFromName(backend.name);
+  // Parler's engine has no gpu_unsupported() flag (unlike Supertonic); derive
+  // it: GPU intent that resolved to the CPU device means the GPU was unusable.
+  backend.gpuUnsupported = wantsGpu(cfg) && backend.device == kBackendDeviceCpu;
+  return backend;
+}
+
 // Sample rates involved once the LavaSR enhancer is active: the engine emits
 // its native 44.1 kHz, the enhancer resamples to `workRate` (48 kHz), and the
 // streaming path finally emits at `streamFinalRate` (a caller-requested rate,
@@ -439,39 +473,30 @@ void ParlerModel::loadLocked() {
   if (engine_)
     return;
 
-  try {
-    engine_ = std::make_shared<tts_cpp::parler::Engine>(toEngineOptions(cfg_));
-  } catch (const std::exception& e) {
-    engine_.reset();
-    throw createTTSError(
-        TTSErrorCode::InitializationFailed,
-        std::string("ParlerModel::load: ") + e.what());
-  }
-
-  backendName_ = engine_->backend_name();
-  backendDevice_ = backendDeviceCode(engine_->backend_device());
-  backendId_ = backendIdFromName(backendName_);
-  // Parler's engine has no gpu_unsupported() flag (unlike Supertonic); derive
-  // it: GPU intent that resolved to the CPU device means the GPU was unusable.
-  const bool wantsGpu = cfg_.nGpuLayers.has_value()
-                            ? (*cfg_.nGpuLayers != 0)
-                            : cfg_.useGpu.value_or(false);
-  gpuUnsupported_ = wantsGpu && backendDevice_ == kBackendDeviceCpu;
-
-  // LavaSR enhancer: load when a GGUF path is set (empty path = disabled).
-  // Pass the engine's *resolved* device, not the requested switch: if the
-  // engine fell back to CPU, keep the enhancer on CPU too instead of forcing it
-  // onto the GPU. Shared with Chatterbox/Supertonic via loadEnhancer so the
-  // loaders can't drift.
-  LoadedEnhancer loaded = loadEnhancer(
-      cfg_.enhancerGgufPath, backendDevice_ == kBackendDeviceGpu,
+  // Every stage is built into a local before any member is assigned: a throw
+  // from the enhancer or denoiser would otherwise leave engine_ set, and the
+  // early return above would then report a retry as already loaded while the
+  // requested post-processing stage was missing.
+  auto engine = makeEngine(cfg_);
+  const EngineBackend backend = resolveEngineBackend(*engine, cfg_);
+  // The enhancer follows the engine's *resolved* device rather than the
+  // requested switch, so an engine that fell back to CPU keeps the enhancer on
+  // CPU instead of forcing it onto the GPU alone.
+  LoadedEnhancer enhancer = loadEnhancer(
+      cfg_.enhancerGgufPath, backend.device == kBackendDeviceGpu,
       "ParlerModel::load: lavasr enhancer: ");
-  enhancer_ = std::move(loaded.enhancer);
-  enhancerBackendDevice_ = loaded.backendDevice;
-  enhancerBackendId_ = loaded.backendId;
-
-  denoiser_ = loadDenoiser(
+  auto denoiser = loadDenoiser(
       cfg_.denoiserGgufPath, "ParlerModel::load: lavasr denoiser: ");
+
+  engine_ = std::move(engine);
+  backendName_ = backend.name;
+  backendDevice_ = backend.device;
+  backendId_ = backend.id;
+  gpuUnsupported_ = backend.gpuUnsupported;
+  enhancer_ = std::move(enhancer.enhancer);
+  enhancerBackendDevice_ = enhancer.backendDevice;
+  enhancerBackendId_ = enhancer.backendId;
+  denoiser_ = std::move(denoiser);
 }
 
 void ParlerModel::unloadLocked() {

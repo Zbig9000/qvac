@@ -405,6 +405,43 @@ TEST(ParlerValidate, StubConfigDefersLoadThenFailsParse) {
   EXPECT_FALSE(m->isLoaded());
 }
 
+// A post-processing stage that fails to load must not leave the engine
+// installed: isLoaded() would report success and load() would early-return, so
+// the caller would synthesize without the enhancement it asked for.
+TEST(ParlerRealGguf, FailedEnhancerLoadLeavesModelUnloaded) {
+  const auto path = envOrEmpty("QVAC_TEST_PARLER_GGUF");
+  if (path.empty() || !std::filesystem::exists(path)) {
+    GTEST_SKIP() << "Set QVAC_TEST_PARLER_GGUF to enable.";
+  }
+
+  ParlerConfig cfg;
+  cfg.modelGgufPath = path;
+  cfg.desc.voice = "Laura";
+  cfg.enhancerGgufPath = writeStub("parler-unparseable-enhancer.gguf");
+
+  ParlerModel m(cfg);
+  EXPECT_THROW(m.load(), StatusError);
+  EXPECT_FALSE(m.isLoaded());
+  EXPECT_THROW(m.load(), StatusError);
+}
+
+TEST(ParlerRealGguf, FailedDenoiserLoadLeavesModelUnloaded) {
+  const auto path = envOrEmpty("QVAC_TEST_PARLER_GGUF");
+  if (path.empty() || !std::filesystem::exists(path)) {
+    GTEST_SKIP() << "Set QVAC_TEST_PARLER_GGUF to enable.";
+  }
+
+  ParlerConfig cfg;
+  cfg.modelGgufPath = path;
+  cfg.desc.voice = "Laura";
+  cfg.denoiserGgufPath = writeStub("parler-unparseable-denoiser.gguf");
+
+  ParlerModel m(cfg);
+  EXPECT_THROW(m.load(), StatusError);
+  EXPECT_FALSE(m.isLoaded());
+  EXPECT_THROW(m.load(), StatusError);
+}
+
 TEST(ParlerRealGguf, ConstructLoadUnloadIfAvailable) {
   const auto path = envOrEmpty("QVAC_TEST_PARLER_GGUF");
   if (path.empty() || !std::filesystem::exists(path)) {

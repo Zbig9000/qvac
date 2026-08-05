@@ -23,6 +23,7 @@ const TTSGgml = require('@qvac/tts-ggml')
 
 const {
   ensureLavaSREnhancerGguf,
+  ensureLavaSRDenoiserGguf,
   ensureSupertonicModel,
   ensureChatterboxModels,
   ensureParlerModel
@@ -36,6 +37,13 @@ const isMobile = platform === 'ios' || platform === 'android'
 // fallback from a failure to a warning (e.g. a Linux host with no Vulkan SDK).
 const NO_GPU = proc.env && proc.env.NO_GPU === 'true'
 const RELAX = proc.env && proc.env.QVAC_TTS_GPU_SMOKE_RELAX === '1'
+
+const ENHANCED_RATE = 48000
+const PARLER_NATIVE_RATE = 44100
+// A rate that is neither Parler's native 44.1 kHz nor the enhancer's 48 kHz, so
+// a chunk tagged with either would fail instead of coincidentally matching.
+const REQUESTED_STREAM_RATE = 24000
+const DURATION_TOLERANCE_MS = 1
 
 function getBaseDir() {
   return isMobile && global.testDir ? global.testDir : '.'
@@ -135,9 +143,13 @@ async function runAndCollect(model, text) {
 // Every chunk that carries audio must be tagged at the enhanced 48 kHz rate
 // rather than the engine's native rate — the mislabel this feature prevents.
 function assertStreamedChunksReportEnhancedRate(t, updates) {
+  assertStreamedChunkRate(t, updates, ENHANCED_RATE)
+}
+
+function assertStreamedChunkRate(t, updates, expectedRate) {
   for (const u of updates) {
     if (u.outputArray.length > 0 && u.sampleRate != null) {
-      t.is(u.sampleRate, 48000, 'streamed enhanced chunk reports 48 kHz')
+      t.is(u.sampleRate, expectedRate, `streamed chunk reports ${expectedRate} Hz`)
     }
   }
 }
@@ -146,14 +158,45 @@ function assertStreamedChunksReportEnhancedRate(t, updates) {
 // and the un-enhanced sample count, so the addon has to tally what it actually
 // emitted. Stats read off the engine instead would under-count the samples and
 // mis-scale the duration.
-function assertStreamedStatsMatchEmittedAudio(t, stats, emittedSamples) {
+function assertStreamedStatsMatchEmittedAudio(
+  t,
+  stats,
+  emittedSamples,
+  expectedRate = ENHANCED_RATE
+) {
   t.ok(stats, 'runtimeStats returned (constructed with stats:true)')
   t.is(stats.totalSamples, emittedSamples, 'totalSamples counts emitted samples')
-  const expectedMs = (emittedSamples * 1000) / 48000
+  const expectedMs = (emittedSamples * 1000) / expectedRate
   t.ok(
-    Math.abs(stats.audioDurationMs - expectedMs) < 1,
-    `audioDurationMs ${stats.audioDurationMs} matches ${expectedMs} at the enhanced 48 kHz rate`
+    Math.abs(stats.audioDurationMs - expectedMs) < DURATION_TOLERANCE_MS,
+    `audioDurationMs ${stats.audioDurationMs} matches ${expectedMs} at ${expectedRate} Hz`
   )
+}
+
+function assertStreamTerminatesOnce(t, updates, terminal) {
+  const isLastCount = updates.filter((u) => u.isLast === true).length
+  t.ok(isLastCount <= 1, 'at most one isLast=true across streamed chunks')
+  t.ok(terminal !== undefined, 'awaiting the response resolves a terminal value')
+  const terminalSamples = terminal && terminal.outputArray ? terminal.outputArray.length : 0
+  t.is(terminalSamples, 0, 'streaming emits via onUpdate, so the terminal payload is empty')
+}
+
+async function runParlerBatch(files) {
+  const model = new TTSGgml({
+    engine: TTSGgml.ENGINE_PARLER,
+    files,
+    voice: 'Laura',
+    config: { useGPU: false },
+    opts: { stats: true }
+  })
+  await model.load()
+  try {
+    return await runAndCollect(model, 'Parler speech cleaned by the LavaSR denoiser.')
+  } finally {
+    try {
+      await model.unload()
+    } catch (_e) {}
+  }
 }
 
 // ---- Construct-time regression tests (no models, always run) ----
@@ -669,6 +712,123 @@ test(
         await model.unload()
       } catch (_e) {}
     }
+  }
+)
+
+test(
+  'Parler + LavaSR enhancer + streaming honours a non-native outputSampleRate',
+  { timeout: 900000 },
+  async (t) => {
+    const baseDir = getBaseDir()
+    const enh = await ensureLavaSREnhancerGguf({
+      targetDir: path.join(baseDir, 'models', 'lavasr')
+    })
+    if (!enh.success) {
+      t.comment('LavaSR enhancer GGUF not staged; skipping.')
+      t.pass('skipped — no enhancer GGUF')
+      return
+    }
+    const dl = await ensureParlerModel({ targetDir: path.join(baseDir, 'models') })
+    if (!dl.success) {
+      t.fail('Parler GGUF not available — registry fetch failed.')
+      return
+    }
+
+    const model = new TTSGgml({
+      engine: TTSGgml.ENGINE_PARLER,
+      files: { parlerModel: dl.path, lavasrEnhancer: enh.path },
+      voice: 'Laura',
+      streamChunkTokens: 43,
+      config: { useGPU: false, outputSampleRate: REQUESTED_STREAM_RATE },
+      opts: { stats: true }
+    })
+    await model.load()
+    try {
+      const updates = []
+      const response = await model.run({
+        input:
+          'Streaming Parler audio, enhanced and resampled on the way out, one chunk at a time.',
+        type: 'text'
+      })
+      const terminal = await response
+        .onUpdate((d) => {
+          if (d && d.outputArray) updates.push(d)
+        })
+        .await()
+
+      const emitted = updates.reduce((acc, u) => acc + u.outputArray.length, 0)
+      t.ok(updates.length >= 1, 'streamed at least one chunk event')
+      t.ok(emitted > 0, 'streamed resampled audio produced samples')
+      assertStreamedChunkRate(t, updates, REQUESTED_STREAM_RATE)
+      assertStreamedStatsMatchEmittedAudio(t, response.stats, emitted, REQUESTED_STREAM_RATE)
+      assertStreamTerminatesOnce(t, updates, terminal)
+    } finally {
+      try {
+        await model.unload()
+      } catch (_e) {}
+    }
+  }
+)
+
+test(
+  'Parler + LavaSR denoiser (batch) preserves the rate alone and composes with the enhancer',
+  { timeout: 900000 },
+  async (t) => {
+    const baseDir = getBaseDir()
+    const den = await ensureLavaSRDenoiserGguf({
+      targetDir: path.join(baseDir, 'models', 'lavasr')
+    })
+    if (!den.success) {
+      t.comment('LavaSR denoiser GGUF not staged; skipping.')
+      t.pass('skipped — no denoiser GGUF')
+      return
+    }
+    const dl = await ensureParlerModel({ targetDir: path.join(baseDir, 'models') })
+    if (!dl.success) {
+      t.fail('Parler GGUF not available — registry fetch failed.')
+      return
+    }
+
+    const denoisedOnly = await runParlerBatch({
+      parlerModel: dl.path,
+      lavasrDenoiser: den.path
+    })
+    // denoise() is rate-preserving, so the denoiser alone must not move Parler
+    // off its native rate the way the enhancer does.
+    t.is(denoisedOnly.sampleRate, PARLER_NATIVE_RATE, 'denoiser alone stays at 44.1 kHz')
+    t.ok(denoisedOnly.samples > 0, 'denoised synthesis produced audio')
+    t.is(
+      denoisedOnly.stats.enhancerBackendDevice,
+      -1,
+      'denoiser alone loads no enhancer (enhancerBackendDevice=-1)'
+    )
+
+    const enh = await ensureLavaSREnhancerGguf({
+      targetDir: path.join(baseDir, 'models', 'lavasr')
+    })
+    if (!enh.success) {
+      t.comment('LavaSR enhancer GGUF not staged; skipping the combined stage.')
+      return
+    }
+
+    const denoisedAndEnhanced = await runParlerBatch({
+      parlerModel: dl.path,
+      lavasrDenoiser: den.path,
+      lavasrEnhancer: enh.path
+    })
+    // The denoiser runs first at the native rate and the enhancer then decides
+    // the output rate, so both stages loading is observable as 48 kHz output.
+    t.is(
+      denoisedAndEnhanced.sampleRate,
+      ENHANCED_RATE,
+      'denoiser + enhancer reports the enhanced 48 kHz'
+    )
+    t.ok(denoisedAndEnhanced.samples > 0, 'denoised + enhanced synthesis produced audio')
+    t.is(
+      denoisedAndEnhanced.stats.enhancerBackendDevice,
+      0,
+      'useGPU:false -> enhancer on CPU (enhancerBackendDevice=0)'
+    )
   }
 )
 

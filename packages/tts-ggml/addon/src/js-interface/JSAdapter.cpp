@@ -192,12 +192,8 @@ JSAdapter::buildParlerConfig(js::Object configurationParams, js_env_t* env) {
   cfg.nGpuLayers = readOptionalInt(configurationParams, env, "nGpuLayers");
   cfg.useGpu = readOptionalBool(configurationParams, env, "useGPU");
   cfg.backendsDir = readOptionalString(configurationParams, env, "backendsDir");
-  // LavaSR neural enhancement: a non-empty GGUF path turns it on.
   cfg.enhancerGgufPath =
       readOptionalString(configurationParams, env, "lavasrEnhancerPath");
-  // LavaSR neural denoiser (runs before the enhancer): a non-empty GGUF path
-  // turns it on. Batch-only; ParlerModel::validateConfig rejects the streaming
-  // combination.
   cfg.denoiserGgufPath =
       readOptionalString(configurationParams, env, "lavasrDenoiserPath");
   return cfg;
