@@ -1,0 +1,362 @@
+'use strict'
+
+const test = require('brittle')
+const path = require('bare-path')
+const TTSGgml = require('../../index.js')
+const { TTSInterface } = require('../../tts.js')
+const MockedBinding = require('../mock/MockedBinding.js')
+const process = require('bare-process')
+
+global.process = process
+
+const LM = './models/audio8-lm-q8_0.gguf'
+const DECODER = './models/audio8-codec-decoder-q8_0.gguf'
+const ENCODER = './models/audio8-codec-encoder-q8_0.gguf'
+
+/** MockedBinding that records every runJob payload (per-call field checks). */
+class RecordingBinding extends MockedBinding {
+  constructor(opts) {
+    super(opts)
+    this.jobs = []
+  }
+
+  runJob(handle, data) {
+    this.jobs.push(data)
+    return super.runJob(handle, data)
+  }
+}
+
+function createMockedAudio8Model({
+  onOutput = () => {},
+  binding,
+  files,
+  exclusiveRun = false,
+  extra = {}
+} = {}) {
+  const model = new TTSGgml({
+    engine: TTSGgml.ENGINE_AUDIO8,
+    files: files || { audio8Lm: LM, audio8CodecDecoder: DECODER },
+    opts: { stats: true },
+    exclusiveRun,
+    ...extra
+  })
+
+  model._createAddon = (configurationParams, outputCb) => {
+    const _binding = binding || new MockedBinding()
+    const addon = new TTSInterface(_binding, configurationParams, outputCb)
+    if (_binding.setBaseInferenceCallback) {
+      _binding.setBaseInferenceCallback(onOutput)
+    }
+    return addon
+  }
+  return model
+}
+
+function withTempDir(name, body) {
+  const fs = require('bare-fs')
+  const os = require('bare-os')
+  const root = path.join(os.tmpdir(), `${name}-${Date.now()}`)
+  fs.mkdirSync(root, { recursive: true })
+  try {
+    return body(root, fs)
+  } finally {
+    try {
+      fs.rmSync(root, { recursive: true, force: true })
+    } catch (_e) {}
+  }
+}
+
+test('Audio8: explicit engine option routes to audio8', (t) => {
+  const model = createMockedAudio8Model()
+  t.is(model.getEngineType(), TTSGgml.ENGINE_AUDIO8, 'engine: audio8 detected')
+  t.is(model._audio8LmPath, LM)
+  t.is(model._audio8CodecDecoderPath, DECODER)
+  t.absent(model._t3ModelPath, 'no t3 path on audio8')
+  t.absent(model._parlerModelPath, 'no parler path on audio8')
+  t.absent(model._supertonicModelPath, 'no supertonic path on audio8')
+})
+
+test('Audio8: audio8Lm file path alone routes to audio8', (t) => {
+  const model = new TTSGgml({ files: { audio8Lm: LM } })
+  t.is(model.getEngineType(), TTSGgml.ENGINE_AUDIO8, 'audio8Lm file detected')
+})
+
+test('Audio8: modelDir auto-detect picks each half at the best quant tier', (t) => {
+  withTempDir('tts-ggml-audio8-detect', (root, fs) => {
+    fs.writeFileSync(path.join(root, 'audio8-lm-f32.gguf'), 'lm-f32')
+    fs.writeFileSync(path.join(root, 'audio8-lm-q8_0.gguf'), 'lm-q8')
+    fs.writeFileSync(path.join(root, 'audio8-codec-decoder-f16.gguf'), 'dec-f16')
+    fs.writeFileSync(path.join(root, 'audio8-codec-encoder-q8_0.gguf'), 'enc-q8')
+
+    const model = new TTSGgml({ files: { modelDir: root } })
+    t.is(model.getEngineType(), TTSGgml.ENGINE_AUDIO8, 'modelDir with audio8 GGUFs detected')
+    t.is(model._audio8LmPath, path.join(root, 'audio8-lm-q8_0.gguf'), 'q8_0 beats f32')
+    t.is(
+      model._audio8CodecDecoderPath,
+      path.join(root, 'audio8-codec-decoder-f16.gguf'),
+      'the only decoder tier present is used'
+    )
+    t.is(
+      model._audio8CodecEncoderPath,
+      path.join(root, 'audio8-codec-encoder-q8_0.gguf'),
+      'the encoder is picked up when present'
+    )
+  })
+})
+
+test('Audio8: existing engines keep precedence in a shared modelDir', (t) => {
+  withTempDir('tts-ggml-audio8-precedence', (root, fs) => {
+    fs.writeFileSync(path.join(root, 'supertonic.gguf'), 'super-marker')
+    fs.writeFileSync(path.join(root, 'audio8-lm-q8_0.gguf'), 'audio8-marker')
+
+    const model = new TTSGgml({ files: { modelDir: root } })
+    t.is(model.getEngineType(), TTSGgml.ENGINE_SUPERTONIC, 'supertonic still wins')
+  })
+})
+
+test('Audio8: ttsParams shape forwards the full config surface', (t) => {
+  const model = createMockedAudio8Model({
+    files: { audio8Lm: LM, audio8CodecDecoder: DECODER, audio8CodecEncoder: ENCODER },
+    extra: {
+      referenceAudio: '/abs/voice.wav',
+      referenceText: 'What the recording says.',
+      greedy: false,
+      seed: 7,
+      threads: 2,
+      temperature: 0.8,
+      topK: 40,
+      topP: 0.95,
+      maxFrames: 256,
+      config: { outputSampleRate: 16000 }
+    }
+  })
+  const params = model._buildTtsParams()
+  t.is(params.engineType, TTSGgml.ENGINE_AUDIO8)
+  t.is(params.audio8LmPath, LM)
+  t.is(params.audio8CodecDecoderPath, DECODER)
+  t.is(params.audio8CodecEncoderPath, ENCODER)
+  t.is(params.referenceAudio, '/abs/voice.wav')
+  t.is(params.referenceText, 'What the recording says.')
+  t.is(params.greedy, false)
+  t.is(params.seed, 7)
+  t.is(params.threads, 2)
+  t.is(params.temperature, 0.8)
+  t.is(params.topK, 40)
+  t.is(params.topP, 0.95)
+  t.is(params.maxFrames, 256)
+  t.is(params.outputSampleRate, 16000)
+  t.is(params.useGPU, false, 'useGPU defaults to false (opt-in) and forwards')
+  t.absent(params.language, 'no language key (audio8 reads it from the prompt)')
+})
+
+test('Audio8: a text-only config omits the encoder and the voice', (t) => {
+  const params = createMockedAudio8Model()._buildTtsParams()
+  t.absent(params.audio8CodecEncoderPath, 'no encoder key when none is configured')
+  t.absent(params.referenceAudio, 'no reference audio key')
+  t.absent(params.referenceText, 'no reference text key')
+})
+
+test('Audio8: constructor guards reject a half-specified voice', (t) => {
+  t.exception(
+    () =>
+      createMockedAudio8Model({
+        files: { audio8Lm: LM, audio8CodecDecoder: DECODER, audio8CodecEncoder: ENCODER },
+        extra: { referenceAudio: '/abs/voice.wav' }
+      }),
+    /referenceAudio needs a referenceText/,
+    'a recording without its transcript throws'
+  )
+  t.exception(
+    () => createMockedAudio8Model({ extra: { referenceText: 'Orphan transcript.' } }),
+    /referenceText needs a referenceAudio/,
+    'a transcript with nothing to attach to throws'
+  )
+  t.exception(
+    () =>
+      createMockedAudio8Model({
+        extra: { referenceAudio: '/abs/voice.wav', referenceText: 'Says this.' }
+      }),
+    /codec encoder/,
+    'cloning without the encoder GGUF throws'
+  )
+})
+
+test('Audio8: constructor rejects unsupported companions', (t) => {
+  t.exception(
+    () =>
+      createMockedAudio8Model({
+        files: { audio8Lm: LM, audio8CodecDecoder: DECODER, lavasrEnhancer: '/abs/enh.gguf' }
+      }),
+    /not supported with the audio8 engine/,
+    'enhancer throws'
+  )
+  t.exception(
+    () => createMockedAudio8Model({ extra: { streamChunkTokens: 40 } }),
+    /not supported by the audio8 engine/,
+    'native chunk streaming throws'
+  )
+})
+
+test('Audio8: audio8-only options on other engines throw', (t) => {
+  t.exception(
+    () =>
+      new TTSGgml({
+        engine: TTSGgml.ENGINE_SUPERTONIC,
+        files: { supertonicModel: './models/supertonic.gguf' },
+        referenceText: 'Says this.'
+      }),
+    /audio8-only/,
+    'referenceText on supertonic throws'
+  )
+  t.exception(
+    () =>
+      new TTSGgml({
+        engine: TTSGgml.ENGINE_CHATTERBOX,
+        files: { t3Model: './models/t3.gguf', s3genModel: './models/s3gen.gguf' },
+        greedy: true
+      }),
+    /audio8-only/,
+    'greedy on chatterbox throws'
+  )
+})
+
+test('Audio8: GPU options forward to params', (t) => {
+  const gpu = createMockedAudio8Model({ extra: { config: { useGPU: true } } })
+  t.is(gpu._buildTtsParams().useGPU, true, 'useGPU:true forwards to params')
+
+  const layers = createMockedAudio8Model({ extra: { nGpuLayers: 99 } })
+  t.is(layers._buildTtsParams().nGpuLayers, 99, 'nGpuLayers forwards to params')
+
+  t.exception(
+    () => createMockedAudio8Model({ extra: { config: { useGPU: false }, nGpuLayers: 99 } }),
+    /conflicts/,
+    'useGPU:false + nGpuLayers:99 conflict rejects'
+  )
+})
+
+test('Audio8: per-call voice fields land on the jobData', async (t) => {
+  const binding = new RecordingBinding()
+  const model = createMockedAudio8Model({
+    binding,
+    files: { audio8Lm: LM, audio8CodecDecoder: DECODER, audio8CodecEncoder: ENCODER },
+    extra: {
+      referenceAudio: '/abs/configured.wav',
+      referenceText: 'The configured transcript.'
+    }
+  })
+  await model.load()
+
+  const r1 = await model.run({
+    type: 'text',
+    input: 'A different speaker.',
+    referenceAudio: '/abs/other.wav',
+    referenceText: 'What the other recording says.'
+  })
+  await r1.await()
+  t.is(binding.jobs.length, 1, 'one job ran')
+  t.is(binding.jobs[0].referenceAudio, '/abs/other.wav', 'per-call audio rides on jobData')
+  t.is(binding.jobs[0].referenceText, 'What the other recording says.')
+
+  const r2 = await model.run({
+    type: 'text',
+    input: 'Same speaker, corrected transcript.',
+    referenceText: 'A corrected transcript.'
+  })
+  await r2.await()
+  t.is(binding.jobs[1].referenceText, 'A corrected transcript.')
+  t.absent(binding.jobs[1].referenceAudio, 'the configured recording is not re-sent')
+
+  const r3 = await model.run({ type: 'text', input: 'Plain run.' })
+  await r3.await()
+  t.absent(binding.jobs[2].referenceAudio, 'no leftover fields on a plain run')
+  t.absent(binding.jobs[2].referenceText, 'no leftover transcript on a plain run')
+
+  await model.unload()
+})
+
+test('Audio8: a per-call recording without a transcript rejects before queueing', async (t) => {
+  const binding = new RecordingBinding()
+  const model = createMockedAudio8Model({
+    binding,
+    files: { audio8Lm: LM, audio8CodecDecoder: DECODER, audio8CodecEncoder: ENCODER }
+  })
+  await model.load()
+
+  await t.exception(
+    model.run({ type: 'text', input: 'x', referenceAudio: '/abs/voice.wav' }),
+    /referenceAudio needs a referenceText/,
+    'per-call half-specified voice rejects'
+  )
+  t.is(binding.jobs.length, 0, 'no job queued on conflict')
+  await model.unload()
+})
+
+test('Audio8: per-call voice fields on other engines throw', async (t) => {
+  const model = new TTSGgml({
+    engine: TTSGgml.ENGINE_SUPERTONIC,
+    files: { supertonicModel: './models/supertonic.gguf' },
+    voice: 'F1',
+    config: { language: 'en', useGPU: false }
+  })
+  model._createAddon = (configurationParams, outputCb) =>
+    new TTSInterface(new MockedBinding(), configurationParams, outputCb)
+  await model.load()
+  await t.exception(
+    model.run({ type: 'text', input: 'x', referenceText: 'Says this.' }),
+    /audio8-only/,
+    'per-call referenceText on supertonic rejects'
+  )
+  await model.unload()
+})
+
+test('Audio8: runStream pins the per-call voice on every chunk jobData', async (t) => {
+  const binding = new RecordingBinding()
+  const model = createMockedAudio8Model({
+    binding,
+    files: { audio8Lm: LM, audio8CodecDecoder: DECODER, audio8CodecEncoder: ENCODER }
+  })
+  await model.load()
+
+  const text = 'First chunk sentence. Second chunk sentence.'
+  const r = await model.runStream(text, {
+    maxChunkScalars: 20,
+    referenceAudio: '/abs/voice.wav',
+    referenceText: 'What the recording says.'
+  })
+  await r.onUpdate(() => {}).await()
+
+  t.ok(binding.jobs.length >= 2, `stream ran multiple jobs (got ${binding.jobs.length})`)
+  for (const job of binding.jobs) {
+    t.is(job.referenceAudio, '/abs/voice.wav', 'every chunk carries the pinned recording')
+    t.is(job.referenceText, 'What the recording says.', 'and its transcript')
+  }
+  await model.unload()
+})
+
+test('Audio8: reload merges the voice and the sampling knobs', async (t) => {
+  const model = createMockedAudio8Model({
+    files: { audio8Lm: LM, audio8CodecDecoder: DECODER, audio8CodecEncoder: ENCODER },
+    extra: { temperature: 0.7, maxFrames: 128 }
+  })
+  await model.load()
+
+  await model.reload({
+    temperature: 0.9,
+    maxFrames: 256,
+    greedy: false,
+    referenceAudio: '/abs/voice.wav',
+    referenceText: 'What the recording says.'
+  })
+  const params = model._buildTtsParams()
+  t.is(params.temperature, 0.9, 'reload updates temperature')
+  t.is(params.maxFrames, 256, 'reload updates maxFrames')
+  t.is(params.referenceAudio, '/abs/voice.wav', 'reload enrols a voice')
+  t.is(params.referenceText, 'What the recording says.')
+
+  await t.exception(
+    model.reload({ referenceText: '' }),
+    /referenceText/,
+    'reload cannot drop half of the voice'
+  )
+  await model.unload()
+})

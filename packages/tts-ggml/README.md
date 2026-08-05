@@ -4,8 +4,9 @@ Text-to-speech Bare addon backed by the [`qvac-tts.cpp`][qvac-tts-cpp]
 GGML library.  Wraps multiple engines under one package: **Chatterbox**
 (Turbo English + multilingual), **Supertonic** (v1 English, v2, and
 v3 31-language), **Parler** (mini/large English + indic 21-language,
-description-conditioned with voice/emotion templates), and **CosyVoice3**
-(Fun-CosyVoice3-0.5B, instruct-conditioned, 24 kHz, CPU), plus optional
+description-conditioned with voice/emotion templates), **CosyVoice3**
+(Fun-CosyVoice3-0.5B, instruct-conditioned, 24 kHz, CPU), and **Audio8**
+(DualAR + neural codec, in-process voice cloning, CPU-only), plus optional
 LavaSR neural denoise + 48 kHz bandwidth-extension enhancement.
 
 Runs in-process with a persistent native engine — the GGUFs, the S3Gen
@@ -30,7 +31,9 @@ Android paths, including Vulkan on ARM Mali (see
   flows out of the C++ engine chunk-by-chunk as T3 tokens produce
   S3Gen+HiFT output; sub-second first-audio-out inside a single
   utterance.
-- **Voice cloning** from a reference wav (or a pre-baked profile dir).
+- **Voice cloning** from a reference wav (or a pre-baked profile dir);
+  on Audio8 the reference is encoded in-process and can be switched per
+  call.
 - **CPU by default**, GPU (Metal / Vulkan / OpenCL) opt-in via
   `config.useGPU: true` on GPU-capable hosts — including Android, where
   `tts-cpp` selects the GPU backend per its per-vendor allowlist (see
@@ -56,8 +59,8 @@ platform has no prebuild the package falls back to a local build via
 
 ## Model files
 
-Four engine families are wrapped (Chatterbox, Supertonic, Parler,
-CosyVoice3), each with its own GGUF layout under `models/`:
+Five engine families are wrapped (Chatterbox, Supertonic, Parler,
+CosyVoice3, Audio8), each with its own GGUF layout under `models/`:
 
 ```
 # Chatterbox turbo (English)
@@ -93,6 +96,12 @@ cosyvoice3/
   cosyvoice3-hift-*.gguf   (~83 MB f32 — CausalHiFT vocoder)
   voice.gguf               (baked default voice: timbre + prompt tensors)
   vocab.json  merges.txt   (Qwen2 BPE tokenizer)
+
+# Audio8 (Audio8-AI/Audio8_TTS; 44.1 kHz, DualAR + neural codec) — three
+# GGUFs, published per quant tier; the encoder is only needed to clone a voice
+audio8-lm-q8_0.gguf              (~0.6 GB; also -f16 / -q4_0 / -f32)
+audio8-codec-decoder-q8_0.gguf   (~110 MB; also -f16 / -f32)
+audio8-codec-encoder-q8_0.gguf   (~120 MB; also -f16 / -f32; cloning only)
 ```
 
 The package converts these from upstream Resemble Chatterbox / Supertone
@@ -109,12 +118,19 @@ npm run setup:venv
 npm run convert-models
 ```
 
+The Audio8 GGUFs are produced by the converters in
+qvac-ext-lib-whisper.cpp (`engines/tts/scripts/convert-audio8-lm-to-gguf.py`
+and `convert-audio8-codec-to-gguf.py`) until they are published to the model
+registry alongside the other engines.
+
 Point the addon at a custom location via `files.modelDir` (engine
 auto-detected from the gguf filenames present), or pass explicit
 `files.t3Model` + `files.s3genModel` (Chatterbox) /
 `files.supertonicModel` (Supertonic) / `files.parlerModel` (Parler) /
 `files.cosyvoiceModelDir` (CosyVoice3 — a directory, see
-[CosyVoice3 instruct](#cosyvoice3-instruct)).
+[CosyVoice3 instruct](#cosyvoice3-instruct)) /
+`files.audio8Lm` + `files.audio8CodecDecoder` (+ `files.audio8CodecEncoder`
+to clone) (Audio8).
 
 ## Quick start
 
@@ -202,6 +218,8 @@ Full runnable demo (with gapless playback via `sox` or `ffplay`):
 
 ## Voice cloning
 
+### Chatterbox
+
 Pass a mono wav ≥ 5 s of clean speech — the engine does the loudness
 normalisation (−27 LUFS), resampling, and all conditioning (VoiceEncoder,
 CAMPPlus, S3TokenizerV2, mel extraction) natively at `load()` time:
@@ -227,6 +245,37 @@ new TTSGgml({
 
 When both are supplied, missing tensors in `voiceDir` are backfilled
 from `referenceAudio`.
+
+### Audio8
+
+Audio8 clones from the recording plus **what is said in it**.  The codec's
+analysis half (`files.audio8CodecEncoder`) encodes the recording to codes
+inside the addon, and the model continues that speaker; the transcript is
+what the reference turn *answers*, so a missing or wrong one degrades the
+clone rather than failing loudly.  Both fields are therefore required
+together, and cloning without the encoder GGUF is rejected at construction.
+
+```js
+const model = new TTSGgml({
+  engine: TTSGgml.ENGINE_AUDIO8,
+  files: { modelDir: './models' }, // needs audio8-codec-encoder-*.gguf present
+  referenceAudio: './voices/me.wav',
+  referenceText: 'Exactly what the recording says, verbatim.'
+})
+await model.load()
+
+// per-call override: a different speaker, or just a corrected transcript
+await model.run({
+  input: 'Spoken in a third voice.',
+  referenceAudio: './voices/someone-else.wav',
+  referenceText: 'What that recording says.'
+})
+```
+
+The engine caches the codes for the most recent reference, so repeating one
+across calls skips the encoder.  Per-call fields also ride on the
+`runStream` / `runStreaming` options, pinned for the whole response so the
+cache stays hot across chunks.
 
 ## Speech enhancement (LavaSR)
 
@@ -452,6 +501,42 @@ Other CosyVoice3-only options: `promptText` (reference transcript for the baked
 voice) and `streamLeftContextTokens` (native chunk-streaming left context).
 CosyVoice3 runs on **CPU** and emits native **24 kHz**.
 
+## Audio8
+
+Audio8 is a **DualAR** model: a 24-layer autoregressive transformer picks one
+semantic token per 46 ms frame, a 4-layer head fills the seven acoustic
+codebooks under it, and a DAC-style neural codec turns the eight codes back
+into 44.1 kHz audio.  It ships as three GGUFs because they have different
+lifetimes — the language model and the codec's synthesis half run on every
+synthesis, the analysis half only to enrol a voice — so a text-only
+deployment can omit `files.audio8CodecEncoder` entirely.
+
+```js
+const model = new TTSGgml({
+  engine: TTSGgml.ENGINE_AUDIO8,
+  files: { modelDir: './models' },
+  temperature: 0.7,
+  topP: 0.9,
+  opts: { stats: true }
+})
+await model.load()
+await model.run({ input: 'Hello from a fully on-device pipeline.' })
+```
+
+Sampling is **repetition-aware**: a semantic token that repeats one from the
+recent window is re-drawn under a narrower nucleus at a higher temperature,
+which is what keeps the model out of the babble attractor that pure top-p
+falls into.  `greedy: true` takes the argmax instead and ignores
+`temperature` / `topK` / `topP`; it is reproducible but noticeably flatter.
+`maxFrames` caps generation in codec frames (~21.5/s of audio).
+
+Audio8 is **CPU-only** in this release.  `useGPU` / `nGpuLayers` are accepted
+and warn rather than failing, so callers do not have to special-case the
+engine; `response.stats.gpuUnsupported` reports when GPU was asked for and
+the CPU ran it.  Expect a real-time factor slightly above 1 on a desktop CPU
+for text-only synthesis, plus a one-off encode when a new reference voice is
+enrolled.
+
 ## API overview
 
 ### Constructor — `new TTSGgml(options)`
@@ -465,10 +550,14 @@ CosyVoice3 runs on **CPU** and emits native **24 kHz**.
 | `files.parlerModel`       | string     | —          | Parler GGUF — mini/large/indic variant (overrides `modelDir`) |
 | `files.cosyvoiceModelDir` | string     | —          | CosyVoice3 model directory (`cosyvoice3-{llm,flow,hift}-*.gguf` + `voice.gguf` + `vocab.json` + `merges.txt`); routes to CosyVoice3 |
 | `files.cosyvoiceLlmModelPath` / `cosyvoiceFlowModelPath` / `cosyvoiceHiftModelPath` | string | — | Per-component overrides for the CosyVoice3 model dir |
+| `files.audio8Lm`          | string     | —          | Audio8 DualAR language model GGUF (overrides `modelDir`) |
+| `files.audio8CodecDecoder`| string     | —          | Audio8 codec synthesis half — codes to wav (overrides `modelDir`) |
+| `files.audio8CodecEncoder`| string     | —          | Audio8 codec analysis half — wav to codes; only needed to clone a voice |
 | `files.lavasrEnhancer`    | string     | —          | LavaSR enhancer GGUF — supplying it turns on 48 kHz enhancement |
 | `files.lavasrDenoiser`    | string     | —          | LavaSR denoiser GGUF — supplying it turns on denoising (batch only) |
-| `engine`                  | string     | auto       | Force `'chatterbox'`, `'supertonic'`, `'parler'` or `'cosyvoice3'` (`TTSGgml.ENGINE_CHATTERBOX` / `ENGINE_SUPERTONIC` / `ENGINE_PARLER` / `ENGINE_COSYVOICE3`); auto-detected from the GGUFs present otherwise |
-| `referenceAudio`          | string     | —          | Mono wav ≥ 5 s for voice cloning |
+| `engine`                  | string     | auto       | Force `'chatterbox'`, `'supertonic'`, `'cosyvoice3'`, `'parler'` or `'audio8'` (`TTSGgml.ENGINE_CHATTERBOX` / `ENGINE_SUPERTONIC` / `ENGINE_COSYVOICE3` / `ENGINE_PARLER` / `ENGINE_AUDIO8`); auto-detected from the GGUFs present otherwise |
+| `referenceAudio`          | string     | —          | Mono wav for voice cloning (Chatterbox: ≥ 5 s; Audio8: also needs `referenceText`).  Audio8 accepts it per call too |
+| `referenceText`           | string     | —          | Audio8-only: what `referenceAudio` says, verbatim.  Required whenever a reference is set; accepted per call |
 | `voiceDir`                | string     | —          | Pre-baked voice profile |
 | `seed`                    | number     | 42         | RNG seed (CFM noise + sampling) |
 | `nGpuLayers`              | number     | 0          | Layers offloaded to GPU (mirrors `useGPU`; pass `99` to offload all) |
@@ -484,8 +573,9 @@ CosyVoice3 runs on **CPU** and emits native **24 kHz**.
 | `noiseNpyPath`            | string     | —          | Supertonic: optional fixed CFM noise `.npy` for reproducibility |
 | `description` / `voiceDescription` | string | fallback caption | Parler-only: full free-text voice description (mutually exclusive with the template fields) |
 | `emotion`, `pitch`, `pace`, `expressivity`, `noise`, `reverb`, `quality` | string | — | Parler-only template fields (see [Parler descriptions & emotions](#parler-descriptions--emotions)); invalid values error listing the valid set |
-| `temperature` / `topK` / `topP` | number | GGUF defaults | Parler-only sampling knobs (`0`/omit = the GGUF's defaults: temp 1.0, top-k 50; `topP` in `(0, 1]`) |
-| `maxFrames`               | number     | GGUF max (~30 s) | Parler-only generation cap in decoder steps (~86/s of audio); `0` = model default, 1–9 rejected |
+| `temperature` / `topK` / `topP` | number | engine defaults | Parler + Audio8 sampling knobs (omit for the engine's own defaults — Parler temp 1.0 / top-k 50, Audio8 temp 0.7 / top-k 50 / top-p 0.9; `topP` in `(0, 1]`) |
+| `maxFrames`               | number     | engine max | Parler + Audio8 generation cap in frames (Parler ~86/s of audio, Audio8 ~21.5/s); `0` = model default, Parler rejects 1–9 |
+| `greedy`                  | boolean    | `false`    | Audio8-only: take the argmax instead of sampling; ignores `temperature` / `topK` / `topP` |
 | `minNewTokens`            | number     | GGUF default | Parler-only minimum tokens before EOS (`-1` = model default) |
 | `normalizeNumbers`        | boolean    | `true`     | Parler-only: expand digits before tokenization (English words; script-native digits on indic) — parler voices raw digits badly |
 | `instruct`                | object \| string | —    | CosyVoice3-only: instruction controls (`dialect` / `emotion` / `speed` / `volume` / `style`, resolved by precedence in that order) or a raw instruction string; an unknown key or invalid value throws (see [CosyVoice3 instruct](#cosyvoice3-instruct)) |
@@ -497,8 +587,8 @@ CosyVoice3 runs on **CPU** and emits native **24 kHz**.
 | `openclCacheDir`          | string     | unset      | Android-only: directory where the OpenCL backend persists its compiled program-binary cache.  Setting it across runs avoids re-JITing the kernels on every fresh process |
 | `vulkanCacheDir`          | string     | unset      | Supertonic + `useGPU: true` only: writable directory where the Vulkan backend persists its compiled pipeline cache (`GGML_VK_PIPELINE_CACHE_DIR`).  Moves the one-time first-dispatch pipeline-compile cost (seconds on Mali) off the first `run()` — paid once per install instead of once per process — and enables a load-time pre-warm.  Fully opt-in: unset -> no cross-process cache, no pre-warm, behaviour unchanged |
 | `config.language`         | string     | `"en"`     | Chatterbox MTL accepts `es/fr/de/pt/it/zh/ja/ko/...`; turbo & Supertonic are English |
-| `config.useGPU`           | boolean    | `false`    | Set to `true` to route through Metal / Vulkan / CUDA / OpenCL if available. Honored for Chatterbox/Supertonic on GPU-capable hosts (including Android, per `tts-cpp`'s per-vendor allowlist); Parler is validated on Apple/Metal and Android/ARM Mali Vulkan. Unsupported backends fall back to CPU. See [Backends & GPU acceleration](#backends--gpu-acceleration) |
-| `config.outputSampleRate` | number     | — (engine-native) | Resample the output to this rate (8000–192000 Hz). Omit to keep the engine-native rate (Chatterbox 24 kHz, Supertonic/Parler 44.1 kHz, CosyVoice3 24 kHz, enhancer 48 kHz). Parler native chunk streaming accepts a non-native rate only with the enhancer active |
+| `config.useGPU`           | boolean    | `false`    | Set to `true` to route through Metal / Vulkan / CUDA / OpenCL if available. Honored for Chatterbox/Supertonic on GPU-capable hosts (including Android, per `tts-cpp`'s per-vendor allowlist); Parler is validated on Apple/Metal and Android/ARM Mali Vulkan; Audio8 is CPU-only. Unsupported backends fall back to CPU. See [Backends & GPU acceleration](#backends--gpu-acceleration) |
+| `config.outputSampleRate` | number     | — (engine-native) | Resample the output to this rate (8000–192000 Hz). Omit to keep the engine-native rate (Chatterbox 24 kHz, Supertonic / Parler / Audio8 44.1 kHz, CosyVoice3 24 kHz, enhancer 48 kHz). Parler native chunk streaming accepts a non-native rate only with the enhancer active |
 | `opts.stats`              | boolean    | `false`    | Populate `response.stats` with RTF, `backendDevice` (0=CPU, 1=GPU), `backendId` (0=CPU, 1=Metal, 2=CUDA, 3=Vulkan, 4=OpenCL, 99=other), and — when an enhancer is active — `enhancerBackendDevice` / `enhancerBackendId` |
 | `exclusiveRun`            | boolean    | `false`    | **Top-level** option (not under `opts`): serialize overlapping streaming runs |
 
@@ -535,7 +625,7 @@ All `run*` methods return a `QvacResponse` (from `@qvac/infer-base`):
 ```js
 response.onUpdate(data => {
   data.outputArray   // Int16Array — mono PCM
-  data.sampleRate    // actual rate: Chatterbox 24000, Supertonic/Parler 44100, enhancer 48000
+  data.sampleRate    // actual rate: Chatterbox 24000, Supertonic/Parler/Audio8 44100, enhancer 48000
   data.chunkIndex    // present on sentence-streaming events only
   data.sentenceChunk // present on sentence-streaming events only
 })
@@ -576,6 +666,7 @@ Runnable demos under `examples/`:
 | `parler-enhanced.js` | Parler + LavaSR 48 kHz enhancement. `bare examples/parler-enhanced.js "Hello" Laura happy` |
 | `cosyvoice-tts.js` | CosyVoice3 instruct-conditioned batch synth (24 kHz, CPU). `bare examples/cosyvoice-tts.js "Hello"` |
 | `cosyvoice-enhanced.js` | CosyVoice3 + LavaSR 48 kHz enhancement (add `--denoise` for the denoiser). `bare examples/cosyvoice-enhanced.js "Hello"` |
+| `audio8-tts.js` | Audio8 batch synth, optionally cloning a reference. `bare examples/audio8-tts.js "Hello" voice.wav "What it says."` |
 
 The two streaming examples feed PCM into a single long-running
 `sox play` / `ffplay` process so chunks play back-to-back without any
