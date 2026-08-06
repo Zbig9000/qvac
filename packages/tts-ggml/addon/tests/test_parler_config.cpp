@@ -24,7 +24,7 @@
 
 using qvac::ttsggml::kBackendDeviceNone;
 using qvac::ttsggml::kBackendIdNone;
-using qvac::ttsggml::parler::PARLER_NATIVE_SAMPLE_RATE;
+using qvac::ttsggml::parler::kParlerNativeSampleRate;
 using qvac::ttsggml::parler::ParlerConfig;
 using qvac::ttsggml::parler::ParlerDescriptionFields;
 using qvac::ttsggml::parler::ParlerModel;
@@ -32,12 +32,12 @@ using qvac_errors::StatusError;
 
 namespace {
 
-const char* kFallbackCaption =
+constexpr const char* FALLBACK_CAPTION =
     "The speaker speaks naturally. "
     "The recording is very high quality with no background noise.";
 
-constexpr const char* kStubDirPrefix = "qvac-tts-ggml-parler-tests-";
-constexpr const char* kStubContents = "stub";
+constexpr const char* STUB_DIR_PREFIX = "qvac-tts-ggml-parler-tests-";
+constexpr const char* STUB_CONTENTS = "stub";
 
 // The directory name carries entropy because CI shares one /tmp across parallel
 // self-hosted runners: a fixed name is created by whichever job runs first and
@@ -45,7 +45,7 @@ constexpr const char* kStubContents = "stub";
 std::filesystem::path createStubDir() {
   std::random_device entropy;
   auto dir = std::filesystem::temp_directory_path() /
-             (std::string(kStubDirPrefix) + std::to_string(entropy()));
+             (std::string(STUB_DIR_PREFIX) + std::to_string(entropy()));
   std::filesystem::create_directories(dir);
   return dir;
 }
@@ -84,7 +84,7 @@ std::string envOrEmpty(const char* name) {
 std::string writeStub(const std::string& name) {
   const auto path = tempPath(name);
   std::ofstream out(path, std::ios::binary);
-  out << kStubContents;
+  out << STUB_CONTENTS;
   out.close();
   if (!out || !std::filesystem::exists(path)) {
     throw std::runtime_error(
@@ -180,7 +180,7 @@ TEST(ParlerValidate, StreamingRejectsNonNativeOutputSampleRate) {
   cfg.streamChunkTokens = 40;
   cfg.outputSampleRate = 16000;
   EXPECT_THROW(ParlerModel{cfg}, StatusError);
-  cfg.outputSampleRate = PARLER_NATIVE_SAMPLE_RATE; // native — allowed
+  cfg.outputSampleRate = kParlerNativeSampleRate; // native — allowed
   EXPECT_NO_THROW(ParlerModel{cfg});
   cfg.outputSampleRate = 0; // native default — allowed
   EXPECT_NO_THROW(ParlerModel{cfg});
@@ -364,7 +364,7 @@ TEST(ParlerValidate, ConfigDefaultsAllUnset) {
 
 TEST(ParlerDescription, AllDefaultsRenderFallbackCaption) {
   ParlerDescriptionFields desc;
-  EXPECT_EQ(ParlerModel::resolveDescription(desc), kFallbackCaption);
+  EXPECT_EQ(ParlerModel::resolveDescription(desc), FALLBACK_CAPTION);
 }
 
 TEST(ParlerDescription, ExplicitDescriptionPassesThrough) {
