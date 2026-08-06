@@ -37,9 +37,11 @@ const {
   evaluateBenchmarkResult,
   BenchmarkResultError
 } = require('./benchmark-validate')
+const { applyDeviceEnv } = require('./device-env')
 
 const ENV_PREFIX = 'QVAC_AUDIOGEN_GGML_BENCHMARK'
 const ARTIFACT_PREFIX = 'rtf-benchmark'
+const DEVICE_ENV_FILE = 'qvacPerfConfig.txt'
 
 const DEFAULT_DURATION_S = 15
 const DEFAULT_WARMUP_RUNS = 1
@@ -140,7 +142,48 @@ function readCorrelation() {
   }
 }
 
+function setEnv(key, value) {
+  try {
+    os.setEnv(key, value)
+  } catch (err) {
+    console.log(`[device-env] setEnv failed for ${key}: ${err.message}`)
+  }
+}
+
+function loadDeviceEnvFile(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return false
+    const injected = applyDeviceEnv(fs.readFileSync(filePath, 'utf-8'), setEnv)
+    console.log(`[device-env] loaded ${injected} override(s) from ${filePath}`)
+    return injected > 0
+  } catch (err) {
+    console.log(`[device-env] read error at ${filePath}: ${err.message}`)
+    return false
+  }
+}
+
+function deviceEnvCandidates() {
+  const candidates = []
+  if (global.testDir) candidates.push(path.join(global.testDir, DEVICE_ENV_FILE))
+  if (platform === 'android') candidates.push(`/data/local/tmp/${DEVICE_ENV_FILE}`)
+  return candidates
+}
+
+// Mobile CI has no workflow env on the device: the per-row configuration arrives
+// as a pushed file, so it must be injected before any setting is read. Desktop
+// has no such file and this is a no-op.
+let deviceEnvLoaded = false
+
+function loadDeviceEnvOnce() {
+  if (deviceEnvLoaded) return
+  deviceEnvLoaded = true
+  for (const candidate of deviceEnvCandidates()) {
+    if (loadDeviceEnvFile(candidate)) return
+  }
+}
+
 function readBenchmarkSettings() {
+  loadDeviceEnvOnce()
   return {
     ditVariant: readDitVariant(),
     useGPU: getEnvBoolean(envKey('USE_GPU'), false),
@@ -516,6 +559,7 @@ module.exports = {
   CAPTIONS,
   DEVICE_INFO,
   envKey,
+  loadDeviceEnvOnce,
   readBenchmarkSettings,
   resultsDir,
   runRtfBenchmark,

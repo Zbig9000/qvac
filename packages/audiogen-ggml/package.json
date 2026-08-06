@@ -54,6 +54,7 @@
     "test/utils/benchmark-report.js",
     "test/utils/benchmark-stats.js",
     "test/utils/benchmark-validate.js",
+    "test/utils/device-env.js",
     "test/utils/memory-usage.js",
     "test/mobile",
     "benchmarks/RTF-BENCHMARKS.md",

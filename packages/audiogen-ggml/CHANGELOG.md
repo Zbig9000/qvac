@@ -35,6 +35,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to CPU is reported as CPU work, with the request preserved as
   `requested_backend` / `requested_execution_provider`.
 
+### Fixed
+
+- On-device benchmark rows now honour their configuration. The mobile CI pushes
+  the per-row settings to the device as a `qvacPerfConfig.txt` file, but nothing
+  read it, so every Device Farm row silently measured the default `turbo-q4` on
+  CPU regardless of the variant and provider it was scheduled for.
+
 ## [0.1.1] - 2026-08-03
 
 ### Changed
