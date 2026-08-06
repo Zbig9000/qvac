@@ -78,7 +78,23 @@ QVAC_AUDIOGEN_GGML_BENCHMARK_MATRIX_JSON='[
 ```
 
 The matrix runner keeps going when an entry fails, so one bad backend does not
-cost you the rest of the sweep.
+cost you the rest of the sweep. Failures are collected and reported, and the
+process still exits 0 so partial artifacts reach the aggregator; a sweep that
+produced nothing at all is caught by the workflow's verification step. With no
+matrix set, a single `turbo-q4` CPU entry runs.
+
+Every field of an entry is optional except `useGPU`:
+
+| Field | Default | Meaning |
+|---|---|---|
+| `ditVariant` | `turbo-q4` | `turbo-q4` / `turbo-q8` / `sft`. |
+| `useGPU` | `false` | Request the platform GPU backend. |
+| `backendHint` | derived | `cpu` / `metal` / `vulkan` / `opencl`. |
+| `deviceLabel`, `runnerLabel`, `label` | inherited from the environment | Report labels. |
+| `numWarmup`, `numRuns`, `durationS` | matrix-wide env defaults | Per-entry overrides. |
+| `inferenceSteps`, `shift` | engine default | `0` also means engine default. |
+| `numThreads` | engine default | CPU thread count. |
+| `rtfUpperBound` | none | Fails the entry when the mean RTF exceeds it. |
 
 Results land in `benchmarks/results/rtf-benchmark-*.json` (git-ignored). Render
 the table:
@@ -106,7 +122,31 @@ All are optional; every one is read by both the desktop and the on-device lane.
 | `DURATION_S` | `15` | Target clip length. |
 | `INFERENCE_STEPS` / `SHIFT` | engine default | Override the variant's schedule. |
 | `NUM_THREADS` | engine default | CPU thread count. |
-| `RTF_UPPER_BOUND` | none | Fails the desktop suite when the mean RTF exceeds it. |
+| `RTF_UPPER_BOUND` | none | Fails the run when the mean RTF exceeds it, on both lanes. |
+
+## Result validation
+
+`runRtfBenchmark` refuses to return a measurement it cannot stand behind, so no
+artifact is written, no `[PERF_REPORT_START]` record is emitted and no mobile
+test reports success unless all of the following hold:
+
+- every requested measured run completed;
+- the mean RTF is finite and positive;
+- every run rendered audio samples;
+- peak RSS is positive and at least the average RSS;
+- the mean RTF is within `RTF_UPPER_BOUND`, when that is set.
+
+A failure throws with every unmet condition listed at once.
+
+## Requested vs. observed backend
+
+`BACKEND` and `USE_GPU` describe what was *asked for*. The engine can fall back
+to CPU when a GPU backend is unavailable, so the reported backend and execution
+provider are always taken from the backend that actually executed, read back
+from the run stats. The request is preserved alongside it as
+`requested_backend` / `requested_execution_provider`, and the requested backend
+is only used as the reported one when no run reported a backend at all. A GPU
+row in the findings table therefore always reflects real GPU work.
 
 The matrix runner additionally honours `MATRIX_JSON` (the sweep) and
 `ENTRY_TIMEOUT_MS` (per-entry watchdog, 45 min by default).

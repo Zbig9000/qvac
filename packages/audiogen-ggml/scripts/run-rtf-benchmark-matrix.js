@@ -1,34 +1,9 @@
 #!/usr/bin/env node
 'use strict'
 
-/**
- * Runs `npm run test:benchmark:rtf` once per entry in a matrix JSON array,
- * setting the QVAC_AUDIOGEN_GGML_BENCHMARK_* env vars for each entry.
- *
- * The matrix is read from QVAC_AUDIOGEN_GGML_BENCHMARK_MATRIX_JSON (a stringified
- * array). Each entry has the shape:
- *   {
- *     "ditVariant": "turbo-q4" | "turbo-q8" | "sft",  (optional, default turbo-q4)
- *     "useGPU": true | false,
- *     "backendHint": "cpu" | "metal" | "vulkan" | "opencl",  (optional)
- *     "deviceLabel": "...",                                  (optional)
- *     "runnerLabel": "...",                                  (optional)
- *     "label": "...",                                        (optional)
- *     "numWarmup": 1,                                        (optional)
- *     "numRuns": 3,                                          (optional)
- *     "durationS": 15,                                       (optional)
- *     "inferenceSteps": 8,                                   (optional, 0 = engine auto)
- *     "shift": 3.0,                                          (optional, 0 = engine auto)
- *     "numThreads": 8,                                       (optional)
- *     "rtfUpperBound": 2.5                                   (optional)
- *   }
- *
- * With no matrix set, a single turbo-q4 CPU entry runs.
- *
- * One failing entry never sinks the rest: failures are collected and reported,
- * and the process still exits 0 so partial artifacts reach the aggregator. A run
- * that produced zero artifacts is caught by the workflow's verification step.
- */
+// Runs `npm run test:benchmark:rtf` once per entry in
+// QVAC_AUDIOGEN_GGML_BENCHMARK_MATRIX_JSON. The entry schema and the
+// partial-failure contract are documented in benchmarks/RTF-BENCHMARKS.md.
 
 const path = require('path')
 const { spawnSync } = require('child_process')

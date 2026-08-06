@@ -128,6 +128,12 @@ function normalizeBackend (platformName, useGPU, backendHint) {
   }
 }
 
+// The provider column must agree with the backend that actually ran, so a GPU
+// request that fell back to CPU is not reported as GPU work.
+function providerForBackend (backend) {
+  return backend === 'cpu' ? 'cpu' : 'gpu'
+}
+
 function normalizeDitVariant (value) {
   const variant = String(value || '').toLowerCase()
   return VALID_DIT_VARIANTS.includes(variant) ? variant : ''
@@ -205,6 +211,7 @@ function normalizeDesktopRecord (report, sourceFile) {
   const config = report.config || {}
   const platformFamily = report.platformName || ''
   const useGPU = Boolean(config.useGPU)
+  const backend = normalizeBackend(platformFamily, useGPU, labels.activeBackend || labels.backend)
 
   return {
     source: 'desktop-ci',
@@ -214,8 +221,8 @@ function normalizeDesktopRecord (report, sourceFile) {
     ditVariant:
       normalizeDitVariant((report.model && report.model.ditVariant) || config.ditVariant) ||
       DEFAULT_DIT_VARIANT,
-    gpu: useGPU ? 'gpu' : 'cpu',
-    backend: normalizeBackend(platformFamily, useGPU, labels.activeBackend || labels.backend),
+    gpu: providerForBackend(backend),
+    backend,
     gpuModel: labels.gpuModel || null,
     label: String(labels.label || ''),
     durationS: toNumberOrNull(config.durationS),
@@ -291,11 +298,38 @@ function expandCanonicalReport (report, sourceFile) {
     .filter(Boolean)
 }
 
+function isPlainObject (value) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function manualBackendOf (record) {
+  return record.backend || record.provider || record.executionProvider || record.gpu
+}
+
+function manualVariantOf (record) {
+  return record.ditVariant || (isPlainObject(record.model) && record.model.ditVariant)
+}
+
+// A hand-authored drop is the one input nobody validates upstream, so a missing
+// field must be rejected rather than surface as an `unknown` row with a null RTF.
+function manualRecordProblems (record) {
+  if (!isPlainObject(record)) return ['not a JSON object']
+  const problems = []
+  if (!record.device && !record.deviceLabel) problems.push('missing device')
+  if (!record.platform) problems.push('missing platform')
+  if (!manualVariantOf(record)) problems.push('missing ditVariant')
+  if (!manualBackendOf(record)) problems.push('missing backend/provider')
+  const meanRtf = toNumberOrNull(record.meanRtf)
+  if (meanRtf === null || meanRtf <= 0) problems.push(`meanRtf is not a positive number (${record.meanRtf})`)
+  return problems
+}
+
 // Hand-authored drops are flat by design: a human filling in a template should
 // not have to reproduce the benchmark's nested summary shape.
 function normalizeManualRecord (record, sourceFile) {
   const platformFamily = String(record.platformFamily || record.platformName || '').toLowerCase()
   const useGPU = Boolean(record.useGPU || record.gpu === 'gpu')
+  const backend = normalizeBackend(platformFamily, useGPU, manualBackendOf(record))
 
   return {
     source: 'manual',
@@ -305,8 +339,8 @@ function normalizeManualRecord (record, sourceFile) {
     ditVariant:
       normalizeDitVariant(record.ditVariant || (record.model && record.model.ditVariant)) ||
       DEFAULT_DIT_VARIANT,
-    gpu: useGPU ? 'gpu' : 'cpu',
-    backend: normalizeBackend(platformFamily, useGPU, record.backend),
+    gpu: providerForBackend(backend),
+    backend,
     gpuModel: record.gpuModel || record.gpu_model || null,
     label: String(record.label || ''),
     durationS: toNumberOrNull(record.durationS),
@@ -360,14 +394,30 @@ function loadArtifactRecords (inputDir) {
   return records
 }
 
-function manualItemToRecord (item, file) {
+// Returns an array so a canonical drop can expand to several rows, and an empty
+// array when the item is unusable.
+function manualItemToRecords (item, file) {
   if (isDesktopArtifact(item)) {
-    return { ...normalizeDesktopRecord(item, file), source: 'manual' }
+    return [{ ...normalizeDesktopRecord(item, file), source: 'manual' }]
   }
   if (isCanonicalReport(item)) {
     return expandCanonicalReport(item, file).map((record) => ({ ...record, source: 'manual' }))
   }
-  return normalizeManualRecord(item, file)
+
+  const problems = manualRecordProblems(item)
+  if (problems.length > 0) {
+    console.warn(`Skipping manual record in ${file}: ${problems.join(', ')}`)
+    return []
+  }
+  return [normalizeManualRecord(item, file)]
+}
+
+// `records` is only honoured when it is actually a list; anything else would
+// otherwise be spread or iterated into a crash.
+function manualItemsOf (payload) {
+  if (Array.isArray(payload)) return payload
+  if (isPlainObject(payload) && Array.isArray(payload.records)) return payload.records
+  return [payload]
 }
 
 function loadManualRecords (manualDir) {
@@ -377,12 +427,8 @@ function loadManualRecords (manualDir) {
   for (const file of walkFiles(manualDir).filter((f) => f.endsWith('.json'))) {
     const payload = readJson(file)
     if (!payload) continue
-
-    const items = Array.isArray(payload) ? payload : payload.records || [payload]
-    for (const item of items) {
-      const converted = manualItemToRecord(item, file)
-      if (Array.isArray(converted)) records.push(...converted)
-      else records.push(converted)
+    for (const item of manualItemsOf(payload)) {
+      records.push(...manualItemToRecords(item, file))
     }
   }
   return records
@@ -601,6 +647,10 @@ module.exports = {
   normalizeDesktopRecord,
   expandCanonicalReport,
   normalizeManualRecord,
+  manualRecordProblems,
+  manualItemsOf,
+  manualItemToRecords,
+  loadManualRecords,
   dedupeRecords,
   sortRecords,
   missingGpuBackends,

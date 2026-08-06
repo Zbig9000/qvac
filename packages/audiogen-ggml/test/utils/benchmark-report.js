@@ -1,15 +1,8 @@
 'use strict'
 
-// Pure builders for the RTF benchmark's two output shapes:
-//
-//   1. the rich on-disk `rtf-benchmark-*.json` artifact consumed by
-//      scripts/perf-report/aggregate-audiogen-ggml-rtf.js, and
-//   2. the canonical `[PERF_REPORT_START]` record understood by the shared
-//      scripts/perf-report/extract-from-log.js pipeline, which is how the
-//      mobile (Device Farm) lane gets its numbers off the device.
-//
-// Both live here rather than in the brittle suite so they stay unit-testable
-// without loading the native addon.
+// Pure builders for the on-disk `rtf-benchmark-*.json` artifact and the
+// canonical `[PERF_REPORT_START]` record the mobile lane emits. Kept out of the
+// brittle suite so they stay unit-testable without the native addon.
 
 const ENGINE_NAME = 'acestep'
 
@@ -62,10 +55,21 @@ function buildArtifactFileName(prefix, platformArch, settings) {
   return `${parts.join('-')}.json`
 }
 
+function providerForBackend(backend) {
+  return backend === 'cpu' ? 'cpu' : 'gpu'
+}
+
+// A GPU request that the engine could not honour still runs, so the label must
+// describe the backend that executed rather than the one that was asked for.
+// Stats are absent only when no run reported a backend id.
+function resolveObservedBackend(summary, requestedBackend) {
+  return (summary && summary.activeBackend) || requestedBackend
+}
+
 // Space-separated so the aggregator can split the label back into
 // [execution provider, engine, variant, backend].
 function buildTestLabel(settings, backend) {
-  const provider = settings.useGPU ? 'GPU' : 'CPU'
+  const provider = providerForBackend(backend).toUpperCase()
   return `[${provider}] ${ENGINE_NAME} ${settings.ditVariant} ${backend}`
 }
 
@@ -98,6 +102,7 @@ function buildCanonicalMetrics(summary) {
 }
 
 function buildCanonicalReport({ settings, summary, backend, device }) {
+  const observedBackend = resolveObservedBackend(summary, backend)
   return {
     schema_version: CANONICAL_SCHEMA_VERSION,
     addon: ADDON_NAME,
@@ -114,8 +119,10 @@ function buildCanonicalReport({ settings, summary, backend, device }) {
     },
     results: [
       {
-        test: buildTestLabel(settings, backend),
-        execution_provider: settings.useGPU ? 'gpu' : 'cpu',
+        test: buildTestLabel(settings, observedBackend),
+        execution_provider: providerForBackend(observedBackend),
+        requested_backend: backend,
+        requested_execution_provider: settings.useGPU ? 'gpu' : 'cpu',
         engine: ENGINE_NAME,
         ditVariant: settings.ditVariant,
         metrics: buildCanonicalMetrics(summary)
@@ -131,6 +138,8 @@ module.exports = {
   CANONICAL_SCHEMA_VERSION,
   backendIdToName,
   resolveBackend,
+  resolveObservedBackend,
+  providerForBackend,
   sanitizeTag,
   buildArtifactFileName,
   buildTestLabel,

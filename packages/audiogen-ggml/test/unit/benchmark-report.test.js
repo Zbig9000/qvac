@@ -11,6 +11,8 @@ const {
   CANONICAL_SCHEMA_VERSION,
   backendIdToName,
   resolveBackend,
+  resolveObservedBackend,
+  providerForBackend,
   sanitizeTag,
   buildArtifactFileName,
   buildTestLabel,
@@ -152,6 +154,53 @@ test('buildCanonicalReport: falls back to platform and CI defaults for device la
   t.is(report.device.name, 'linux-x64', 'platform-arch stands in for a missing device label')
   t.is(report.device.runner, 'github-actions', 'desktop runs default to the CI runner label')
   t.is(report.device.gpu, null)
+})
+
+test('resolveObservedBackend: the observed backend wins over the requested one', (t) => {
+  t.is(resolveObservedBackend({ activeBackend: 'cpu' }, 'vulkan'), 'cpu')
+  t.is(resolveObservedBackend({ activeBackend: 'metal' }, 'metal'), 'metal')
+})
+
+test('resolveObservedBackend: falls back when the engine reported no backend', (t) => {
+  t.is(resolveObservedBackend({ activeBackend: '' }, 'vulkan'), 'vulkan', 'empty string')
+  t.is(resolveObservedBackend({}, 'metal'), 'metal', 'absent field')
+  t.is(resolveObservedBackend(null, 'cpu'), 'cpu', 'no summary at all')
+})
+
+test('providerForBackend: only cpu is a CPU provider', (t) => {
+  t.is(providerForBackend('cpu'), 'cpu')
+  for (const backend of ['metal', 'vulkan', 'cuda', 'opencl', 'other-gpu']) {
+    t.is(providerForBackend(backend), 'gpu', backend)
+  }
+})
+
+test('buildCanonicalReport: a GPU request that fell back to CPU reports CPU', (t) => {
+  const summary = summaryFixture()
+  summary.activeBackend = 'cpu'
+  const report = buildCanonicalReport({
+    settings: { ditVariant: 'turbo-q4', useGPU: true },
+    summary,
+    backend: 'vulkan',
+    device: DEVICE
+  })
+
+  const result = report.results[0]
+  t.is(result.test, '[CPU] acestep turbo-q4 cpu', 'label describes what actually ran')
+  t.is(result.execution_provider, 'cpu', 'CPU numbers are not presented as GPU')
+  t.is(result.requested_backend, 'vulkan', 'the request is still recorded')
+  t.is(result.requested_execution_provider, 'gpu')
+})
+
+test('buildCanonicalReport: uses the requested backend when stats are unavailable', (t) => {
+  const report = buildCanonicalReport({
+    settings: { ditVariant: 'turbo-q4', useGPU: true },
+    summary: summaryFixture(),
+    backend: 'metal',
+    device: DEVICE
+  })
+
+  t.is(report.results[0].test, '[GPU] acestep turbo-q4 metal')
+  t.is(report.results[0].execution_provider, 'gpu')
 })
 
 test('buildCanonicalReport: honours explicit labels and the mobile runner default', (t) => {

@@ -53,8 +53,10 @@
     "test/utils/benchmark-runner.js",
     "test/utils/benchmark-report.js",
     "test/utils/benchmark-stats.js",
+    "test/utils/benchmark-validate.js",
     "test/utils/memory-usage.js",
     "test/mobile",
+    "benchmarks/RTF-BENCHMARKS.md",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"

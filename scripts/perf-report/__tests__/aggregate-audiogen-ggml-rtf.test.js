@@ -33,6 +33,9 @@ const {
   normalizeDesktopRecord,
   expandCanonicalReport,
   normalizeManualRecord,
+  manualRecordProblems,
+  manualItemsOf,
+  manualItemToRecords,
   dedupeRecords,
   sortRecords,
   missingGpuBackends,
@@ -337,4 +340,124 @@ test('buildJsonReport carries the records and the coverage gap', () => {
   assert.equal(report.recordCount, 1)
   assert.deepEqual(report.missingGpuBackends, ['metal'])
   assert.equal(report.records[0].ditVariant, 'turbo-q4')
+})
+
+const VALID_MANUAL = {
+  device: 'RTX 4090 workstation',
+  platform: 'linux-x64',
+  ditVariant: 'turbo-q4',
+  backend: 'cuda',
+  meanRtf: 0.42
+}
+
+test('manualRecordProblems accepts a fully populated record', () => {
+  assert.deepEqual(manualRecordProblems(VALID_MANUAL), [])
+})
+
+test('manualRecordProblems rejects anything that is not a JSON object', () => {
+  for (const value of [null, undefined, 'text', 42, [], true]) {
+    assert.deepEqual(
+      manualRecordProblems(value),
+      ['not a JSON object'],
+      `rejects ${JSON.stringify(value)}`
+    )
+  }
+})
+
+test('manualRecordProblems lists every missing required field for an empty object', () => {
+  const problems = manualRecordProblems({})
+
+  assert.equal(problems.length, 5)
+  assert.ok(problems.some((p) => p.includes('device')))
+  assert.ok(problems.some((p) => p.includes('platform')))
+  assert.ok(problems.some((p) => p.includes('ditVariant')))
+  assert.ok(problems.some((p) => p.includes('backend/provider')))
+  assert.ok(problems.some((p) => p.includes('meanRtf')))
+})
+
+test('manualRecordProblems rejects a non-positive or unparseable mean RTF', () => {
+  for (const meanRtf of [0, -1, 'fast', null, undefined, NaN]) {
+    const problems = manualRecordProblems({ ...VALID_MANUAL, meanRtf })
+    assert.ok(
+      problems.some((p) => p.includes('meanRtf')),
+      `rejects meanRtf=${meanRtf}`
+    )
+  }
+})
+
+test('manualRecordProblems accepts provider or executionProvider in place of backend', () => {
+  const { backend, ...withoutBackend } = VALID_MANUAL
+
+  assert.deepEqual(manualRecordProblems({ ...withoutBackend, provider: 'cuda' }), [])
+  assert.deepEqual(manualRecordProblems({ ...withoutBackend, executionProvider: 'cuda' }), [])
+  assert.ok(manualRecordProblems(withoutBackend).some((p) => p.includes('backend/provider')))
+})
+
+test('manualRecordProblems accepts a nested model.ditVariant', () => {
+  const { ditVariant, ...withoutVariant } = VALID_MANUAL
+
+  assert.deepEqual(manualRecordProblems({ ...withoutVariant, model: { ditVariant: 'sft' } }), [])
+})
+
+test('manualItemToRecords skips an invalid record instead of emitting an unknown row', () => {
+  const warnings = []
+  const original = console.warn
+  console.warn = (message) => warnings.push(message)
+  try {
+    assert.deepEqual(manualItemToRecords({}, 'bad.json'), [])
+    assert.deepEqual(manualItemToRecords(null, 'bad.json'), [])
+  } finally {
+    console.warn = original
+  }
+
+  assert.equal(warnings.length, 2)
+  assert.match(warnings[0], /Skipping manual record in bad\.json/)
+})
+
+test('manualItemToRecords keeps a valid record', () => {
+  const records = manualItemToRecords(VALID_MANUAL, 'good.json')
+
+  assert.equal(records.length, 1)
+  assert.equal(records[0].source, 'manual')
+  assert.equal(records[0].backend, 'cuda')
+  assert.equal(records[0].meanRtf, 0.42)
+})
+
+test('manualItemsOf only treats an actual list as a record list', () => {
+  assert.deepEqual(manualItemsOf([VALID_MANUAL]), [VALID_MANUAL])
+  assert.deepEqual(manualItemsOf({ records: [VALID_MANUAL] }), [VALID_MANUAL])
+  assert.deepEqual(manualItemsOf(VALID_MANUAL), [VALID_MANUAL], 'a bare record is wrapped')
+})
+
+test('manualItemsOf does not iterate a malformed records value', () => {
+  const malformed = { records: 'turbo-q4' }
+  assert.deepEqual(manualItemsOf(malformed), [malformed], 'a string is not spread into characters')
+  assert.deepEqual(manualItemsOf({ records: { a: 1 } }).length, 1, 'an object is not iterated')
+})
+
+test('normalizeDesktopRecord reports CPU when a GPU request fell back', () => {
+  const report = desktopReport()
+  report.labels.activeBackend = 'cpu'
+
+  const record = normalizeDesktopRecord(report, 'fallback.json')
+
+  assert.equal(record.backend, 'cpu')
+  assert.equal(record.gpu, 'cpu', 'the provider column follows the backend that ran')
+})
+
+test('normalizeDesktopRecord keeps GPU when the request was honoured', () => {
+  const record = normalizeDesktopRecord(desktopReport(), 'ok.json')
+
+  assert.equal(record.backend, 'vulkan')
+  assert.equal(record.gpu, 'gpu')
+})
+
+test('normalizeManualRecord derives the provider from the stated backend', () => {
+  const record = normalizeManualRecord(
+    { device: 'box', platform: 'linux-x64', ditVariant: 'sft', backend: 'cuda', meanRtf: 0.4 },
+    'cuda.json'
+  )
+
+  assert.equal(record.backend, 'cuda')
+  assert.equal(record.gpu, 'gpu', 'a CUDA drop is GPU work even without an explicit useGPU flag')
 })

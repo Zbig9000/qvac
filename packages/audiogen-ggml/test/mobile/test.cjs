@@ -372,7 +372,10 @@ function _benchmarkRunner () {
   return require('@qvac/audiogen-ggml/test/benchmark-runner')
 }
 
+// A rejected measurement is a real result, not a bad download: re-fetching ~3 GB
+// would not change it.
 function _isLoadFailure (err) {
+  if (err && err.name === 'BenchmarkResultError') return false
   const message = (err && err.message) || ''
   return /load|gguf|model/i.test(message)
 }

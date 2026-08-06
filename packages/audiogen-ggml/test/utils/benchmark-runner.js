@@ -1,44 +1,9 @@
 'use strict'
 
-/**
- * Runtime-agnostic core of the ACE-Step RTF benchmark.
- *
- * RTF = generation wall time / rendered audio duration
- *   < 1.0  faster than real-time
- *   = 1.0  exactly real-time
- *   > 1.0  slower than real-time
- *
- * Two harnesses drive this module, and they must produce comparable numbers:
- *   - test/benchmark/rtf-benchmark.test.js  (desktop, brittle)
- *   - test/mobile/test.cjs::testRtfBenchmark (on-device, Device Farm)
- * Everything except the assertions and the per-harness result shape lives here
- * so neither lane can drift from the other.
- *
- * One invocation benchmarks ONE (ditVariant, useGPU) combination. Sweeping
- * several is scripts/run-rtf-benchmark-matrix.js's job on desktop, and one
- * Device Farm matrix row per combination on mobile.
- *
- * Settings come from the environment on both lanes. Desktop CI exports them
- * directly; mobile CI pushes them to the device through the mobile action's
- * `extra-device-env` input, which os.setEnv()s each key before the tests load.
- *
- *   QVAC_AUDIOGEN_GGML_BENCHMARK_DIT_VARIANT   turbo-q4 | turbo-q8 | sft (default: turbo-q4)
- *   QVAC_AUDIOGEN_GGML_BENCHMARK_USE_GPU       1 | true | 0 | false     (default: false)
- *   QVAC_AUDIOGEN_GGML_BENCHMARK_BACKEND       cpu | metal | vulkan | cuda | opencl
- *                                              (label hint only; the backend the
- *                                               engine actually picked is read
- *                                               back from the run stats)
- *   QVAC_AUDIOGEN_GGML_BENCHMARK_DEVICE        device label used in reports
- *   QVAC_AUDIOGEN_GGML_BENCHMARK_RUNNER        CI runner label used in reports
- *   QVAC_AUDIOGEN_GGML_BENCHMARK_LABEL         tag appended to artifact filenames
- *   QVAC_AUDIOGEN_GGML_BENCHMARK_WARMUP_RUNS   warmup iterations   (default: 1)
- *   QVAC_AUDIOGEN_GGML_BENCHMARK_RUNS          measured iterations (default: 3 desktop, 2 mobile)
- *   QVAC_AUDIOGEN_GGML_BENCHMARK_DURATION_S    target clip length in seconds (default: 15)
- *   QVAC_AUDIOGEN_GGML_BENCHMARK_INFERENCE_STEPS  unset = engine auto-picks per DiT
- *   QVAC_AUDIOGEN_GGML_BENCHMARK_SHIFT         unset = engine auto-picks per DiT
- *   QVAC_AUDIOGEN_GGML_BENCHMARK_NUM_THREADS   unset = engine auto-picks
- *   QVAC_AUDIOGEN_GGML_BENCHMARK_RTF_UPPER_BOUND  assertion cap for mean RTF
- */
+// Runtime-agnostic core of the ACE-Step RTF benchmark, shared by the desktop
+// (brittle) and on-device (Device Farm) harnesses so neither can drift from the
+// other. Metrics, environment variables and determinism guarantees are
+// documented in benchmarks/RTF-BENCHMARKS.md.
 
 const os = require('bare-os')
 const path = require('bare-path')
@@ -67,6 +32,11 @@ const {
   bytesToMb,
   RECLAIM_SETTLE_MS
 } = require('./memory-usage')
+const {
+  assertBenchmarkResult,
+  evaluateBenchmarkResult,
+  BenchmarkResultError
+} = require('./benchmark-validate')
 
 const ENV_PREFIX = 'QVAC_AUDIOGEN_GGML_BENCHMARK'
 const ARTIFACT_PREFIX = 'rtf-benchmark'
@@ -87,9 +57,8 @@ const INSTRUMENTAL_LYRICS = '[Instrumental]'
 // emitted in fragments that extract-from-log.js reassembles.
 const PERF_CHUNK_SIZE = 400
 
-// Rotated across iterations so the LM is not repeatedly re-conditioned on one
-// prompt. All are instrumental and of comparable prompt length, keeping the
-// per-run token count (and therefore RTF) comparable.
+// Comparable prompt length keeps the per-run token count, and therefore RTF,
+// comparable across iterations.
 const CAPTIONS = [
   'lo-fi hip hop, mellow piano, soft vinyl crackle, rainy night',
   'upbeat pop rock, driving electric guitars, punchy drums, catchy hook',
@@ -367,9 +336,8 @@ function buildReport({ settings, backend, summary, runs, warmupRuns }) {
   }
 }
 
-// Best-effort: the on-disk artifact is the desktop lane's transport, and the
-// mobile lane's sandbox may refuse the write. Mobile numbers travel out through
-// the log markers below instead, so a failed write must not fail the run.
+// The mobile sandbox may refuse the write, and mobile numbers travel out through
+// the log markers instead, so a failed write must not fail the run.
 function writeRtfArtifact(settings, report) {
   const dir = resultsDir()
   try {
@@ -435,8 +403,6 @@ function logSummary(summary, backend) {
   console.log(`  Model size:  ${bytesToMb(summary.modelSizeBytes, 1)}MB\n`)
 }
 
-// One-line human summary. The mobile runner surfaces this as the test's
-// `fullText` in the Device Farm report.
 function describeSummary(settings, summary, backend) {
   return (
     `acestep ${settings.ditVariant} on ${backend}: ` +
@@ -457,9 +423,6 @@ class ModelsUnavailableError extends Error {
   }
 }
 
-// Desktop resolution: reuse the integration suite's registry fetch. The mobile
-// lane injects its own resolver (see `ensureModels` in runRtfBenchmark), which
-// validates each GGUF and re-downloads a bad one.
 async function ensureModelsOrThrow(settings) {
   const download = await ensureAudiogenModels({
     targetDir: modelsDir(),
@@ -490,17 +453,8 @@ async function measureEngine(gen, settings, loadContext) {
   return { warmupRuns, runs, summary }
 }
 
-/**
- * Load the engine, run warmup + measured generations, tear it down and build the
- * report. The engine is destroyed before this resolves (measuring reclaimed
- * RSS requires it), so callers only need a teardown for the throwing paths.
- *
- * `ensureModels(settings)` resolves the directory holding the variant's GGUFs;
- * it defaults to the registry fetch the desktop integration suite uses, and the
- * mobile lane overrides it with its own on-device resolver.
- *
- * Returns { settings, backend, summary, runs, warmupRuns, report, destroy }.
- */
+// Measuring reclaimed RSS requires the engine to be gone, so it is destroyed
+// before this resolves; `destroy` only matters on the throwing paths.
 async function runRtfBenchmark(settings, { ensureModels = ensureModelsOrThrow } = {}) {
   const backend = resolveBackend(platform, settings.useGPU, settings.backendHint)
   logHeader(settings, backend)
@@ -535,6 +489,7 @@ async function runRtfBenchmark(settings, { ensureModels = ensureModelsOrThrow } 
     const { warmupRuns, runs, summary } = await measureEngine(gen, settings, loadContext)
     destroyed = true
     logSummary(summary, backend)
+    assertBenchmarkResult({ settings, summary, runs })
     return {
       settings,
       backend,
@@ -567,5 +522,7 @@ module.exports = {
   writeRtfArtifact,
   emitCanonicalReport,
   describeSummary,
+  evaluateBenchmarkResult,
+  BenchmarkResultError,
   ModelsUnavailableError
 }

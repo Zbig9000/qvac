@@ -27,6 +27,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cannot reach (CUDA, OpenCL).
 - `@qvac/audiogen-ggml/test/benchmark-runner` subpath export, so the on-device
   harness can reach the shared benchmark implementation.
+- Shared validation of a benchmark result: a non-positive RTF, a missing run, a
+  run that rendered no audio, implausible memory or a mean RTF above
+  `QVAC_AUDIOGEN_GGML_BENCHMARK_RTF_UPPER_BOUND` now throws before any artifact
+  or log record is emitted, on both the desktop and the on-device lane.
+- Reports carry the backend that actually executed. A GPU request that fell back
+  to CPU is reported as CPU work, with the request preserved as
+  `requested_backend` / `requested_execution_provider`.
 
 ## [0.1.1] - 2026-08-03
 

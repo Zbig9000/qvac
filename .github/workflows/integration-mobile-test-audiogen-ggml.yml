@@ -82,13 +82,11 @@ jobs:
     strategy:
       fail-fast: false
       # The default matrix runs the functional smoke on one Android and one iOS
-      # device. iOS was re-enabled in QVAC-22955: the engine now loads the
-      # ACE-Step stages sequentially (each loaded right before its step, freed
-      # right after), so the load-time peak is a single stage instead of all six
-      # at once and create() no longer jetsam-OOMs on a non-entitled iPhone
-      # during the ~3 GB load. Verified on-device (iPhone 12 Pro Max, 6 GB,
-      # entitlement-free). Non-blocking (continue-on-error) on both platforms
-      # until the Device Farm pool is stable.
+      # device. The engine loads the ACE-Step stages sequentially, so the
+      # load-time peak is a single stage instead of all six at once and create()
+      # does not jetsam-OOM on a non-entitled iPhone during the ~3 GB load.
+      # Non-blocking (continue-on-error) on both platforms until the Device Farm
+      # pool is stable.
       #
       # The benchmark matrix (run_rtf_benchmarks=true) sweeps the three DiT
       # variants on CPU and GPU (Vulkan on Android, Metal on iOS) — one Device
