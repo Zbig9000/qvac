@@ -9,7 +9,10 @@ namespace qvac::ttsggml::chatterbox {
 // emits at this rate; the addon tags un-enhanced output with it and feeds the
 // streaming enhancer at it. Shared so the model and AddonJs can't disagree on
 // the un-enhanced native rate.
-inline constexpr int CHATTERBOX_NATIVE_SAMPLE_RATE = 24000;
+// Pre-existing k-prefixed constant; GlobalConstantCase wants UPPER_CASE but the
+// symbol is used across TUs, so suppress rather than rename.
+// NOLINTNEXTLINE(readability-identifier-naming)
+inline constexpr int kChatterboxNativeSampleRate = 24000;
 
 /**
  * Configuration for the Chatterbox engine wrapping tts-cpp::tts-cpp.

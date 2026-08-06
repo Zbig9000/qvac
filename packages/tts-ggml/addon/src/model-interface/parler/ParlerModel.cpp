@@ -172,13 +172,13 @@ std::shared_ptr<StreamingEnhancer> makeStreamingEnhancer(
   return std::make_shared<StreamingEnhancer>(
       [enhancer, workRate, finalRate](const std::vector<float>& raw) {
         std::vector<float> enhanced =
-            enhancer->enhance(raw, PARLER_NATIVE_SAMPLE_RATE);
+            enhancer->enhance(raw, kParlerNativeSampleRate);
         if (finalRate != workRate) {
           enhanced = OutputResampler::resample(enhanced, workRate, finalRate);
         }
         return enhanced;
       },
-      PARLER_NATIVE_SAMPLE_RATE,
+      kParlerNativeSampleRate,
       finalRate);
 }
 
@@ -423,7 +423,7 @@ void ParlerModel::validateConfig(const ParlerConfig& cfg) {
   // inside its overlap-reprocess windows, so the seams survive.
   if (cfg.streamChunkTokens.value_or(0) > 0 && cfg.enhancerGgufPath.empty() &&
       cfg.outputSampleRate.has_value() && *cfg.outputSampleRate != 0 &&
-      *cfg.outputSampleRate != PARLER_NATIVE_SAMPLE_RATE) {
+      *cfg.outputSampleRate != kParlerNativeSampleRate) {
     throw StatusError(
         general_error::InvalidArgument,
         "Parler native streaming emits at 44100 Hz; drop outputSampleRate, "

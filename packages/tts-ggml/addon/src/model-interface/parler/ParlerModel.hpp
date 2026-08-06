@@ -115,7 +115,7 @@ private:
   double realTimeFactor_ = 0.0;
   double tokensPerSecond_ = 0.0;
   size_t textLength_ = 0;
-  int sampleRate_ = PARLER_NATIVE_SAMPLE_RATE;
+  int sampleRate_ = kParlerNativeSampleRate;
 
   int backendDevice_ = 0;
   int backendId_ = 0;
