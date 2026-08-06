@@ -29,6 +29,7 @@ const {
   readRssBytes,
   createMemorySampler,
   summarizeRunMemory,
+  measureUnload,
   bytesToMb,
   RECLAIM_SETTLE_MS
 } = require('./memory-usage')
@@ -302,14 +303,19 @@ async function runMeasured(gen, settings) {
   return runs
 }
 
-async function reclaimAfterUnload(gen) {
-  try {
-    await gen.destroy()
-  } catch {
-    // Teardown failures must not mask the benchmark result.
-  }
+async function settledRssBytes() {
   await new Promise((resolve) => setTimeout(resolve, RECLAIM_SETTLE_MS))
   return readRssBytes()
+}
+
+async function reclaimAfterUnload(gen) {
+  const unload = await measureUnload(() => gen.destroy(), settledRssBytes)
+  if (!unload.unloaded) {
+    console.log(
+      `Warning: engine unload failed, reclaimed memory unavailable: ${unload.error.message}`
+    )
+  }
+  return unload
 }
 
 function lastObservedBackendId(runs) {
@@ -480,11 +486,11 @@ async function measureEngine(gen, settings, loadContext) {
   const runs = await runMeasured(gen, settings)
   if (runs.length === 0) throw new Error('no benchmark runs completed')
 
-  const rssAfterUnload = await reclaimAfterUnload(gen)
+  const unload = await reclaimAfterUnload(gen)
   const memorySummary = summarizeRunMemory(runs, {
     rssBeforeLoadBytes: loadContext.rssBeforeLoad,
     rssAfterLoadBytes: loadContext.rssAfterLoad,
-    rssAfterUnloadBytes: rssAfterUnload
+    rssAfterUnloadBytes: unload.rssAfterUnloadBytes
   })
   const summary = buildSummary({
     runs,
@@ -493,11 +499,12 @@ async function measureEngine(gen, settings, loadContext) {
     modelLoadMs: loadContext.modelLoadMs,
     modelSizeBytes: loadContext.modelSizeBytes
   })
-  return { warmupRuns, runs, summary }
+  return { warmupRuns, runs, summary, unloaded: unload.unloaded }
 }
 
-// Measuring reclaimed RSS requires the engine to be gone, so it is destroyed
-// before this resolves; `destroy` only matters on the throwing paths.
+// Measuring reclaimed RSS requires the engine to be gone, so it is normally
+// destroyed before this resolves. The returned `destroy` is the retry for the
+// throwing paths and for an unload that failed.
 async function runRtfBenchmark(settings, { ensureModels = ensureModelsOrThrow } = {}) {
   const backend = resolveBackend(platform, settings.useGPU, settings.backendHint)
   logHeader(settings, backend)
@@ -529,8 +536,8 @@ async function runRtfBenchmark(settings, { ensureModels = ensureModelsOrThrow } 
   }
 
   try {
-    const { warmupRuns, runs, summary } = await measureEngine(gen, settings, loadContext)
-    destroyed = true
+    const { warmupRuns, runs, summary, unloaded } = await measureEngine(gen, settings, loadContext)
+    destroyed = unloaded
     logSummary(summary, backend)
     assertBenchmarkResult({ settings, summary, runs })
     return {

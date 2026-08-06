@@ -1,25 +1,5 @@
 'use strict'
 
-/**
- * Unit tests for the ACE-Step perf-report normalizers in
- * scripts/perf-report/aggregate-audiogen-ggml-rtf.js.
- *
- * Covers the behaviour the benchmark workflows depend on:
- *   1. Desktop `rtf-benchmark-*.json` artifacts normalize into report rows,
- *      including the DiT-variant axis and the memory block.
- *   2. Mobile canonical `[PERF_REPORT_START]` reports expand into rows with the
- *      variant and backend recovered from the test label.
- *   3. Same-platform runners emitting identically named artifacts dedupe on the
- *      row identity rather than clobbering each other.
- *   4. The markdown table renders the DiT variant and flags uncovered GPU
- *      backends.
- *
- * Pure-function code paths only — no fixtures on disk.
- *
- * Run locally:
- *   node --test scripts/perf-report/__tests__/aggregate-audiogen-ggml-rtf.test.js
- */
-
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
@@ -40,8 +20,15 @@ const {
   sortRecords,
   missingGpuBackends,
   renderMarkdown,
-  buildJsonReport
+  buildJsonReport,
+  VALID_BACKENDS,
+  VALID_DIT_VARIANTS
 } = require('../aggregate-audiogen-ggml-rtf')
+
+const {
+  buildCanonicalReport,
+  backendIdToName
+} = require('../../../packages/audiogen-ggml/test/utils/benchmark-report')
 
 const MB = 1024 * 1024
 
@@ -245,6 +232,24 @@ test('expandCanonicalReport turns a mobile report into rows', () => {
   assert.equal(record.runId, '99')
 })
 
+test('a report built for an unnamed ggml backend round-trips into the table', () => {
+  const report = buildCanonicalReport({
+    settings: { ditVariant: 'sft', useGPU: true, durationS: 10, inferenceSteps: 50 },
+    summary: {
+      activeBackend: backendIdToName(99),
+      rtf: { mean: 2.5, stddev: 0.1, min: 2.4, max: 2.6 },
+      memory: { peakRssMb: 4200, avgRssMb: 4000 }
+    },
+    backend: 'vulkan',
+    device: { device: 'Pixel 8 Pro', platform: 'android-arm64', platformName: 'android' }
+  })
+
+  const [record] = expandCanonicalReport(report, 'performance-report.json')
+  assert.equal(record.backend, 'other-gpu', 'not relabelled as the platform default')
+  assert.equal(record.gpu, 'gpu')
+  assert.equal(record.ditVariant, 'sft')
+})
+
 test('expandCanonicalReport falls back to the record field when the label lacks a variant', () => {
   const [record] = expandCanonicalReport(mobileCanonicalReport('[GPU] acestep vulkan'), 'file.json')
   assert.equal(record.ditVariant, 'turbo-q8', 'the result-level ditVariant fills the gap')
@@ -278,9 +283,51 @@ test('normalizeManualRecord reads the flat shape a human fills in', () => {
   assert.equal(record.notes, 'local Metal run')
 })
 
-test('normalizeManualRecord defaults an unknown variant rather than dropping the row', () => {
-  const record = normalizeManualRecord({ device: 'box', ditVariant: 'mystery' }, 'file.json')
-  assert.equal(record.ditVariant, 'turbo-q4')
+test('manualRecordProblems rejects a variant outside the allowlist instead of coercing it', () => {
+  const problems = manualRecordProblems({
+    device: 'box',
+    platform: 'linux-x64',
+    ditVariant: 'mystery',
+    backend: 'cpu',
+    meanRtf: 1.2
+  })
+  assert.equal(problems.length, 1)
+  assert.match(problems[0], /unknown ditVariant "mystery"/)
+})
+
+test('manualRecordProblems rejects a backend outside the allowlist', () => {
+  const problems = manualRecordProblems({
+    device: 'box',
+    platform: 'linux-x64',
+    ditVariant: 'sft',
+    backend: 'banana',
+    meanRtf: 1.2
+  })
+  assert.equal(problems.length, 1)
+  assert.match(problems[0], /unknown backend "banana"/)
+})
+
+test('manualItemToRecords drops a malformed variant rather than reporting it as turbo-q4', () => {
+  const records = manualItemToRecords(
+    { device: 'box', platform: 'linux-x64', ditVariant: 'mystery', backend: 'cpu', meanRtf: 1.2 },
+    'file.json'
+  )
+  assert.deepEqual(records, [])
+})
+
+test('manualRecordProblems accepts every allowlisted variant and backend', () => {
+  for (const ditVariant of VALID_DIT_VARIANTS) {
+    for (const backend of VALID_BACKENDS) {
+      const problems = manualRecordProblems({
+        device: 'box',
+        platform: 'linux-x64',
+        ditVariant,
+        backend,
+        meanRtf: 1.2
+      })
+      assert.deepEqual(problems, [], `${ditVariant}/${backend} should be accepted`)
+    }
+  }
 })
 
 test('dedupeRecords keeps distinct variants and backends but folds true duplicates', () => {

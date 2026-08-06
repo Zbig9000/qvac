@@ -172,6 +172,27 @@ shared extractor scrapes. Artifacts: `perf-report-audiogen-ggml-*`.
 Both lanes are `continue-on-error`, so a configuration that OOMs or overruns
 shows up as a missing row rather than a failed sweep.
 
+## How the findings table is built
+
+`scripts/perf-report/aggregate-audiogen-ggml-rtf.js` folds three input shapes
+into one table:
+
+| Shape | File | Produced by |
+|---|---|---|
+| desktop | `rtf-benchmark-*.json` | `test/benchmark/rtf-benchmark.test.js` |
+| mobile | `performance-report.json` | Device Farm log markers, reassembled by `scripts/perf-report/extract-from-log.js` |
+| manual | any JSON under `--manual-dir` | hand-authored, for backends CI cannot cover |
+
+There is one engine (`acestep`); the model axis is the DiT variant. The GPU
+backends CI reaches are Vulkan (linux, win32, Android) and Metal (darwin, iOS).
+CUDA and OpenCL sit outside the default audiogen-cpp cascade and appear only
+from a manual drop or an explicit backend hint. `other-gpu` is what the report
+builder emits for a ggml backend id it has no name for.
+
+Manual records are validated rather than coerced: an unknown DiT variant or
+backend is rejected with a warning naming the offending value, because reporting
+it under a valid-looking label would publish a wrong number.
+
 ## Backends CI cannot reach
 
 CUDA and OpenCL are outside the default audiogen-cpp backend cascade, and some

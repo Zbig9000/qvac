@@ -156,10 +156,27 @@ function toBytes(value) {
   return isPositiveNumber(value) ? value : 0
 }
 
+// A failed unload leaves the model resident, so there is no reclaim to measure
+// and no post-unload sample worth taking. The caller learns the engine is still
+// alive and can retry the cleanup.
+async function measureUnload(unload, sampleRss) {
+  try {
+    await unload()
+  } catch (error) {
+    return { unloaded: false, rssAfterUnloadBytes: null, error }
+  }
+  return { unloaded: true, rssAfterUnloadBytes: await sampleRss(), error: null }
+}
+
+// Without a post-unload sample there is nothing to subtract from, and treating
+// the missing value as zero would report the whole footprint as reclaimed.
 function computeReclaim(input) {
+  const afterUnload = input && input.rssAfterUnloadBytes
+  if (!isPositiveNumber(afterUnload)) {
+    return { reclaimedBytes: null, reclaimedFromPeakBytes: null }
+  }
   const afterLoad = toBytes(input && input.rssAfterLoadBytes)
   const peak = toBytes(input && input.peakRssBytes)
-  const afterUnload = toBytes(input && input.rssAfterUnloadBytes)
   const baseline = peak > 0 ? peak : afterLoad
   return {
     reclaimedBytes: afterLoad - afterUnload,
@@ -178,20 +195,28 @@ function bytesToMb(bytes, digits) {
   return typeof digits === 'number' ? roundTo(mb, digits) : mb
 }
 
+// Null means "not measured", which is different from zero and must survive into
+// the report rather than becoming a made-up number.
+function bytesToMbOrNull(bytes) {
+  return bytes === null || bytes === undefined ? null : bytesToMb(bytes, 2)
+}
+
 function buildMemorySummary(input) {
   const source = input || {}
   const rssAfterLoadBytes = toBytes(source.rssAfterLoadBytes)
   const peakRssBytes = Math.max(toBytes(source.peakRssBytes), rssAfterLoadBytes)
-  const rssAfterUnloadBytes = toBytes(source.rssAfterUnloadBytes)
+  const rssAfterUnloadBytes = isPositiveNumber(source.rssAfterUnloadBytes)
+    ? source.rssAfterUnloadBytes
+    : null
   const reclaim = computeReclaim({ rssAfterLoadBytes, peakRssBytes, rssAfterUnloadBytes })
   return {
     avgRssMb: bytesToMb(source.avgRssBytes, 2),
     peakRssMb: bytesToMb(peakRssBytes, 2),
     rssBeforeLoadMb: bytesToMb(source.rssBeforeLoadBytes, 2),
     rssAfterLoadMb: bytesToMb(rssAfterLoadBytes, 2),
-    rssAfterUnloadMb: bytesToMb(rssAfterUnloadBytes, 2),
-    reclaimedMb: bytesToMb(reclaim.reclaimedBytes, 2),
-    reclaimedFromPeakMb: bytesToMb(reclaim.reclaimedFromPeakBytes, 2),
+    rssAfterUnloadMb: bytesToMbOrNull(rssAfterUnloadBytes),
+    reclaimedMb: bytesToMbOrNull(reclaim.reclaimedBytes),
+    reclaimedFromPeakMb: bytesToMbOrNull(reclaim.reclaimedFromPeakBytes),
     sampleCount: isPositiveNumber(source.sampleCount) ? source.sampleCount : 0
   }
 }
@@ -229,6 +254,7 @@ module.exports = {
   createMemorySampler,
   summarizeSamples,
   maxWithFloor,
+  measureUnload,
   computeReclaim,
   roundTo,
   bytesToMb,

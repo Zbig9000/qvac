@@ -1,32 +1,9 @@
 #!/usr/bin/env node
 'use strict'
 
-/**
- * Aggregate ACE-Step (audiogen-ggml) RTF benchmark artifacts — desktop, mobile
- * and manual drops — into a single findings table (Markdown + JSON).
- *
- * Three input shapes are understood:
- *   1. desktop  `rtf-benchmark-*.json` written by
- *      packages/audiogen-ggml/test/benchmark/rtf-benchmark.test.js
- *   2. mobile   `performance-report.json` reassembled from the Device Farm log
- *      markers by scripts/perf-report/extract-from-log.js
- *   3. manual   any JSON under --manual-dir, for backends CI cannot cover
- *
- * ACE-Step notes:
- *   - one engine (acestep); the model axis is the DiT variant
- *     (turbo-q4 / turbo-q8 both ~8-step, sft ~50-step and far slower)
- *   - GPU backends: vulkan (linux/win32/android), metal (darwin/ios).
- *     CUDA and OpenCL are outside the default audiogen-cpp cascade and only
- *     appear from a manual drop or an explicit backend hint.
- *   - canonical reports are tagged `addon: 'audiogen-ggml'`
- *
- * Usage:
- *   node scripts/perf-report/aggregate-audiogen-ggml-rtf.js \
- *     --dir benchmark-artifacts \
- *     --manual-dir packages/audiogen-ggml/benchmarks/manual-results \
- *     --output benchmark-artifacts/audiogen-ggml-performance-findings.md \
- *     --output-json benchmark-artifacts/audiogen-ggml-performance-findings.json
- */
+// Folds the desktop, mobile and manual ACE-Step RTF artifacts into one findings
+// table. Input shapes, backend coverage and usage are documented in
+// packages/audiogen-ggml/benchmarks/RTF-BENCHMARKS.md.
 
 const fs = require('fs')
 const path = require('path')
@@ -39,7 +16,18 @@ const CANONICAL_SCHEMA_VERSION = '1.0'
 // missing from a run is called out under the table so a gap is visible rather
 // than silently absent.
 const SUPPORTED_GPU_BACKENDS = ['vulkan', 'metal']
-const VALID_BACKENDS = ['cpu', 'gpu', 'vulkan', 'metal', 'cuda', 'opencl', 'mobile-accelerated']
+// `other-gpu` is what the report builder emits for a ggml backend id it has no
+// name for; it must round-trip rather than be relabelled as the platform default.
+const VALID_BACKENDS = [
+  'cpu',
+  'gpu',
+  'vulkan',
+  'metal',
+  'cuda',
+  'opencl',
+  'other-gpu',
+  'mobile-accelerated'
+]
 const VALID_DIT_VARIANTS = ['turbo-q4', 'turbo-q8', 'sft']
 
 const NOISY_STDDEV_RATIO = 0.15
@@ -310,18 +298,44 @@ function manualVariantOf (record) {
   return record.ditVariant || (isPlainObject(record.model) && record.model.ditVariant)
 }
 
-// A hand-authored drop is the one input nobody validates upstream, so a missing
-// field must be rejected rather than surface as an `unknown` row with a null RTF.
+function variantProblem (record) {
+  const variant = manualVariantOf(record)
+  if (!variant) return 'missing ditVariant'
+  if (!normalizeDitVariant(variant)) {
+    return `unknown ditVariant "${variant}" (expected ${VALID_DIT_VARIANTS.join(', ')})`
+  }
+  return null
+}
+
+function backendProblem (record) {
+  const backend = manualBackendOf(record)
+  if (!backend) return 'missing backend/provider'
+  if (!VALID_BACKENDS.includes(String(backend).toLowerCase())) {
+    return `unknown backend "${backend}" (expected ${VALID_BACKENDS.join(', ')})`
+  }
+  return null
+}
+
+function meanRtfProblem (record) {
+  const meanRtf = toNumberOrNull(record.meanRtf)
+  if (meanRtf === null || meanRtf <= 0) {
+    return `meanRtf is not a positive number (${record.meanRtf})`
+  }
+  return null
+}
+
+// A hand-authored drop is the one input nobody validates upstream. A value
+// outside its allowlist is rejected rather than coerced, because silently
+// reporting an unknown variant as turbo-q4 would publish a wrong number.
 function manualRecordProblems (record) {
   if (!isPlainObject(record)) return ['not a JSON object']
   const problems = []
   if (!record.device && !record.deviceLabel) problems.push('missing device')
   if (!record.platform) problems.push('missing platform')
-  if (!manualVariantOf(record)) problems.push('missing ditVariant')
-  if (!manualBackendOf(record)) problems.push('missing backend/provider')
-  const meanRtf = toNumberOrNull(record.meanRtf)
-  if (meanRtf === null || meanRtf <= 0) problems.push(`meanRtf is not a positive number (${record.meanRtf})`)
-  return problems
+  problems.push(variantProblem(record))
+  problems.push(backendProblem(record))
+  problems.push(meanRtfProblem(record))
+  return problems.filter(Boolean)
 }
 
 // Hand-authored drops are flat by design: a human filling in a template should
@@ -336,9 +350,7 @@ function normalizeManualRecord (record, sourceFile) {
     device: record.device || record.deviceLabel || 'unknown',
     platform: record.platform || 'unknown',
     platformFamily: platformFamily || 'unknown',
-    ditVariant:
-      normalizeDitVariant(record.ditVariant || (record.model && record.model.ditVariant)) ||
-      DEFAULT_DIT_VARIANT,
+    ditVariant: normalizeDitVariant(manualVariantOf(record)),
     gpu: providerForBackend(backend),
     backend,
     gpuModel: record.gpuModel || record.gpu_model || null,
@@ -635,6 +647,7 @@ module.exports = {
   ENGINE,
   ADDON,
   SUPPORTED_GPU_BACKENDS,
+  VALID_BACKENDS,
   VALID_DIT_VARIANTS,
   NOISY_STDDEV_RATIO,
   parseArgs,

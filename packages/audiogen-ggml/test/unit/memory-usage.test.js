@@ -8,6 +8,7 @@
 const test = require('brittle')
 const {
   maxWithFloor,
+  measureUnload,
   computeReclaim,
   bytesToMb,
   roundTo,
@@ -71,6 +72,58 @@ test('computeReclaim falls back to the post-load footprint when no peak was seen
   const reclaim = computeReclaim({ rssAfterLoadBytes: 100, rssAfterUnloadBytes: 40 })
 
   t.is(reclaim.reclaimedFromPeakBytes, 60)
+})
+
+test('measureUnload samples the footprint once the engine is gone', async (t) => {
+  const unload = await measureUnload(
+    async () => {},
+    async () => 42
+  )
+
+  t.is(unload.unloaded, true)
+  t.is(unload.rssAfterUnloadBytes, 42)
+  t.is(unload.error, null)
+})
+
+test('measureUnload reports a failed unload without sampling', async (t) => {
+  let sampled = false
+  const unload = await measureUnload(
+    async () => {
+      throw new Error('destroy failed')
+    },
+    async () => {
+      sampled = true
+      return 42
+    }
+  )
+
+  t.is(unload.unloaded, false, 'the engine is still alive, so cleanup can be retried')
+  t.is(unload.rssAfterUnloadBytes, null)
+  t.is(unload.error.message, 'destroy failed')
+  t.is(sampled, false, 'no RSS reading is taken as though the model were unloaded')
+})
+
+test('computeReclaim reports nothing when the unload was never measured', (t) => {
+  const reclaim = computeReclaim({ rssAfterLoadBytes: 100, peakRssBytes: 150 })
+
+  t.is(reclaim.reclaimedBytes, null, 'a missing sample is not a full reclaim')
+  t.is(reclaim.reclaimedFromPeakBytes, null)
+})
+
+test('buildMemorySummary leaves reclaim unavailable when the engine never unloaded', (t) => {
+  const summary = buildMemorySummary({
+    rssBeforeLoadBytes: 100 * MB,
+    rssAfterLoadBytes: 3000 * MB,
+    avgRssBytes: 2900 * MB,
+    peakRssBytes: 3200 * MB,
+    rssAfterUnloadBytes: null,
+    sampleCount: 12
+  })
+
+  t.is(summary.rssAfterUnloadMb, null)
+  t.is(summary.reclaimedMb, null, 'no unload means no reclaim figure, not 3000 MB')
+  t.is(summary.reclaimedFromPeakMb, null)
+  t.is(summary.peakRssMb, 3200, 'the rest of the block is still reported')
 })
 
 test('buildMemorySummary floors the peak at the post-load footprint', (t) => {

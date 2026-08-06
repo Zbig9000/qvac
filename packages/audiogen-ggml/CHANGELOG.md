@@ -41,6 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the per-row settings to the device as a `qvacPerfConfig.txt` file, but nothing
   read it, so every Device Farm row silently measured the default `turbo-q4` on
   CPU regardless of the variant and provider it was scheduled for.
+- A failed engine unload no longer reports the whole footprint as reclaimed
+  memory. Reclaim is reported as unavailable and the engine is left undestroyed
+  so the caller's cleanup still runs.
 
 ## [0.1.1] - 2026-08-03
 
