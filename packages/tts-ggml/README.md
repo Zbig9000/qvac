@@ -272,6 +272,12 @@ await model.run({
 })
 ```
 
+A per-call `referenceText` on its own corrects the transcript of the
+configured recording.  A per-call `referenceAudio` replaces the voice
+outright and must bring its own transcript — the configured one describes a
+different recording, so it is not inherited — and a recording passed without
+one is rejected before the job is queued.
+
 The engine caches the codes for the most recent reference, so repeating one
 across calls skips the encoder.  Per-call fields also ride on the
 `runStream` / `runStreaming` options, pinned for the whole response so the

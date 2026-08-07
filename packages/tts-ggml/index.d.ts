@@ -554,10 +554,15 @@ declare class TTSGgml {
      */
     private _resolveParlerJobFields;
     /**
+     * The voice a per-call override actually synthesizes with. Mirrors
+     * Audio8Model::resolveVoice: a per-call recording replaces both halves, so
+     * it cannot inherit the configured transcript, which describes a different
+     * recording; a per-call transcript alone corrects the configured one.
+     */
+    private _mergeAudio8Voice;
+    /**
      * Extract + validate the per-call Audio8 voice fields from a run input or
-     * streaming options. Returns undefined when none are present. A per-call
-     * transcript alone corrects the configured recording's transcript; a
-     * per-call recording replaces both.
+     * streaming options. Returns undefined when none are present.
      */
     private _resolveAudio8JobFields;
     /** The per-call fields of whichever engine is loaded, if any are set. */

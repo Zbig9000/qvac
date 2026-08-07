@@ -841,13 +841,14 @@ function findAudio8InDir(
   modelDir: string | undefined,
   pattern: RegExp,
 ): string | undefined {
+  if (!modelDir) return undefined;
   const matches = readDirSafe(modelDir).filter((name) => pattern.test(name));
   if (matches.length === 0) return undefined;
   matches.sort(
     (left, right) =>
       audio8QuantRank(left, pattern) - audio8QuantRank(right, pattern),
   );
-  return path.join(modelDir as string, matches[0]);
+  return path.join(modelDir, matches[0]);
 }
 
 /**
@@ -1732,10 +1733,29 @@ class TTSGgml {
   }
 
   /**
+   * The voice a per-call override actually synthesizes with. Mirrors
+   * Audio8Model::resolveVoice: a per-call recording replaces both halves, so
+   * it cannot inherit the configured transcript, which describes a different
+   * recording; a per-call transcript alone corrects the configured one.
+   */
+  private _mergeAudio8Voice(
+    fields: Audio8VoiceFieldsResolved,
+  ): Audio8VoiceFields {
+    if (fields.referenceAudio) {
+      return {
+        referenceAudio: fields.referenceAudio,
+        referenceText: fields.referenceText,
+      };
+    }
+    return {
+      referenceAudio: this._referenceAudio,
+      referenceText: fields.referenceText ?? this._referenceText,
+    };
+  }
+
+  /**
    * Extract + validate the per-call Audio8 voice fields from a run input or
-   * streaming options. Returns undefined when none are present. A per-call
-   * transcript alone corrects the configured recording's transcript; a
-   * per-call recording replaces both.
+   * streaming options. Returns undefined when none are present.
    */
   private _resolveAudio8JobFields(
     source: Audio8VoiceFields | null | undefined,
@@ -1750,10 +1770,7 @@ class TTSGgml {
       );
     }
     this._assertAudio8VoiceConsistent(
-      {
-        referenceAudio: fields.referenceAudio ?? this._referenceAudio,
-        referenceText: fields.referenceText ?? this._referenceText,
-      },
+      this._mergeAudio8Voice(fields),
       where,
     );
     return fields;

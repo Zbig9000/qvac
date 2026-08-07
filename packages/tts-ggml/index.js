@@ -289,6 +289,8 @@ function audio8QuantRank(name, pattern) {
  * best for its size (q8_0 > f16 > q4_0 > f32).
  */
 function findAudio8InDir(modelDir, pattern) {
+    if (!modelDir)
+        return undefined;
     const matches = readDirSafe(modelDir).filter((name) => pattern.test(name));
     if (matches.length === 0)
         return undefined;
@@ -934,10 +936,26 @@ class TTSGgml {
         return fields;
     }
     /**
+     * The voice a per-call override actually synthesizes with. Mirrors
+     * Audio8Model::resolveVoice: a per-call recording replaces both halves, so
+     * it cannot inherit the configured transcript, which describes a different
+     * recording; a per-call transcript alone corrects the configured one.
+     */
+    _mergeAudio8Voice(fields) {
+        if (fields.referenceAudio) {
+            return {
+                referenceAudio: fields.referenceAudio,
+                referenceText: fields.referenceText,
+            };
+        }
+        return {
+            referenceAudio: this._referenceAudio,
+            referenceText: fields.referenceText ?? this._referenceText,
+        };
+    }
+    /**
      * Extract + validate the per-call Audio8 voice fields from a run input or
-     * streaming options. Returns undefined when none are present. A per-call
-     * transcript alone corrects the configured recording's transcript; a
-     * per-call recording replaces both.
+     * streaming options. Returns undefined when none are present.
      */
     _resolveAudio8JobFields(source, where) {
         const fields = pickAudio8VoiceFields(source);
@@ -947,10 +965,7 @@ class TTSGgml {
             throw new Error(`tts-ggml: ${where}: per-call referenceAudio/referenceText are ` +
                 `audio8-only (engine is ${this._engineType})`);
         }
-        this._assertAudio8VoiceConsistent({
-            referenceAudio: fields.referenceAudio ?? this._referenceAudio,
-            referenceText: fields.referenceText ?? this._referenceText,
-        }, where);
+        this._assertAudio8VoiceConsistent(this._mergeAudio8Voice(fields), where);
         return fields;
     }
     /** The per-call fields of whichever engine is loaded, if any are set. */

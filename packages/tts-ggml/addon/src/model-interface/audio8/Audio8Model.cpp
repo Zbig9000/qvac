@@ -245,8 +245,9 @@ void Audio8Model::cancel() const {
     e->cancel();
 }
 
-// Per-call fields win over the constructor config, one at a time, so a caller
-// can correct just the transcript of a configured recording.
+// A per-call recording replaces both halves -- it cannot inherit a transcript
+// that describes a different recording -- while a per-call transcript alone
+// corrects the configured one.
 Audio8Model::VoiceOverride
 Audio8Model::resolveVoice(const VoiceOverride& perCall) const {
   VoiceOverride voice{cfg_.referenceAudio, cfg_.referenceText};
@@ -279,7 +280,6 @@ Audio8Model::Output Audio8Model::synthesize(const AnyInput& input) {
   }
 
   const VoiceOverride voice = resolveVoice(input.voice);
-  textLength_ = input.text.size();
 
   const auto t0 = std::chrono::steady_clock::now();
   tts_cpp::audio8::SynthesisResult result;
