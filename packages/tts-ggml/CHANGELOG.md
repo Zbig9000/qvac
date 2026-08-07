@@ -43,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `files.lavasrDenoiser` / `denoiser` stage runs before it on the batch path.
   `enhancerBackendDevice` / `enhancerBackendId` are reported in runtime stats,
   matching the other engines.
-- **Audio8 engine (QVAC-23199).** Fifth engine family under the same
+- **Audio8 engine.** Fifth engine family under the same
   `TTSGgml` surface: a DualAR model (24-layer semantic transformer +
   4-layer acoustic head over 8 codebooks) with a DAC-style codec, native
   44.1 kHz, CPU-only in this release. Detection via `engine: 'audio8'`,
@@ -70,8 +70,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from the recent window is re-drawn under a narrower nucleus.
   `temperature`/`topK`/`topP`/`maxFrames` are now shared with Parler rather
   than Parler-only, so the "parler-only" rejection for those four names
-  reads "parler/audio8-only". New `examples/audio8-tts.js`, JS unit suite,
-  and C++ config tests.
+  reads "parler/audio8-only". `response.stats.tokensPerSecond` counts codec
+  frames per second on this engine, not characters per second.
 
 ### Fixed
 
@@ -106,15 +106,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   non-native rate; it is now accepted while streaming when the LavaSR enhancer
   is active, because the enhancer resamples inside its overlap-reprocess window
   without introducing chunk seams.
-- `tts-cpp` pin `2026-08-06` → `2026-08-07#1` (registry PR
-  [#291](https://github.com/tetherto/qvac-registry-vcpkg/pull/291)), which
-  ships the audio8 engine (qvac-ext-lib-whisper.cpp
-  [PR #128](https://github.com/tetherto/qvac-ext-lib-whisper.cpp/pull/128)).
-  No existing engine changes shape: the only other commits in the range touch
-  the ACE-Step smoke executables, which this package does not build. The
-  `ggml-speech` floor moves from `2026-08-04` to `2026-08-07` (Vulkan matmul
-  src0 binding fix, OpenCL im2col rewrite). Registry baseline unchanged: the
-  `version>=` floor resolves the new port on its own.
+- `tts-cpp` pin `2026-08-06` → `2026-08-07#1`, which ships the audio8 engine.
+  No existing engine changes shape. The `ggml-speech` floor moves from
+  `2026-08-04` to `2026-08-07` (Vulkan matmul src0 binding fix, OpenCL im2col
+  rewrite).
 
 ### Pull Requests
 
@@ -124,6 +119,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   test addon-cpp 1.3.3 across consumers
 - [#3692](https://github.com/tetherto/qvac/pull/3692) - consume the LavaSR ARM
   Mali Vulkan release
+- [#3722](https://github.com/tetherto/qvac/pull/3722) - add the Audio8 TTS
+  engine to @qvac/tts-ggml
 
 ## [0.6.2] - 2026-08-03
 

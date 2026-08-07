@@ -101,7 +101,7 @@ TEST(Audio8Validate, ReferenceAudioNeedsEncoder) {
 
 TEST(Audio8Validate, ReferenceAudioNeedsTranscript) {
   // The model conditions on the transcript as the turn the reference answers,
-  // so an empty one degrades the clone rather than failing loudly.
+  // so an empty one would degrade the clone silently. Reject it instead.
   auto cfg = cloningStubConfig();
   cfg.referenceText.clear();
   EXPECT_THROW(Audio8Model{cfg}, StatusError);
@@ -222,6 +222,40 @@ TEST(Audio8Voice, PerCallAudioWithoutTranscriptRejected) {
       StatusError);
 }
 
+TEST(Audio8Voice, NoPerCallFieldsKeepTheConfiguredVoice) {
+  const auto cfg = cloningStubConfig();
+  const Audio8Model model{cfg};
+  const Audio8Model::VoiceOverride perCall;
+  const auto voice = model.resolveVoice(perCall);
+  EXPECT_EQ(voice.referenceAudio, cfg.referenceAudio);
+  EXPECT_EQ(voice.referenceText, cfg.referenceText);
+}
+
+TEST(Audio8Voice, PerCallTranscriptKeepsTheConfiguredRecording) {
+  const auto cfg = cloningStubConfig();
+  const Audio8Model model{cfg};
+  Audio8Model::VoiceOverride perCall;
+  perCall.referenceText = "A corrected transcript.";
+  const auto voice = model.resolveVoice(perCall);
+  EXPECT_EQ(voice.referenceAudio, cfg.referenceAudio);
+  EXPECT_EQ(voice.referenceText, perCall.referenceText);
+}
+
+TEST(Audio8Voice, PerCallRecordingReplacesBothHalves) {
+  const Audio8Model model{cloningStubConfig()};
+  Audio8Model::VoiceOverride perCall;
+  perCall.referenceAudio = stubFile("audio8-other-reference-stub.wav");
+  // The configured transcript describes the configured recording, so a new
+  // recording arriving without its own transcript is rejected rather than
+  // silently cloned against the wrong text.
+  EXPECT_THROW(model.resolveVoice(perCall), StatusError);
+
+  perCall.referenceText = "What the other one says.";
+  const auto voice = model.resolveVoice(perCall);
+  EXPECT_EQ(voice.referenceAudio, perCall.referenceAudio);
+  EXPECT_EQ(voice.referenceText, perCall.referenceText);
+}
+
 TEST(Audio8RealGguf, TextOnlySynthesisRoundTrip) {
   const std::string lm = envOrEmpty("QVAC_TEST_AUDIO8_LM_GGUF");
   const std::string decoder = envOrEmpty("QVAC_TEST_AUDIO8_DECODER_GGUF");
@@ -245,5 +279,5 @@ TEST(Audio8RealGguf, TextOnlySynthesisRoundTrip) {
   const auto pcm =
       std::any_cast<Audio8Model::Output>(model.process(std::any(input)));
   EXPECT_FALSE(pcm.empty());
-  EXPECT_EQ(model.sampleRate(), 44100);
+  EXPECT_EQ(model.sampleRate(), qvac::ttsggml::audio8::kAudio8NativeSampleRate);
 }

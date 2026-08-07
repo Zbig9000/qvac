@@ -33,10 +33,6 @@ public:
   struct VoiceOverride {
     std::string referenceAudio;
     std::string referenceText;
-
-    bool empty() const {
-      return referenceAudio.empty() && referenceText.empty();
-    }
   };
 
   struct AnyInput {
@@ -79,9 +75,11 @@ public:
   static void validateVoice(
       const std::string& audio, const std::string& text,
       const std::string& encoderPath);
+  // The voice a call synthesizes with, merging the per-call override over the
+  // configured one. Public so the merge rule is directly testable.
+  VoiceOverride resolveVoice(const VoiceOverride& perCall) const;
 
 private:
-  VoiceOverride resolveVoice(const VoiceOverride& perCall) const;
   Output synthesize(const AnyInput& input);
 
   void loadLocked();
@@ -101,8 +99,9 @@ private:
   double audioDurationMs_ = 0.0;
   int64_t totalSamples_ = 0;
   double realTimeFactor_ = 0.0;
+  // Frames per second, not characters per second as on the text-paced
+  // engines: Audio8 generates on a fixed 46 ms codec frame grid.
   double tokensPerSecond_ = 0.0;
-  size_t textLength_ = 0;
   int generatedFrames_ = 0;
   int sampleRate_ = kAudio8NativeSampleRate;
 

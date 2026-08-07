@@ -291,6 +291,31 @@ test('Audio8: a per-call recording without a transcript rejects before queueing'
   await model.unload()
 })
 
+test('Audio8: a per-call recording cannot inherit the configured transcript', async (t) => {
+  const binding = new RecordingBinding()
+  const model = createMockedAudio8Model({
+    binding,
+    files: { audio8Lm: LM, audio8CodecDecoder: DECODER, audio8CodecEncoder: ENCODER },
+    extra: {
+      referenceAudio: '/abs/configured.wav',
+      referenceText: 'The configured transcript.'
+    }
+  })
+  await model.load()
+
+  // The configured transcript describes the configured recording, so it cannot
+  // stand in for a different one. The native resolveVoice drops it for exactly
+  // this reason; rejecting here keeps the two layers agreeing.
+  await t.exception(
+    model.run({ type: 'text', input: 'x', referenceAudio: '/abs/other.wav' }),
+    /referenceAudio needs a referenceText/,
+    'a new recording without its own transcript rejects'
+  )
+  t.is(binding.jobs.length, 0, 'no job queued on conflict')
+
+  await model.unload()
+})
+
 test('Audio8: per-call voice fields on other engines throw', async (t) => {
   const model = new TTSGgml({
     engine: TTSGgml.ENGINE_SUPERTONIC,
