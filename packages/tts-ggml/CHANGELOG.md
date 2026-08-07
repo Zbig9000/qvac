@@ -119,7 +119,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   test addon-cpp 1.3.3 across consumers
 - [#3692](https://github.com/tetherto/qvac/pull/3692) - consume the LavaSR ARM
   Mali Vulkan release
-- [#3722](https://github.com/tetherto/qvac/pull/3722) - add the Audio8 TTS
+- [#3723](https://github.com/tetherto/qvac/pull/3723) - add the Audio8 TTS
   engine to @qvac/tts-ggml
 
 ## [0.6.2] - 2026-08-03
