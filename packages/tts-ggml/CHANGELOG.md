@@ -70,10 +70,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from the recent window is re-drawn under a narrower nucleus.
   `temperature`/`topK`/`topP`/`maxFrames` are now shared with Parler rather
   than Parler-only, so the "parler-only" rejection for those four names
-  reads "parler/audio8-only". Requires a `tts-cpp` pin that ships the
-  audio8 engine (qvac-ext-lib-whisper.cpp
-  [PR #128](https://github.com/tetherto/qvac-ext-lib-whisper.cpp/pull/128)).
-  New `examples/audio8-tts.js`, JS unit suite, and C++ config tests.
+  reads "parler/audio8-only". New `examples/audio8-tts.js`, JS unit suite,
+  and C++ config tests.
 
 ### Fixed
 
@@ -108,6 +106,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   non-native rate; it is now accepted while streaming when the LavaSR enhancer
   is active, because the enhancer resamples inside its overlap-reprocess window
   without introducing chunk seams.
+- `tts-cpp` pin `2026-08-06` → `2026-08-07#1` (registry PR
+  [#291](https://github.com/tetherto/qvac-registry-vcpkg/pull/291)), which
+  ships the audio8 engine (qvac-ext-lib-whisper.cpp
+  [PR #128](https://github.com/tetherto/qvac-ext-lib-whisper.cpp/pull/128)).
+  No existing engine changes shape: the only other commits in the range touch
+  the ACE-Step smoke executables, which this package does not build. The
+  `ggml-speech` floor moves from `2026-08-04` to `2026-08-07` (Vulkan matmul
+  src0 binding fix, OpenCL im2col rewrite). Registry baseline unchanged: the
+  `version>=` floor resolves the new port on its own.
 
 ### Pull Requests
 
