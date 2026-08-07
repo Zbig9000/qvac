@@ -24,8 +24,8 @@ using qvac_errors::StatusError;
 using qvac_errors::tts_error::TTSErrorCode;
 namespace general_error = qvac_errors::general_error;
 
-constexpr int kMinOutputSampleRate = 8000;
-constexpr int kMaxOutputSampleRate = 192000;
+constexpr int MIN_OUTPUT_SAMPLE_RATE = 8000;
+constexpr int MAX_OUTPUT_SAMPLE_RATE = 192000;
 
 void requireFile(const std::string& path, const char* what, TTSErrorCode code) {
   if (!std::filesystem::exists(path)) {
@@ -120,8 +120,8 @@ void validateSampling(const Audio8Config& cfg) {
         "maxFrames must be >= 0 (0 = engine default)");
   }
   if (cfg.outputSampleRate.has_value() && *cfg.outputSampleRate != 0 &&
-      (*cfg.outputSampleRate < kMinOutputSampleRate ||
-       *cfg.outputSampleRate > kMaxOutputSampleRate)) {
+      (*cfg.outputSampleRate < MIN_OUTPUT_SAMPLE_RATE ||
+       *cfg.outputSampleRate > MAX_OUTPUT_SAMPLE_RATE)) {
     throw StatusError(
         general_error::InvalidArgument,
         "outputSampleRate must be 0 or in [8000, 192000]");

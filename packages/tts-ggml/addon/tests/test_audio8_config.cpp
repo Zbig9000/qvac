@@ -279,5 +279,6 @@ TEST(Audio8RealGguf, TextOnlySynthesisRoundTrip) {
   const auto pcm =
       std::any_cast<Audio8Model::Output>(model.process(std::any(input)));
   EXPECT_FALSE(pcm.empty());
-  EXPECT_EQ(model.sampleRate(), qvac::ttsggml::audio8::kAudio8NativeSampleRate);
+  EXPECT_EQ(
+      model.sampleRate(), qvac::ttsggml::audio8::AUDIO8_NATIVE_SAMPLE_RATE);
 }

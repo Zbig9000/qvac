@@ -18,7 +18,7 @@ class Engine;
 
 namespace qvac::ttsggml::audio8 {
 
-inline constexpr int kAudio8NativeSampleRate = 44100;
+inline constexpr int AUDIO8_NATIVE_SAMPLE_RATE = 44100;
 
 class Audio8Model
     : public qvac_lib_inference_addon_cpp::model::IModel,
@@ -103,7 +103,7 @@ private:
   // engines: Audio8 generates on a fixed 46 ms codec frame grid.
   double tokensPerSecond_ = 0.0;
   int generatedFrames_ = 0;
-  int sampleRate_ = kAudio8NativeSampleRate;
+  int sampleRate_ = AUDIO8_NATIVE_SAMPLE_RATE;
 
   int backendDevice_ = 0;
   int backendId_ = 0;
