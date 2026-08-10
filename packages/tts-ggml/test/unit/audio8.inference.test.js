@@ -26,6 +26,16 @@ class RecordingBinding extends MockedBinding {
   }
 }
 
+const FRAMES_PER_MOCK_JOB = 7
+
+/** MockedBinding that reports codec frames the way the audio8 engine does. */
+class FrameReportingBinding extends MockedBinding {
+  _callCallbacks(type, data, error) {
+    if (type !== 'RuntimeStats') return super._callCallbacks(type, data, error)
+    return super._callCallbacks(type, { ...data, generatedFrames: FRAMES_PER_MOCK_JOB }, error)
+  }
+}
+
 function createMockedAudio8Model({
   onOutput = () => {},
   binding,
@@ -79,6 +89,31 @@ test('Audio8: explicit engine option routes to audio8', (t) => {
 test('Audio8: audio8Lm file path alone routes to audio8', (t) => {
   const model = new TTSGgml({ files: { audio8Lm: LM } })
   t.is(model.getEngineType(), TTSGgml.ENGINE_AUDIO8, 'audio8Lm file detected')
+})
+
+test('Audio8: the codec decoder alone routes to audio8', (t) => {
+  const model = new TTSGgml({ files: { audio8CodecDecoder: DECODER } })
+  t.is(model.getEngineType(), TTSGgml.ENGINE_AUDIO8, 'audio8CodecDecoder file detected')
+  t.is(model._audio8CodecDecoderPath, DECODER)
+})
+
+test('Audio8: the *Path file aliases detect and normalize the same way', (t) => {
+  const fromLm = new TTSGgml({ files: { audio8LmPath: LM } })
+  t.is(fromLm.getEngineType(), TTSGgml.ENGINE_AUDIO8, 'audio8LmPath detected')
+  t.is(fromLm._audio8LmPath, LM, 'the alias normalizes onto the same field')
+
+  const fromDecoder = new TTSGgml({ files: { audio8CodecDecoderPath: DECODER } })
+  t.is(fromDecoder.getEngineType(), TTSGgml.ENGINE_AUDIO8, 'audio8CodecDecoderPath detected')
+  t.is(fromDecoder._audio8CodecDecoderPath, DECODER, 'the alias normalizes onto the same field')
+
+  const full = new TTSGgml({
+    files: {
+      audio8LmPath: LM,
+      audio8CodecDecoderPath: DECODER,
+      audio8CodecEncoderPath: ENCODER
+    }
+  })
+  t.is(full._audio8CodecEncoderPath, ENCODER, 'the encoder alias normalizes too')
 })
 
 test('Audio8: modelDir auto-detect picks each half at the best quant tier', (t) => {
@@ -358,6 +393,76 @@ test('Audio8: runStream pins the per-call voice on every chunk jobData', async (
   await model.unload()
 })
 
+test('Audio8: runStreaming pins the per-call voice on every flushed job', async (t) => {
+  const binding = new RecordingBinding()
+  const model = createMockedAudio8Model({
+    binding,
+    files: { audio8Lm: LM, audio8CodecDecoder: DECODER, audio8CodecEncoder: ENCODER }
+  })
+  await model.load()
+
+  async function* tokens() {
+    yield 'First streamed sentence. '
+    yield 'Second streamed sentence.'
+  }
+  const r = await model.runStreaming(tokens(), {
+    accumulateSentences: false,
+    referenceAudio: '/abs/voice.wav',
+    referenceText: 'What the recording says.'
+  })
+  await r.onUpdate(() => {}).await()
+
+  t.ok(binding.jobs.length >= 2, `streaming flushed multiple jobs (got ${binding.jobs.length})`)
+  for (const job of binding.jobs) {
+    t.is(job.referenceAudio, '/abs/voice.wav', 'every flushed job carries the recording')
+    t.is(job.referenceText, 'What the recording says.', 'and its transcript')
+  }
+  await model.unload()
+})
+
+test('Audio8: runStreaming rejects an incomplete voice before dispatching', async (t) => {
+  const binding = new RecordingBinding()
+  const model = createMockedAudio8Model({
+    binding,
+    files: { audio8Lm: LM, audio8CodecDecoder: DECODER, audio8CodecEncoder: ENCODER }
+  })
+  await model.load()
+
+  async function* tokens() {
+    yield 'This should never reach the engine.'
+  }
+  await t.exception(
+    model.runStreaming(tokens(), { referenceAudio: '/abs/voice.wav' }),
+    /referenceText/,
+    'a recording without a transcript is refused'
+  )
+  t.is(binding.jobs.length, 0, 'nothing was dispatched')
+  await model.unload()
+})
+
+test('Audio8: streaming keeps tokensPerSecond on the codec frame grid', async (t) => {
+  const text = 'First chunk sentence. Second chunk sentence.'
+  const model = createMockedAudio8Model({ binding: new FrameReportingBinding() })
+  await model.load()
+
+  const r = await model.runStream(text, { maxChunkScalars: 20 })
+  await r.onUpdate(() => {}).await()
+
+  const stats = r.stats
+  t.ok(stats.generatedFrames > 0, 'the frame count survives the aggregation')
+  t.is(
+    stats.tokensPerSecond,
+    stats.generatedFrames / stats.totalTime,
+    'streaming paces on frames, the same unit run() reports'
+  )
+  t.not(
+    stats.tokensPerSecond,
+    text.replace(/\s+$/, '').length / stats.totalTime,
+    'and not on characters, which is what the text-paced engines count'
+  )
+  await model.unload()
+})
+
 test('Audio8: reload merges the voice and the sampling knobs', async (t) => {
   const model = createMockedAudio8Model({
     files: { audio8Lm: LM, audio8CodecDecoder: DECODER, audio8CodecEncoder: ENCODER },
@@ -422,6 +527,53 @@ test('Audio8: a refused reload leaves the voice where it was', async (t) => {
   const params = model._buildTtsParams()
   t.is(params.referenceText, 'Alice says this.', 'the transcript is not left blanked')
   t.is(params.referenceAudio, '/abs/alice.wav', 'and the recording is untouched')
+  await model.unload()
+})
+
+test('Audio8: a sampling value native would refuse rolls the reload back', async (t) => {
+  const model = createMockedAudio8Model({
+    files: { audio8Lm: LM, audio8CodecDecoder: DECODER, audio8CodecEncoder: ENCODER },
+    extra: {
+      temperature: 0.7,
+      topP: 0.9,
+      referenceAudio: '/abs/alice.wav',
+      referenceText: 'Alice says this.'
+    }
+  })
+  await model.load()
+
+  await t.exception(
+    model.reload({ temperature: NaN, referenceText: 'Alice really says this.' }),
+    /temperature must be a finite number/,
+    'NaN is refused rather than carried into the sampler'
+  )
+
+  const params = model._buildTtsParams()
+  t.is(params.temperature, 0.7, 'the old temperature is still in place')
+  t.is(params.referenceText, 'Alice says this.', 'and the voice did not move either')
+  await model.unload()
+})
+
+test('Audio8: reload refuses sampling values outside the native bounds', async (t) => {
+  const model = createMockedAudio8Model({ extra: { temperature: 0.7, topP: 0.9, topK: 40 } })
+  await model.load()
+
+  await t.exception(
+    model.reload({ topP: 0 }),
+    /topP must be in \(0, 1\]/,
+    'topP has to be above zero'
+  )
+  await t.exception(
+    model.reload({ temperature: -1 }),
+    /temperature must be >= 0/,
+    'temperature cannot be negative'
+  )
+  await t.exception(model.reload({ topK: -5 }), /topK must be >= 0/, 'topK cannot be negative')
+
+  const params = model._buildTtsParams()
+  t.is(params.topP, 0.9, 'topP kept its value')
+  t.is(params.temperature, 0.7, 'temperature kept its value')
+  t.is(params.topK, 40, 'topK kept its value')
   await model.unload()
 })
 

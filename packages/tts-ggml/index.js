@@ -523,6 +523,45 @@ function assertGpuIntentConsistent(useGPU, nGpuLayers) {
         "them agree (useGPU:true + nGpuLayers!=0, or " +
         "useGPU:false + nGpuLayers=0).");
 }
+const AUDIO8_NUMERIC_SAMPLING_FIELDS = [
+    "temperature",
+    "topK",
+    "topP",
+    "maxFrames",
+    "seed",
+    "threads",
+];
+function assertAudio8SamplingFinite(sampling, where) {
+    for (const field of AUDIO8_NUMERIC_SAMPLING_FIELDS) {
+        const value = sampling[field];
+        if (value === undefined || Number.isFinite(value))
+            continue;
+        throw new Error(`tts-ggml: ${where}: ${field} must be a finite number`);
+    }
+}
+function assertNotNegative(value, name, zeroMeans, where) {
+    if (value === undefined || value >= 0)
+        return;
+    throw new Error(`tts-ggml: ${where}: ${name} must be >= 0 (0 = ${zeroMeans})`);
+}
+function assertAudio8TopP(value, where) {
+    if (value === undefined || (value > 0 && value <= 1))
+        return;
+    throw new Error(`tts-ggml: ${where}: topP must be in (0, 1]`);
+}
+/**
+ * Mirrors Audio8Model::validateSampling, which stays the source of truth.
+ * Reload checks the merged knobs here because native only sees them when the
+ * instance is rebuilt: without this the refused value is already on the JS
+ * object by then, and the two would describe different samplers.
+ */
+function assertAudio8SamplingValid(sampling, where) {
+    assertAudio8SamplingFinite(sampling, where);
+    assertNotNegative(sampling.temperature, "temperature", "greedy", where);
+    assertNotNegative(sampling.topK, "topK", "no top-k cutoff", where);
+    assertNotNegative(sampling.maxFrames, "maxFrames", "engine default", where);
+    assertAudio8TopP(sampling.topP, where);
+}
 function isAudioOutputEvent(data) {
     return (data != null &&
         typeof data === "object" &&
@@ -536,24 +575,45 @@ function isStatsEvent(data) {
             "audioDurationMs" in data ||
             "totalSamples" in data));
 }
-function computeSentenceStreamStats(chunks, accumulator) {
-    const totalCharacters = chunks.join("").length;
+/**
+ * What `tokensPerSecond` counts. Audio8 paces on the codec frame grid and
+ * reports frames per second in batch synthesis; the text-paced engines report
+ * characters per second. Streaming has to keep the same unit as `run()` or the
+ * number silently changes meaning between the two entry points.
+ */
+function emptyStreamAccumulator() {
     return {
-        ...accumulator,
-        tokensPerSecond: accumulator.totalTime > 0
-            ? totalCharacters / accumulator.totalTime
-            : 0,
+        totalTime: 0,
+        audioDurationMs: 0,
+        totalSamples: 0,
+        generatedFrames: 0,
+    };
+}
+function streamedTokenCount(chunks, accumulator, countsFrames) {
+    return countsFrames
+        ? accumulator.generatedFrames
+        : chunks.join("").length;
+}
+function computeSentenceStreamStats(chunks, accumulator, countsFrames) {
+    const { generatedFrames, ...totals } = accumulator;
+    const produced = streamedTokenCount(chunks, accumulator, countsFrames);
+    const stats = {
+        ...totals,
+        tokensPerSecond: accumulator.totalTime > 0 ? produced / accumulator.totalTime : 0,
         realTimeFactor: accumulator.audioDurationMs > 0
             ? (accumulator.totalTime * 1000) /
                 accumulator.audioDurationMs
             : 0,
     };
+    if (countsFrames)
+        stats.generatedFrames = generatedFrames;
+    return stats;
 }
 /**
- * GGML-backed TTS via the `tts-cpp` library. Wraps both
- * `tts_cpp::chatterbox::Engine` and `tts_cpp::supertonic::Engine` behind a
- * single engine-agnostic JavaScript surface. Engine type is auto-detected
- * from `files` or selected explicitly with `engine`.
+ * GGML-backed TTS via the `tts-cpp` library. Wraps the chatterbox,
+ * supertonic, parler, cosyvoice3 and audio8 engines behind a single
+ * engine-agnostic JavaScript surface. Engine type is auto-detected from
+ * `files` or selected explicitly with `engine`.
  *
  * Owns a persistent native engine: model weights and voice-conditioning
  * tensors are loaded once by `load()` and reused by `run()`, `runStream()`,
@@ -1142,7 +1202,7 @@ class TTSGgml {
             asyncTextSource: source,
             chunks: [],
             chunkIdx: 0,
-            acc: { totalTime: 0, audioDurationMs: 0, totalSamples: 0 },
+            acc: emptyStreamAccumulator(),
             chunkResolver: null,
             jobFields,
         };
@@ -1186,11 +1246,7 @@ class TTSGgml {
         }
         const current = this._sentenceStreamCtx;
         const chunks = current?.chunks || [];
-        const accumulator = current?.acc || {
-            totalTime: 0,
-            audioDurationMs: 0,
-            totalSamples: 0,
-        };
+        const accumulator = current?.acc || emptyStreamAccumulator();
         this._sentenceStreamCtx = null;
         this._endJobWithStats(chunks.length === 0
             ? {
@@ -1200,7 +1256,14 @@ class TTSGgml {
                 audioDurationMs: 0,
                 totalSamples: 0,
             }
-            : computeSentenceStreamStats(chunks, accumulator));
+            : computeSentenceStreamStats(chunks, accumulator, this._pacesOnFrames()));
+    }
+    /**
+     * Audio8 reports `tokensPerSecond` as codec frames per second, so the
+     * streaming aggregate has to count frames too rather than characters.
+     */
+    _pacesOnFrames() {
+        return this._engineType === ENGINE_AUDIO8;
     }
     _runStreamOrchestrator(text, options, jobFields) {
         const chunks = (0, textChunker_1.splitTtsText)(String(text), {
@@ -1218,7 +1281,7 @@ class TTSGgml {
         this._sentenceStreamCtx = {
             chunks,
             chunkIdx: 0,
-            acc: { totalTime: 0, audioDurationMs: 0, totalSamples: 0 },
+            acc: emptyStreamAccumulator(),
             chunkResolver: null,
             jobFields,
         };
@@ -1589,6 +1652,8 @@ class TTSGgml {
                 : 0;
         accumulator.totalSamples +=
             typeof data.totalSamples === "number" ? data.totalSamples : 0;
+        accumulator.generatedFrames +=
+            typeof data.generatedFrames === "number" ? data.generatedFrames : 0;
     }
     _rejectActiveChunk(error) {
         const resolver = this._sentenceStreamCtx?.chunkResolver;
@@ -1675,7 +1740,7 @@ class TTSGgml {
         }
         if (!context.textStreamMode &&
             context.chunkIdx >= context.chunks.length - 1) {
-            this._endJobWithStats(computeSentenceStreamStats(context.chunks, context.acc));
+            this._endJobWithStats(computeSentenceStreamStats(context.chunks, context.acc, this._pacesOnFrames()));
         }
     }
     async cancel() {
@@ -1786,6 +1851,21 @@ class TTSGgml {
                 : this._referenceText,
         };
     }
+    /**
+     * The knobs a reload lands on, merged the same way as the voice so the
+     * whole set can be checked before any of it is written.
+     */
+    _mergeAudio8ReloadSampling(config) {
+        return {
+            greedy: config.greedy ?? this._greedy,
+            temperature: config.temperature ?? this._temperature,
+            topK: config.topK ?? this._topK,
+            topP: config.topP ?? this._topP,
+            maxFrames: config.maxFrames ?? this._maxFrames,
+            seed: config.seed ?? this._seed,
+            threads: config.threads ?? this._threads,
+        };
+    }
     _applyAudio8Sampling(config) {
         if (config.greedy !== undefined)
             this._greedy = config.greedy;
@@ -1806,19 +1886,21 @@ class TTSGgml {
     }
     /**
      * Audio8 voice + sampling knobs are reloadable; they rebuild the engine's
-     * sampler and speaker history. The merged voice is checked before anything
-     * is written, so a rejected reload leaves the instance on its old voice
-     * rather than on the one that was refused.
+     * sampler and speaker history. Both merges are checked before either is
+     * written, so a rejected reload leaves the instance exactly as it was
+     * rather than half-moved onto the configuration that was refused.
      */
     _applyAudio8Reload(newConfig) {
         if (this._engineType !== ENGINE_AUDIO8)
             return;
         const config = newConfig;
         const voice = this._mergeAudio8ReloadVoice(config);
+        const sampling = this._mergeAudio8ReloadSampling(config);
         this._assertAudio8VoiceConsistent(voice, "reload");
+        assertAudio8SamplingValid(sampling, "reload");
         this._referenceAudio = voice.referenceAudio;
         this._referenceText = voice.referenceText;
-        this._applyAudio8Sampling(config);
+        this._applyAudio8Sampling(sampling);
     }
     static getModelKey(_params) {
         void _params;

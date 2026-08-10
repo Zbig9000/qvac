@@ -207,7 +207,29 @@ void Audio8Model::validateVoice(
 
 void Audio8Model::setConfig(Audio8Config config) {
   validateConfig(config);
+  std::lock_guard lk(engineMu_);
   cfg_ = std::move(config);
+}
+
+void Audio8Model::reloadWith(Audio8Config config) {
+  validateConfig(config);
+  std::lock_guard lk(engineMu_);
+  requireSameEmittedRate(cfg_, config, sampleRate_);
+  cfg_ = std::move(config);
+  unloadLocked();
+  loadLocked();
+}
+
+void Audio8Model::requireSameEmittedRate(
+    const Audio8Config& current, const Audio8Config& next, int nativeRate) {
+  const int rate = emittedSampleRate(current, nativeRate);
+  if (emittedSampleRate(next, nativeRate) == rate)
+    return;
+  throw StatusError(
+      general_error::InvalidArgument,
+      "reload cannot change the audio8 output sample rate (currently " +
+          std::to_string(rate) +
+          " Hz); destroy the instance and create a new one instead.");
 }
 
 void Audio8Model::load() {
@@ -268,8 +290,8 @@ void Audio8Model::cancel() const {
 // that describes a different recording -- while a per-call transcript alone
 // corrects the configured one.
 Audio8Model::VoiceOverride
-Audio8Model::resolveVoice(const VoiceOverride& perCall) const {
-  VoiceOverride voice{cfg_.referenceAudio, cfg_.referenceText};
+Audio8Model::mergeVoice(const Audio8Config& cfg, const VoiceOverride& perCall) {
+  VoiceOverride voice{cfg.referenceAudio, cfg.referenceText};
   if (!perCall.referenceAudio.empty()) {
     voice.referenceAudio = perCall.referenceAudio;
     voice.referenceText = perCall.referenceText;
@@ -278,15 +300,24 @@ Audio8Model::resolveVoice(const VoiceOverride& perCall) const {
     voice.referenceText = perCall.referenceText;
   }
   validateVoice(
-      voice.referenceAudio, voice.referenceText, cfg_.codecEncoderPath);
+      voice.referenceAudio, voice.referenceText, cfg.codecEncoderPath);
   return voice;
 }
 
+Audio8Model::VoiceOverride
+Audio8Model::resolveVoice(const VoiceOverride& perCall) const {
+  return mergeVoice(config(), perCall);
+}
+
 Audio8Model::Output Audio8Model::synthesize(const AnyInput& input) {
+  // Engine and configuration are taken together, so a reload landing mid-job
+  // cannot pair one call's voice with the other call's engine.
   std::shared_ptr<tts_cpp::audio8::Engine> engine;
+  Audio8Config cfg;
   {
     std::lock_guard lk(engineMu_);
     engine = engine_;
+    cfg = cfg_;
   }
   if (!engine) {
     throw createTTSError(
@@ -298,7 +329,7 @@ Audio8Model::Output Audio8Model::synthesize(const AnyInput& input) {
         TTSErrorCode::SynthesisFailed, "synthesis cancelled before it started");
   }
 
-  const VoiceOverride voice = resolveVoice(input.voice);
+  const VoiceOverride voice = mergeVoice(cfg, input.voice);
 
   const auto t0 = std::chrono::steady_clock::now();
   tts_cpp::audio8::SynthesisResult result;

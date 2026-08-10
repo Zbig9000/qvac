@@ -20,6 +20,13 @@ namespace qvac::ttsggml::audio8 {
 
 inline constexpr int AUDIO8_NATIVE_SAMPLE_RATE = 44100;
 
+// The rate audio actually leaves the addon at: the engine resamples when
+// outputSampleRate is set, otherwise it emits its native rate.
+inline int emittedSampleRate(const Audio8Config& cfg, int nativeRate) {
+  const int configured = cfg.outputSampleRate.value_or(0);
+  return configured > 0 ? configured : nativeRate;
+}
+
 class Audio8Model
     : public qvac_lib_inference_addon_cpp::model::IModel,
       public qvac_lib_inference_addon_cpp::model::IModelCancel,
@@ -64,7 +71,13 @@ public:
       std::unique_ptr<std::basic_streambuf<char>>&&) override {}
 
   void setConfig(Audio8Config config);
-  const Audio8Config& config() const { return cfg_; }
+  // Swaps the configuration and rebuilds the engine under one lock, so no
+  // synthesis can pick up the new voice with the engine it replaces.
+  void reloadWith(Audio8Config config);
+  Audio8Config config() const {
+    std::lock_guard lk(engineMu_);
+    return cfg_;
+  }
 
   int sampleRate() const { return sampleRate_; }
 
@@ -75,9 +88,17 @@ public:
   static void validateVoice(
       const std::string& audio, const std::string& text,
       const std::string& encoderPath);
-  // The voice a call synthesizes with, merging the per-call override over the
-  // configured one. Public so the merge rule is directly testable.
+  // The voice a call synthesizes with, merging the per-call override over a
+  // configuration. Static so synthesis can apply it to the snapshot it took
+  // alongside the engine, and so the merge rule is directly testable.
+  static VoiceOverride
+  mergeVoice(const Audio8Config& cfg, const VoiceOverride& perCall);
   VoiceOverride resolveVoice(const VoiceOverride& perCall) const;
+  // createInstance bakes the emitted rate into the JS output handlers and
+  // there is no way to re-point them afterwards, so an in-place reload that
+  // moved the rate would mislabel every later chunk.
+  static void requireSameEmittedRate(
+      const Audio8Config& current, const Audio8Config& next, int nativeRate);
 
 private:
   Output synthesize(const AnyInput& input);

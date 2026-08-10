@@ -336,8 +336,9 @@ configured recording.  A per-call `referenceAudio` replaces the voice
 outright and must bring its own transcript — the configured one describes a
 different recording, so it is not inherited — and a recording passed without
 one is rejected before the job is queued.  `reload()` applies the same rule,
-and is checked before anything is written, so a refused reload leaves the
-model on the voice it already had.
+and checks the merged voice *and* the merged sampling knobs before it writes
+either, so a refused reload leaves the model exactly as it was rather than
+half-moved onto the configuration that was refused.
 
 The engine caches the codes for the most recent reference, so repeating one
 across calls skips the encoder.  Per-call fields also ride on the
@@ -703,7 +704,8 @@ response.stats.totalTime         // seconds
 response.stats.realTimeFactor    // synthesis time / audio duration
 response.stats.audioDurationMs
 response.stats.totalSamples
-response.stats.tokensPerSecond
+response.stats.tokensPerSecond   // Audio8 counts codec frames, the others characters
+response.stats.generatedFrames   // Audio8 only: codec frames, on a fixed 46 ms grid
 response.stats.backendDevice     // 0=CPU, 1=GPU
 response.stats.backendId         // 0=CPU, 1=Metal, 2=CUDA, 3=Vulkan, 4=OpenCL, 99=other
 // present when a LavaSR enhancer is active:

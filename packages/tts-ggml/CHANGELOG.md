@@ -71,6 +71,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Audio8 native reload raced synthesis.** The reload path wrote the model's
+  configuration from the reload task while a running job read the reference
+  voice out of it, and swapped the configuration and the engine under separate
+  locks, so a job could pair one call's voice with the other call's engine.
+  Synthesis now takes the engine and a configuration snapshot together under
+  one lock and resolves the voice against that snapshot, and the reload
+  publishes both in a single critical section.
+- **Audio8 in-place native reload could mislabel the output rate.** The emitted
+  sample rate is baked into the output handlers when the instance is created,
+  so a `binding.reload()` that moved `outputSampleRate` left every later chunk
+  tagged with the old rate. Such a reload is now rejected with an error that
+  says to recreate the instance. `TTSGgml.reload()` is unaffected: it already
+  recreates the instance, handlers included.
+- **Audio8 `tokensPerSecond` changed unit under sentence streaming.** Batch
+  synthesis reports codec frames per second, but `runStream()` / `runStreaming()`
+  recomputed the figure from character count. Streamed frames are now
+  aggregated and reported the same way batch does, and `generatedFrames` is
+  carried through to `response.stats`.
+- **Audio8 reload wrote sampling knobs before they were validated.** A value
+  native would refuse (`NaN`, a negative `temperature`, `topP` outside
+  `(0, 1]`) was already on the JS object by the time native saw it, leaving the
+  two describing different samplers. The merged knobs are now checked with the
+  merged voice, before either is written.
 - **LavaSR enhancer on ARM Mali Vulkan.** Bumps `tts-cpp` to `2026-08-06`
   so GPU-enabled LavaSR enhancement uses the validated Vulkan path on supported
   Mali devices, including the Valhall-safe small-matrix workaround, while

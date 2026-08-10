@@ -405,6 +405,11 @@ interface RuntimeStats {
     backendId?: number;
     /** 1 when a present GPU is unsupported by engine policy; 0 otherwise. */
     gpuUnsupported?: number;
+    /**
+     * Audio8 only: codec frames generated, on a fixed 46 ms grid. This is the
+     * unit its `tokensPerSecond` counts, in batch and in streaming alike.
+     */
+    generatedFrames?: number;
 }
 interface SentenceStreamChunkMeta {
     chunkIndex?: number;
@@ -444,10 +449,10 @@ interface TTSRunInput extends ParlerDescriptionFields, Audio8VoiceFields {
     signal?: AbortSignal;
 }
 /**
- * GGML-backed TTS via the `tts-cpp` library. Wraps both
- * `tts_cpp::chatterbox::Engine` and `tts_cpp::supertonic::Engine` behind a
- * single engine-agnostic JavaScript surface. Engine type is auto-detected
- * from `files` or selected explicitly with `engine`.
+ * GGML-backed TTS via the `tts-cpp` library. Wraps the chatterbox,
+ * supertonic, parler, cosyvoice3 and audio8 engines behind a single
+ * engine-agnostic JavaScript surface. Engine type is auto-detected from
+ * `files` or selected explicitly with `engine`.
  *
  * Owns a persistent native engine: model weights and voice-conditioning
  * tensors are loaded once by `load()` and reused by `run()`, `runStream()`,
@@ -597,6 +602,11 @@ declare class TTSGgml {
     private _normalizeTextStream;
     private _runTextStreamOrchestrator;
     private _sentenceStreamTextIterableDrive;
+    /**
+     * Audio8 reports `tokensPerSecond` as codec frames per second, so the
+     * streaming aggregate has to count frames too rather than characters.
+     */
+    private _pacesOnFrames;
     private _runStreamOrchestrator;
     private _sentenceStreamDriveBody;
     private _load;
@@ -639,12 +649,17 @@ declare class TTSGgml {
      * the guard instead of being ignored.
      */
     private _mergeAudio8ReloadVoice;
+    /**
+     * The knobs a reload lands on, merged the same way as the voice so the
+     * whole set can be checked before any of it is written.
+     */
+    private _mergeAudio8ReloadSampling;
     private _applyAudio8Sampling;
     /**
      * Audio8 voice + sampling knobs are reloadable; they rebuild the engine's
-     * sampler and speaker history. The merged voice is checked before anything
-     * is written, so a rejected reload leaves the instance on its old voice
-     * rather than on the one that was refused.
+     * sampler and speaker history. Both merges are checked before either is
+     * written, so a rejected reload leaves the instance exactly as it was
+     * rather than half-moved onto the configuration that was refused.
      */
     private _applyAudio8Reload;
     static getModelKey(_params?: unknown): string;

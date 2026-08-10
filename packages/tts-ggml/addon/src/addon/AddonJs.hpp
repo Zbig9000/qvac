@@ -133,9 +133,8 @@ inline js_value_t* createInstance(js_env_t* env, js_callback_info_t* info) try {
     model = std::move(ptm);
   } else if (engineType == EngineType::Audio8) {
     auto cfg = adapter.buildAudio8Config(configurationParams, env);
-    const int outSr = cfg.outputSampleRate.value_or(0);
     auto atm = make_unique<Audio8Model>(std::move(cfg));
-    sampleRate = outSr > 0 ? outSr : atm->sampleRate();
+    sampleRate = audio8::emittedSampleRate(atm->config(), atm->sampleRate());
     model = std::move(atm);
   } else {
     auto cfg = adapter.buildChatterboxConfig(configurationParams, env);
@@ -312,8 +311,7 @@ inline js_value_t* reload(js_env_t* env, js_callback_info_t* info) try {
                 qvac_errors::general_error::InternalError,
                 "reload: model is not an Audio8Model");
           }
-          atm->setConfig(std::move(newCfg));
-          atm->reload();
+          atm->reloadWith(std::move(newCfg));
         });
   }
 

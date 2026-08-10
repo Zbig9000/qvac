@@ -5,12 +5,14 @@
 //
 // Real-GGUF round-trip is gated behind QVAC_TEST_AUDIO8_LM_GGUF.
 
+#include <atomic>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <limits>
 #include <memory>
 #include <string>
+#include <thread>
 
 #include <gtest/gtest.h>
 
@@ -56,6 +58,30 @@ Audio8Config cloningStubConfig() {
   cfg.referenceAudio = stubFile("audio8-reference-stub.wav");
   cfg.referenceText = "What the recording says.";
   return cfg;
+}
+
+constexpr int CONCURRENT_READS = 2000;
+
+void swapConfigsUntilStopped(
+    Audio8Model& model, const Audio8Config& first, const Audio8Config& second,
+    const std::atomic_bool& stop) {
+  while (!stop.load(std::memory_order_relaxed)) {
+    model.setConfig(first);
+    model.setConfig(second);
+  }
+}
+
+Audio8Model::Output
+synthesizeOnce(Audio8Model& model, const Audio8Model::AnyInput& input) {
+  return std::any_cast<Audio8Model::Output>(model.process(std::any(input)));
+}
+
+void readVoiceRepeatedly(const Audio8Model& model, int iterations) {
+  for (int i = 0; i < iterations; ++i) {
+    const auto voice = model.resolveVoice({});
+    ASSERT_FALSE(voice.referenceAudio.empty());
+    ASSERT_FALSE(voice.referenceText.empty());
+  }
 }
 
 } // namespace
@@ -277,6 +303,72 @@ TEST(Audio8Voice, PerCallRecordingReplacesBothHalves) {
   EXPECT_EQ(voice.referenceText, perCall.referenceText);
 }
 
+TEST(Audio8Voice, MergeReadsTheSnapshotItWasGiven) {
+  const auto configured = cloningStubConfig();
+  Audio8Model model{configured};
+
+  auto replacement = cloningStubConfig();
+  replacement.referenceText = "What the recording really says.";
+  model.setConfig(replacement);
+
+  // An in-flight synthesis holds the snapshot it took with the engine, so a
+  // reload landing underneath it cannot change the voice it is already using.
+  EXPECT_EQ(
+      Audio8Model::mergeVoice(configured, {}).referenceText,
+      configured.referenceText);
+  EXPECT_EQ(model.resolveVoice({}).referenceText, replacement.referenceText);
+}
+
+TEST(Audio8Reload, ConcurrentConfigSwapAndVoiceReadStayWhole) {
+  Audio8Model model{cloningStubConfig()};
+  const auto first = cloningStubConfig();
+  auto second = cloningStubConfig();
+  second.referenceAudio = stubFile("audio8-other-reference-stub.wav");
+  second.referenceText = "What the other one says.";
+
+  std::atomic_bool stop{false};
+  std::thread writer(
+      [&] { swapConfigsUntilStopped(model, first, second, stop); });
+  readVoiceRepeatedly(model, CONCURRENT_READS);
+  stop.store(true, std::memory_order_relaxed);
+  writer.join();
+}
+
+TEST(Audio8Reload, OutputSampleRateChangeRejected) {
+  const int native = qvac::ttsggml::audio8::AUDIO8_NATIVE_SAMPLE_RATE;
+  const auto current = minimallyValidStubConfig();
+
+  auto resampled = minimallyValidStubConfig();
+  resampled.outputSampleRate = 16000;
+  EXPECT_THROW(
+      Audio8Model::requireSameEmittedRate(current, resampled, native),
+      StatusError);
+
+  // Naming the rate the handlers already emit is not a change.
+  auto restated = minimallyValidStubConfig();
+  restated.outputSampleRate = native;
+  EXPECT_NO_THROW(
+      Audio8Model::requireSameEmittedRate(current, restated, native));
+}
+
+TEST(Audio8Reload, RateChangeIsRefusedBeforeTheConfigMoves) {
+  Audio8Model model{minimallyValidStubConfig()};
+  auto resampled = minimallyValidStubConfig();
+  resampled.outputSampleRate = 16000;
+
+  EXPECT_THROW(model.reloadWith(resampled), StatusError);
+  EXPECT_FALSE(model.config().outputSampleRate.has_value());
+}
+
+TEST(Audio8Reload, RefusedReloadKeepsTheConfiguration) {
+  Audio8Model model{cloningStubConfig()};
+
+  auto broken = cloningStubConfig();
+  broken.referenceText.clear();
+  EXPECT_THROW(model.reloadWith(broken), StatusError);
+  EXPECT_EQ(model.config().referenceText, "What the recording says.");
+}
+
 TEST(Audio8RealGguf, TextOnlySynthesisRoundTrip) {
   const std::string lm = envOrEmpty("QVAC_TEST_AUDIO8_LM_GGUF");
   const std::string decoder = envOrEmpty("QVAC_TEST_AUDIO8_DECODER_GGUF");
@@ -297,9 +389,64 @@ TEST(Audio8RealGguf, TextOnlySynthesisRoundTrip) {
 
   Audio8Model::AnyInput input;
   input.text = "Hello from a fully on-device C plus plus pipeline.";
-  const auto pcm =
-      std::any_cast<Audio8Model::Output>(model.process(std::any(input)));
+  const auto pcm = synthesizeOnce(model, input);
   EXPECT_FALSE(pcm.empty());
   EXPECT_EQ(
       model.sampleRate(), qvac::ttsggml::audio8::AUDIO8_NATIVE_SAMPLE_RATE);
+}
+
+TEST(Audio8RealGguf, CloningSynthesisRoundTrip) {
+  const std::string lm = envOrEmpty("QVAC_TEST_AUDIO8_LM_GGUF");
+  const std::string decoder = envOrEmpty("QVAC_TEST_AUDIO8_DECODER_GGUF");
+  const std::string encoder = envOrEmpty("QVAC_TEST_AUDIO8_ENCODER_GGUF");
+  const std::string wav = envOrEmpty("QVAC_TEST_AUDIO8_REFERENCE_WAV");
+  const std::string transcript = envOrEmpty("QVAC_TEST_AUDIO8_REFERENCE_TEXT");
+  if (lm.empty() || decoder.empty() || encoder.empty() || wav.empty() ||
+      transcript.empty()) {
+    GTEST_SKIP() << "set QVAC_TEST_AUDIO8_LM_GGUF, "
+                    "QVAC_TEST_AUDIO8_DECODER_GGUF, "
+                    "QVAC_TEST_AUDIO8_ENCODER_GGUF, "
+                    "QVAC_TEST_AUDIO8_REFERENCE_WAV and "
+                    "QVAC_TEST_AUDIO8_REFERENCE_TEXT to run this";
+  }
+
+  Audio8Config cfg;
+  cfg.lmModelPath = lm;
+  cfg.codecDecoderPath = decoder;
+  cfg.codecEncoderPath = encoder;
+  cfg.referenceAudio = wav;
+  cfg.referenceText = transcript;
+  cfg.greedy = true;
+  cfg.maxFrames = 16;
+
+  Audio8Model model{cfg};
+  ASSERT_NO_THROW(model.load());
+
+  Audio8Model::AnyInput input;
+  input.text = "The reference recording decides how this sounds.";
+  const auto cloned = synthesizeOnce(model, input);
+  EXPECT_FALSE(cloned.empty());
+  EXPECT_EQ(
+      model.sampleRate(), qvac::ttsggml::audio8::AUDIO8_NATIVE_SAMPLE_RATE);
+
+  // The second call reuses the codes the engine cached for this reference
+  // instead of re-encoding the wav; greedy sampling makes that observable as
+  // an identical waveform rather than only as a shorter runtime.
+  EXPECT_EQ(cloned, synthesizeOnce(model, input));
+
+  // A per-call transcript correction re-encodes against the same recording.
+  input.voice.referenceText = "A different account of the same recording.";
+  EXPECT_FALSE(synthesizeOnce(model, input).empty());
+
+  // Without the reference the same greedy prompt takes a different trajectory,
+  // which is what proves the enrolled voice reached the model at all.
+  Audio8Config unconditioned = cfg;
+  unconditioned.codecEncoderPath.clear();
+  unconditioned.referenceAudio.clear();
+  unconditioned.referenceText.clear();
+  Audio8Model plain{unconditioned};
+  ASSERT_NO_THROW(plain.load());
+  Audio8Model::AnyInput plainInput;
+  plainInput.text = input.text;
+  EXPECT_NE(cloned, synthesizeOnce(plain, plainInput));
 }
