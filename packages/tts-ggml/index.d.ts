@@ -632,9 +632,19 @@ declare class TTSGgml {
     private _failAndClearActiveResponse;
     reload(newConfig?: Record<string, unknown>): Promise<void>;
     /**
+     * The voice a reload lands on. Same rule as _mergeAudio8Voice and
+     * Audio8Model::resolveVoice: a new recording replaces both halves, because
+     * the configured transcript describes the recording being replaced. Reload
+     * reads `undefined` as "not supplied", so an explicit empty string reaches
+     * the guard instead of being ignored.
+     */
+    private _mergeAudio8ReloadVoice;
+    private _applyAudio8Sampling;
+    /**
      * Audio8 voice + sampling knobs are reloadable; they rebuild the engine's
-     * sampler and speaker history. _buildAudio8Params re-validates, so a
-     * half-specified voice still throws.
+     * sampler and speaker history. The merged voice is checked before anything
+     * is written, so a rejected reload leaves the instance on its old voice
+     * rather than on the one that was refused.
      */
     private _applyAudio8Reload;
     static getModelKey(_params?: unknown): string;

@@ -1,6 +1,7 @@
 #include "model-interface/audio8/Audio8Model.hpp"
 
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <stdexcept>
@@ -30,6 +31,17 @@ constexpr int MAX_OUTPUT_SAMPLE_RATE = 192000;
 void requireFile(const std::string& path, const char* what, TTSErrorCode code) {
   if (!std::filesystem::exists(path)) {
     throw createTTSError(code, std::string(what) + " not found: " + path);
+  }
+}
+
+// NaN compares false against every bound, so the range checks below would wave
+// it through to the sampler; infinities pass whichever bound they are not on
+// the wrong side of.
+void requireFinite(float value, const char* what) {
+  if (!std::isfinite(value)) {
+    throw StatusError(
+        general_error::InvalidArgument,
+        std::string(what) + " must be a finite number");
   }
 }
 
@@ -101,18 +113,25 @@ void validateModelPaths(const Audio8Config& cfg) {
 }
 
 void validateSampling(const Audio8Config& cfg) {
-  if (cfg.temperature.has_value() && *cfg.temperature < 0.0f) {
-    throw StatusError(
-        general_error::InvalidArgument,
-        "temperature must be >= 0 (0 = greedy)");
+  if (cfg.temperature.has_value()) {
+    requireFinite(*cfg.temperature, "temperature");
+    if (*cfg.temperature < 0.0f) {
+      throw StatusError(
+          general_error::InvalidArgument,
+          "temperature must be >= 0 (0 = greedy)");
+    }
   }
   if (cfg.topK.has_value() && *cfg.topK < 0) {
     throw StatusError(
         general_error::InvalidArgument,
         "topK must be >= 0 (0 = no top-k cutoff)");
   }
-  if (cfg.topP.has_value() && (*cfg.topP <= 0.0f || *cfg.topP > 1.0f)) {
-    throw StatusError(general_error::InvalidArgument, "topP must be in (0, 1]");
+  if (cfg.topP.has_value()) {
+    requireFinite(*cfg.topP, "topP");
+    if (*cfg.topP <= 0.0f || *cfg.topP > 1.0f) {
+      throw StatusError(
+          general_error::InvalidArgument, "topP must be in (0, 1]");
+    }
   }
   if (cfg.maxFrames.has_value() && *cfg.maxFrames < 0) {
     throw StatusError(

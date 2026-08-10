@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <string>
 
@@ -122,6 +123,26 @@ TEST(Audio8Validate, NonexistentReferenceAudioRejected) {
 TEST(Audio8Validate, NegativeTemperatureRejected) {
   auto cfg = minimallyValidStubConfig();
   cfg.temperature = -0.1f;
+  EXPECT_THROW(Audio8Model{cfg}, StatusError);
+}
+
+TEST(Audio8Validate, NonFiniteTemperatureRejected) {
+  auto cfg = minimallyValidStubConfig();
+  cfg.temperature = std::numeric_limits<float>::quiet_NaN();
+  EXPECT_THROW(Audio8Model{cfg}, StatusError);
+  cfg.temperature = std::numeric_limits<float>::infinity();
+  EXPECT_THROW(Audio8Model{cfg}, StatusError);
+  cfg.temperature = -std::numeric_limits<float>::infinity();
+  EXPECT_THROW(Audio8Model{cfg}, StatusError);
+}
+
+TEST(Audio8Validate, NonFiniteTopPRejected) {
+  auto cfg = minimallyValidStubConfig();
+  cfg.topP = std::numeric_limits<float>::quiet_NaN();
+  EXPECT_THROW(Audio8Model{cfg}, StatusError);
+  cfg.topP = std::numeric_limits<float>::infinity();
+  EXPECT_THROW(Audio8Model{cfg}, StatusError);
+  cfg.topP = -std::numeric_limits<float>::infinity();
   EXPECT_THROW(Audio8Model{cfg}, StatusError);
 }
 

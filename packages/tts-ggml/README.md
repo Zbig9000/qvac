@@ -335,7 +335,9 @@ A per-call `referenceText` on its own corrects the transcript of the
 configured recording.  A per-call `referenceAudio` replaces the voice
 outright and must bring its own transcript — the configured one describes a
 different recording, so it is not inherited — and a recording passed without
-one is rejected before the job is queued.
+one is rejected before the job is queued.  `reload()` applies the same rule,
+and is checked before anything is written, so a refused reload leaves the
+model on the voice it already had.
 
 The engine caches the codes for the most recent reference, so repeating one
 across calls skips the encoder.  Per-call fields also ride on the

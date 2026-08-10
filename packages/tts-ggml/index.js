@@ -1449,8 +1449,8 @@ class TTSGgml {
         return parameters;
     }
     _buildAudio8Params() {
-        // Re-checked here (not only in the constructor) so reload({...}) cannot
-        // smuggle in a half-specified voice.
+        // Backstop for callers that reach the params build by another route than
+        // the constructor or _applyAudio8Reload, both of which check first.
         this._assertAudio8VoiceConsistent({
             referenceAudio: this._referenceAudio,
             referenceText: this._referenceText,
@@ -1766,20 +1766,27 @@ class TTSGgml {
         await this._requireAddon().activate();
     }
     /**
-     * Audio8 voice + sampling knobs are reloadable; they rebuild the engine's
-     * sampler and speaker history. _buildAudio8Params re-validates, so a
-     * half-specified voice still throws.
+     * The voice a reload lands on. Same rule as _mergeAudio8Voice and
+     * Audio8Model::resolveVoice: a new recording replaces both halves, because
+     * the configured transcript describes the recording being replaced. Reload
+     * reads `undefined` as "not supplied", so an explicit empty string reaches
+     * the guard instead of being ignored.
      */
-    _applyAudio8Reload(newConfig) {
-        if (this._engineType !== ENGINE_AUDIO8)
-            return;
-        const config = newConfig;
+    _mergeAudio8ReloadVoice(config) {
         if (config.referenceAudio !== undefined) {
-            this._referenceAudio = config.referenceAudio;
+            return {
+                referenceAudio: config.referenceAudio,
+                referenceText: config.referenceText,
+            };
         }
-        if (config.referenceText !== undefined) {
-            this._referenceText = config.referenceText;
-        }
+        return {
+            referenceAudio: this._referenceAudio,
+            referenceText: config.referenceText !== undefined
+                ? config.referenceText
+                : this._referenceText,
+        };
+    }
+    _applyAudio8Sampling(config) {
         if (config.greedy !== undefined)
             this._greedy = config.greedy;
         if (config.temperature !== undefined) {
@@ -1796,6 +1803,22 @@ class TTSGgml {
             this._seed = config.seed;
         if (config.threads !== undefined)
             this._threads = config.threads;
+    }
+    /**
+     * Audio8 voice + sampling knobs are reloadable; they rebuild the engine's
+     * sampler and speaker history. The merged voice is checked before anything
+     * is written, so a rejected reload leaves the instance on its old voice
+     * rather than on the one that was refused.
+     */
+    _applyAudio8Reload(newConfig) {
+        if (this._engineType !== ENGINE_AUDIO8)
+            return;
+        const config = newConfig;
+        const voice = this._mergeAudio8ReloadVoice(config);
+        this._assertAudio8VoiceConsistent(voice, "reload");
+        this._referenceAudio = voice.referenceAudio;
+        this._referenceText = voice.referenceText;
+        this._applyAudio8Sampling(config);
     }
     static getModelKey(_params) {
         void _params;

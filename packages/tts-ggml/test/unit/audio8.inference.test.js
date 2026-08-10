@@ -385,3 +385,54 @@ test('Audio8: reload merges the voice and the sampling knobs', async (t) => {
   )
   await model.unload()
 })
+
+function clonedAudio8Model() {
+  return createMockedAudio8Model({
+    files: { audio8Lm: LM, audio8CodecDecoder: DECODER, audio8CodecEncoder: ENCODER },
+    extra: { referenceAudio: '/abs/alice.wav', referenceText: 'Alice says this.' }
+  })
+}
+
+test('Audio8: reload will not put a new recording on the old transcript', async (t) => {
+  const model = clonedAudio8Model()
+  await model.load()
+
+  await t.exception(
+    model.reload({ referenceAudio: '/abs/bob.wav' }),
+    /referenceText/,
+    'a new recording has to bring its own transcript'
+  )
+
+  const params = model._buildTtsParams()
+  t.is(params.referenceAudio, '/abs/alice.wav', 'the refused reload kept the old recording')
+  t.is(params.referenceText, 'Alice says this.', 'and the transcript that goes with it')
+  await model.unload()
+})
+
+test('Audio8: a refused reload leaves the voice where it was', async (t) => {
+  const model = clonedAudio8Model()
+  await model.load()
+
+  await t.exception(
+    model.reload({ referenceText: '' }),
+    /referenceText/,
+    'an empty transcript is refused'
+  )
+
+  const params = model._buildTtsParams()
+  t.is(params.referenceText, 'Alice says this.', 'the transcript is not left blanked')
+  t.is(params.referenceAudio, '/abs/alice.wav', 'and the recording is untouched')
+  await model.unload()
+})
+
+test('Audio8: reload can correct the transcript on its own', async (t) => {
+  const model = clonedAudio8Model()
+  await model.load()
+
+  await model.reload({ referenceText: 'Alice really says this.' })
+
+  const params = model._buildTtsParams()
+  t.is(params.referenceAudio, '/abs/alice.wav', 'the recording stays')
+  t.is(params.referenceText, 'Alice really says this.', 'the transcript is corrected')
+  await model.unload()
+})
