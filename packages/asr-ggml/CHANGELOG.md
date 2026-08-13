@@ -23,6 +23,7 @@ restarts at `0.1.0`; the two pre-merge histories are preserved verbatim as
 
 - Recognize the native engine's new `parakeet.model.type = "rnnt"` metadata as
   standard Parakeet ASR.
+- Require `speech-cpp` 2026-08-13 for native Unified RNN-T inference.
 
 ## [0.3.0] - 2026-08-12
 
