@@ -189,9 +189,9 @@ The three underlying scripts are also flag-driven if you want to run them separa
 
 ```
 setup-venv.sh      [--python <bin>] [--venv <path>] [--force] [--help]
-download-models.sh [--type ctc|tdt|eou|sortformer|sortformer-streaming-v2.1|all]
+download-models.sh [--type ctc|tdt|unified|eou|sortformer|sortformer-streaming-v2.1|all]
                    [--output <dir>] [--force] [--help]
-convert-nemo.sh    [--type ctc|tdt|eou|sortformer|sortformer-streaming-v2.1|all]
+convert-nemo.sh    [--type ctc|tdt|unified|eou|sortformer|sortformer-streaming-v2.1|all]
                    [--quant f16|q8_0|q5_0|q4_0|f32]
                    [--python <bin>]
                    [--nemo-dir <dir>] [--output <dir>] [--force] [--help]

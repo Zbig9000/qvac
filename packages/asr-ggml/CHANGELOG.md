@@ -12,6 +12,18 @@ restarts at `0.1.0`; the two pre-merge histories are preserved verbatim as
 [`docs/WHISPER-CHANGELOG.md`](docs/WHISPER-CHANGELOG.md) and
 [`docs/PARAKEET-CHANGELOG.md`](docs/PARAKEET-CHANGELOG.md).
 
+## [Unreleased]
+
+### Added
+
+- Add NVIDIA `parakeet-unified-en-0.6b` RNN-T support for CPU and GPU
+  transcription, model staging, conversion, examples, and performance coverage.
+
+### Changed
+
+- Recognize the native engine's new `parakeet.model.type = "rnnt"` metadata as
+  standard Parakeet ASR.
+
 ## [0.3.0] - 2026-08-12
 
 ### Added

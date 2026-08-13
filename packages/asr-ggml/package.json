@@ -62,6 +62,7 @@
     "example:whisper:streaming-vad": "bare examples/example.streaming-vad.js",
     "example:whisper:mic": "bare examples/example.mic-conversation.js",
     "example:parakeet": "bare examples/parakeet-transcribe.js",
+    "example:parakeet:unified": "bare examples/parakeet-unified-transcribe.js",
     "example:parakeet:diarize": "bare examples/parakeet-diarized-transcribe.js",
     "example:parakeet:mic": "bare examples/parakeet-live-mic.js",
     "example:parakeet:mic-diarize": "bare examples/parakeet-live-mic-diarized.js",

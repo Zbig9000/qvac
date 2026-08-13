@@ -33,7 +33,7 @@ const WhisperInferenceArgsSchema = z.object({
 // ---------------------------------------------------------------------------
 
 const ParakeetConfigSchema = z.object({
-  modelType: z.enum(['tdt', 'ctc', 'eou', 'sortformer']).optional().default('tdt'),
+  modelType: z.enum(['tdt', 'unified', 'ctc', 'eou', 'sortformer']).optional().default('tdt'),
   maxThreads: z.number().int().positive().optional().default(4),
   useGPU: z.boolean().optional().default(false),
   captionEnabled: z.boolean().optional().default(false),

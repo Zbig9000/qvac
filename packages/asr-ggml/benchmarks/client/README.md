@@ -131,7 +131,7 @@ carries `model_type`, `max_threads`, `use_gpu`, `caption_enabled`,
   `streaming_chunk_size`
 
 - **Model (parakeet)**: `path` (`.gguf` file), `sample_rate`, `audio_format`,
-  `model_type` (`tdt`/`ctc`/`eou`/`sortformer`), `max_threads`, `use_gpu`,
+  `model_type` (`tdt`/`unified`/`ctc`/`eou`/`sortformer`), `max_threads`, `use_gpu`,
   `caption_enabled`, `timestamps_enabled`, `streaming`,
   `streaming_chunk_size`
 
