@@ -74,3 +74,43 @@ test('desktop benchmark coverage mirrors every TDT quant and GPU policy', () => 
     ]
   )
 })
+
+test('desktop benchmark coverage preserves distinct TDT configurations', () => {
+  const entries = [
+    {
+      engine: 'parakeet',
+      modelType: 'tdt',
+      quant: 'q8_0',
+      useGPU: false,
+      maxThreads: 2
+    },
+    {
+      engine: 'parakeet',
+      modelType: 'tdt',
+      quant: 'q8_0',
+      useGPU: false,
+      maxThreads: 4
+    },
+    {
+      engine: 'parakeet',
+      modelType: 'unified',
+      quant: 'q8_0',
+      useGPU: false,
+      maxThreads: 2
+    }
+  ]
+
+  assert.deepEqual(
+    addUnifiedCoverage(entries).filter((entry) => entry.modelType === 'unified'),
+    [
+      entries[2],
+      {
+        engine: 'parakeet',
+        modelType: 'unified',
+        quant: 'q8_0',
+        useGPU: false,
+        maxThreads: 4
+      }
+    ]
+  )
+})

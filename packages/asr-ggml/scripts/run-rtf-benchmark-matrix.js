@@ -24,6 +24,7 @@
 const fs = require('fs')
 const path = require('path')
 const { spawnSync } = require('child_process')
+const { isDeepStrictEqual } = require('util')
 
 const RESULTS_DIR = path.resolve(__dirname, '..', 'benchmarks', 'results')
 
@@ -71,13 +72,13 @@ function parseJsonArray (raw, envName) {
   return parsed
 }
 
+function buildUnifiedEntry (tdtEntry) {
+  return { ...tdtEntry, modelType: 'unified' }
+}
+
 function hasMatchingUnifiedEntry (entries, tdtEntry) {
-  return entries.some(entry =>
-    entry.engine === 'parakeet' &&
-    entry.modelType === 'unified' &&
-    entry.quant === tdtEntry.quant &&
-    normalizeBoolean(entry.useGPU) === normalizeBoolean(tdtEntry.useGPU)
-  )
+  const expected = buildUnifiedEntry(tdtEntry)
+  return entries.some(entry => isDeepStrictEqual(entry, expected))
 }
 
 function addUnifiedCoverage (entries) {
@@ -88,7 +89,7 @@ function addUnifiedCoverage (entries) {
       entry.modelType === 'tdt' &&
       !hasMatchingUnifiedEntry(expanded, entry)
     ) {
-      expanded.push({ ...entry, modelType: 'unified' })
+      expanded.push(buildUnifiedEntry(entry))
     }
   }
   return expanded
