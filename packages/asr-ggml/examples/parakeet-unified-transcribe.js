@@ -4,7 +4,7 @@
 const path = require('bare-path')
 const process = require('bare-process')
 const ASRGgml = require('../index.js')
-const { parseWavFile, printResults, validatePaths } = require('./utils.js')
+const { parseWavFile, printResults, validatePaths } = require('./parakeet-utils.js')
 
 const DEFAULT_MODEL = 'models/parakeet-unified-en-0.6b.q8_0.gguf'
 const DEFAULT_AUDIO = 'examples/samples/sample-16k.wav'

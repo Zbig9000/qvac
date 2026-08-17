@@ -46,11 +46,11 @@ const ENGINES = {
   }
 }
 
-function getNpmCommand () {
+function getNpmCommand() {
   return process.platform === 'win32' ? 'npm.cmd' : 'npm'
 }
 
-function getSpawnOptions (pkgDir, env) {
+function getSpawnOptions(pkgDir, env) {
   const options = {
     cwd: pkgDir,
     env,
@@ -64,7 +64,7 @@ function getSpawnOptions (pkgDir, env) {
   return options
 }
 
-function parseJsonArray (raw, envName) {
+function parseJsonArray(raw, envName) {
   const parsed = JSON.parse(raw)
   if (!Array.isArray(parsed) || parsed.length === 0) {
     throw new Error(`${envName} must be a non-empty JSON array`)
@@ -72,16 +72,16 @@ function parseJsonArray (raw, envName) {
   return parsed
 }
 
-function buildUnifiedEntry (tdtEntry) {
+function buildUnifiedEntry(tdtEntry) {
   return { ...tdtEntry, modelType: 'unified' }
 }
 
-function hasMatchingUnifiedEntry (entries, tdtEntry) {
+function hasMatchingUnifiedEntry(entries, tdtEntry) {
   const expected = buildUnifiedEntry(tdtEntry)
   return entries.some(entry => isDeepStrictEqual(entry, expected))
 }
 
-function addUnifiedCoverage (entries) {
+function addUnifiedCoverage(entries) {
   const expanded = [...entries]
   for (const entry of entries) {
     if (
@@ -95,13 +95,13 @@ function addUnifiedCoverage (entries) {
   return expanded
 }
 
-function extendConfiguredMatrix (entries) {
+function extendConfiguredMatrix(entries) {
   return normalizeBoolean(process.env.QVAC_PARAKEET_ADD_UNIFIED_COVERAGE)
     ? addUnifiedCoverage(entries)
     : entries
 }
 
-function parseMatrixConfig () {
+function parseMatrixConfig() {
   const unified = process.env.QVAC_ASR_GGML_BENCHMARK_MATRIX_JSON
   if (unified) {
     return extendConfiguredMatrix(
@@ -131,19 +131,21 @@ function parseMatrixConfig () {
   return [ENGINES.whisper.defaultEntry, ...ENGINES.parakeet.defaultEntries]
 }
 
-function normalizeBoolean (value) {
+function normalizeBoolean(value) {
   return value === true || value === 'true' || value === '1'
 }
 
-function resolveEngine (entry, index) {
+function resolveEngine(entry, index) {
   const engine = entry.engine || (entry.modelType ? 'parakeet' : 'whisper')
   if (!ENGINES[engine]) {
-    throw new Error(`Matrix entry ${index + 1} has unknown engine "${engine}" (expected whisper|parakeet)`)
+    throw new Error(
+      `Matrix entry ${index + 1} has unknown engine "${engine}" (expected whisper|parakeet)`
+    )
   }
   return engine
 }
 
-function buildLabel (engine, entry, index) {
+function buildLabel(engine, entry, index) {
   if (entry.label) return String(entry.label)
   const gpuTag = normalizeBoolean(entry.useGPU) ? 'gpu' : 'cpu'
   if (engine === 'parakeet') {
@@ -154,19 +156,29 @@ function buildLabel (engine, entry, index) {
   return `${index + 1}-${model}-${gpuTag}`
 }
 
-function setIfDefined (env, key, value) {
+function setIfDefined(env, key, value) {
   if (value !== undefined) env[key] = String(value)
 }
 
-function buildWhisperEnv (entry, label) {
+function buildWhisperEnv(entry, label) {
   const env = {
     ...process.env,
     QVAC_WHISPER_BENCHMARK_MODEL_FILE: String(entry.modelFile || 'ggml-tiny.bin'),
     QVAC_WHISPER_BENCHMARK_USE_GPU: normalizeBoolean(entry.useGPU) ? 'true' : 'false',
     QVAC_WHISPER_BENCHMARK_LABEL: label,
-    QVAC_WHISPER_BENCHMARK_BACKEND: entry.backendHint ? String(entry.backendHint) : (process.env.QVAC_WHISPER_BENCHMARK_BACKEND || ''),
-    QVAC_WHISPER_BENCHMARK_DEVICE: entry.deviceLabel ? String(entry.deviceLabel) : (process.env.QVAC_ASR_GGML_BENCHMARK_DEVICE || process.env.QVAC_WHISPER_BENCHMARK_DEVICE || ''),
-    QVAC_WHISPER_BENCHMARK_RUNNER: entry.runnerLabel ? String(entry.runnerLabel) : (process.env.QVAC_ASR_GGML_BENCHMARK_RUNNER || process.env.QVAC_WHISPER_BENCHMARK_RUNNER || '')
+    QVAC_WHISPER_BENCHMARK_BACKEND: entry.backendHint
+      ? String(entry.backendHint)
+      : process.env.QVAC_WHISPER_BENCHMARK_BACKEND || '',
+    QVAC_WHISPER_BENCHMARK_DEVICE: entry.deviceLabel
+      ? String(entry.deviceLabel)
+      : process.env.QVAC_ASR_GGML_BENCHMARK_DEVICE ||
+        process.env.QVAC_WHISPER_BENCHMARK_DEVICE ||
+        '',
+    QVAC_WHISPER_BENCHMARK_RUNNER: entry.runnerLabel
+      ? String(entry.runnerLabel)
+      : process.env.QVAC_ASR_GGML_BENCHMARK_RUNNER ||
+        process.env.QVAC_WHISPER_BENCHMARK_RUNNER ||
+        ''
   }
 
   setIfDefined(env, 'QVAC_WHISPER_BENCHMARK_THREADS', entry.threads)
@@ -178,16 +190,28 @@ function buildWhisperEnv (entry, label) {
   return env
 }
 
-function buildParakeetEnv (entry, label) {
+function buildParakeetEnv(entry, label) {
   const env = {
     ...process.env,
     QVAC_PARAKEET_BENCHMARK_MODEL_TYPE: String(entry.modelType || 'tdt'),
-    QVAC_PARAKEET_BENCHMARK_QUANT: entry.quant ? String(entry.quant) : (process.env.QVAC_PARAKEET_BENCHMARK_QUANT || ''),
+    QVAC_PARAKEET_BENCHMARK_QUANT: entry.quant
+      ? String(entry.quant)
+      : process.env.QVAC_PARAKEET_BENCHMARK_QUANT || '',
     QVAC_PARAKEET_BENCHMARK_USE_GPU: normalizeBoolean(entry.useGPU) ? 'true' : 'false',
     QVAC_PARAKEET_BENCHMARK_LABEL: label,
-    QVAC_PARAKEET_BENCHMARK_BACKEND: entry.backendHint ? String(entry.backendHint) : (process.env.QVAC_PARAKEET_BENCHMARK_BACKEND || ''),
-    QVAC_PARAKEET_BENCHMARK_DEVICE: entry.deviceLabel ? String(entry.deviceLabel) : (process.env.QVAC_ASR_GGML_BENCHMARK_DEVICE || process.env.QVAC_PARAKEET_BENCHMARK_DEVICE || ''),
-    QVAC_PARAKEET_BENCHMARK_RUNNER: entry.runnerLabel ? String(entry.runnerLabel) : (process.env.QVAC_ASR_GGML_BENCHMARK_RUNNER || process.env.QVAC_PARAKEET_BENCHMARK_RUNNER || '')
+    QVAC_PARAKEET_BENCHMARK_BACKEND: entry.backendHint
+      ? String(entry.backendHint)
+      : process.env.QVAC_PARAKEET_BENCHMARK_BACKEND || '',
+    QVAC_PARAKEET_BENCHMARK_DEVICE: entry.deviceLabel
+      ? String(entry.deviceLabel)
+      : process.env.QVAC_ASR_GGML_BENCHMARK_DEVICE ||
+        process.env.QVAC_PARAKEET_BENCHMARK_DEVICE ||
+        '',
+    QVAC_PARAKEET_BENCHMARK_RUNNER: entry.runnerLabel
+      ? String(entry.runnerLabel)
+      : process.env.QVAC_ASR_GGML_BENCHMARK_RUNNER ||
+        process.env.QVAC_PARAKEET_BENCHMARK_RUNNER ||
+        ''
   }
 
   setIfDefined(env, 'QVAC_PARAKEET_BENCHMARK_THREADS', entry.maxThreads)
@@ -198,7 +222,7 @@ function buildParakeetEnv (entry, label) {
   return env
 }
 
-function listReportFiles () {
+function listReportFiles() {
   try {
     return new Set(
       fs.readdirSync(RESULTS_DIR).filter((name) => /^rtf-benchmark-.*\.json$/.test(name))
@@ -211,7 +235,7 @@ function listReportFiles () {
 // Stamp `engine` into every report file the entry just produced (unless the
 // benchmark already wrote one). Best-effort: a malformed report is left alone
 // for the aggregator's shape-based fallback.
-function stampEngine (engine, before) {
+function stampEngine(engine, before) {
   for (const name of listReportFiles()) {
     if (before.has(name)) continue
     const filePath = path.join(RESULTS_DIR, name)
@@ -227,7 +251,7 @@ function stampEngine (engine, before) {
   }
 }
 
-function runBenchmarkEntry (pkgDir, entry, index) {
+function runBenchmarkEntry(pkgDir, entry, index) {
   const engine = resolveEngine(entry, index)
   const label = buildLabel(engine, entry, index)
   const env = engine === 'parakeet' ? buildParakeetEnv(entry, label) : buildWhisperEnv(entry, label)
@@ -252,11 +276,7 @@ function runBenchmarkEntry (pkgDir, entry, index) {
 
   const before = listReportFiles()
 
-  const result = spawnSync(
-    getNpmCommand(),
-    ['run', npmScript],
-    getSpawnOptions(pkgDir, env)
-  )
+  const result = spawnSync(getNpmCommand(), ['run', npmScript], getSpawnOptions(pkgDir, env))
 
   stampEngine(engine, before)
 
@@ -269,7 +289,7 @@ function runBenchmarkEntry (pkgDir, entry, index) {
   }
 }
 
-function main () {
+function main() {
   const pkgDir = path.resolve(__dirname, '..')
   const matrix = parseMatrixConfig()
   const failures = []
@@ -284,7 +304,9 @@ function main () {
   }
 
   console.log('')
-  console.log(`Completed ${matrix.length - failures.length}/${matrix.length} benchmark configuration(s).`)
+  console.log(
+    `Completed ${matrix.length - failures.length}/${matrix.length} benchmark configuration(s).`
+  )
 
   if (failures.length > 0) {
     console.log(`${failures.length} failure(s):`)
