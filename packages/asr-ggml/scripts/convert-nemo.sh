@@ -32,7 +32,7 @@
 #   --help, -h                                  Show this help
 #
 # Examples:
-#   ./scripts/convert-nemo.sh                          # all 4, q8_0
+#   ./scripts/convert-nemo.sh                          # all models, q8_0
 #   ./scripts/convert-nemo.sh -t tdt -q q4_0           # TDT q4_0 only
 #   ./scripts/convert-nemo.sh --python /usr/local/bin/python3.11
 

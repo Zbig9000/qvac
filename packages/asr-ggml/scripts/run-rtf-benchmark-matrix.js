@@ -78,7 +78,7 @@ function buildUnifiedEntry(tdtEntry) {
 
 function hasMatchingUnifiedEntry(entries, tdtEntry) {
   const expected = buildUnifiedEntry(tdtEntry)
-  return entries.some(entry => isDeepStrictEqual(entry, expected))
+  return entries.some((entry) => isDeepStrictEqual(entry, expected))
 }
 
 function addUnifiedCoverage(entries) {
@@ -104,9 +104,7 @@ function extendConfiguredMatrix(entries) {
 function parseMatrixConfig() {
   const unified = process.env.QVAC_ASR_GGML_BENCHMARK_MATRIX_JSON
   if (unified) {
-    return extendConfiguredMatrix(
-      parseJsonArray(unified, 'QVAC_ASR_GGML_BENCHMARK_MATRIX_JSON')
-    )
+    return extendConfiguredMatrix(parseJsonArray(unified, 'QVAC_ASR_GGML_BENCHMARK_MATRIX_JSON'))
   }
 
   // Legacy per-engine env vars (engine implied).
