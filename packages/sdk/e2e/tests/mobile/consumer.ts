@@ -1,9 +1,10 @@
 import { Platform } from 'react-native'
-import { createExecutor, SkipExecutor } from '@tetherto/qvac-test-suite/mobile'
-import type { TestDefinition } from '@tetherto/qvac-test-suite'
+import { createExecutor, SkipExecutor } from '@qvac/qvac-test-suite/mobile'
+import type { TestDefinition } from '@qvac/qvac-test-suite'
 import {
   profiler,
   LLAMA_3_2_1B_INST_Q4_0,
+  LLAMA_3_2_1B_INST_Q4_0_SHARD,
   GTE_LARGE_FP16,
   GTE_LARGE_335M_FP16_SHARD,
   WHISPER_TINY,
@@ -180,6 +181,13 @@ resources.define('echo', {
 resources.define('sharded-embeddings', {
   constant: GTE_LARGE_335M_FP16_SHARD,
   type: 'llamacpp-embedding',
+  skipPreDownload: true
+})
+
+resources.define('sharded-llm', {
+  constant: LLAMA_3_2_1B_INST_Q4_0_SHARD,
+  type: 'llamacpp-completion',
+  config: { verbosity: 0, ctx_size: 2048, n_discarded: 256 },
   skipPreDownload: true
 })
 
@@ -528,6 +536,10 @@ export const executor = createExecutor({
       'SD v2.1 1B Q8_0 cold-load is too heavy for Device Farm devices (OOM, 3+GB)'
     ),
     new SkipExecutor(
+      /^audio-gen-/,
+      'ACE-Step AudioGen uses four large GGUFs and is covered by desktop e2e'
+    ),
+    new SkipExecutor(
       /^vla-pi05-/,
       'π₀.₅ q_aggressive GGUF (3.9 GB) exceeds the iOS jetsam ~3 GB per-process limit (OOM) and is deferred on Android Device Farm until a CDN-fronted mirror exists; SmolVLA covers mobile VLA, desktop covers pi05'
     ),
@@ -536,6 +548,10 @@ export const executor = createExecutor({
       'Server-side Bare code path, identical across platforms — desktop coverage is source of truth'
     ),
     new SkipExecutor(/^bci-/, 'BCI addon tests are desktop-only until mobile support is enabled'),
+    new SkipExecutor(
+      /^parakeet-indic-conformer-/,
+      'Indic Conformer e2e is desktop-only; the parakeet-indic-conformer resource is not defined on mobile'
+    ),
     new SkipExecutor(
       /^vla-groot-/,
       'GR00T e2e is desktop-only; the vla-groot resource is not defined on mobile'

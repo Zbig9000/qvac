@@ -1,5 +1,5 @@
 // Completion test definitions
-import type { TestDefinition } from '@tetherto/qvac-test-suite'
+import type { TestDefinition } from '@qvac/qvac-test-suite'
 
 interface GenerationParams {
   temp?: number
@@ -246,11 +246,16 @@ export const completionFrequencyPenalty10 = createCompletionTest(
 export const completionPresencePenalty = createCompletionTest(
   'completion-presence-penalty',
   {
-    history: [{ role: 'user', content: 'What is 14+14? Answer with just the number.' }],
+    history: [
+      {
+        role: 'user',
+        content: 'What is frozen water called? Answer with one word.'
+      }
+    ],
     stream: false,
     generationParams: { ...DETERMINISTIC, presence_penalty: 1.0 }
   },
-  { validation: 'contains-all', contains: ['28'] },
+  { validation: 'contains-all', contains: ['ice'] },
   { estimatedDurationMs: 8000 }
 )
 

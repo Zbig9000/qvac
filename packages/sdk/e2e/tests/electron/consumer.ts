@@ -11,10 +11,11 @@ import {
   logMqttConnectionSecurity,
   startNodeMemoryPoller,
   type TestDefinition
-} from '@tetherto/qvac-test-suite'
+} from '@qvac/qvac-test-suite'
 import {
   profiler,
   LLAMA_3_2_1B_INST_Q4_0,
+  LLAMA_3_2_1B_INST_Q4_0_SHARD,
   GTE_LARGE_FP16,
   GTE_LARGE_335M_FP16_SHARD,
   WHISPER_TINY,
@@ -39,6 +40,7 @@ import {
   TTS_DENOISER_LAVASR_FP16,
   PARAKEET_TDT_0_6B_V3_Q4_0,
   PARAKEET_CTC_0_6B_Q4_0,
+  PARAKEET_INDIC_CONFORMER_CTC_Q4_0,
   PARAKEET_SORTFORMER_4SPK_V2_1_Q4_0,
   PARAKEET_EOU_120M_V1_Q4_0,
   SMOLVLM2_500M_MULTIMODAL_Q8_0,
@@ -197,6 +199,13 @@ resources.define('echo', {
 resources.define('sharded-embeddings', {
   constant: GTE_LARGE_335M_FP16_SHARD,
   type: 'llamacpp-embedding',
+  skipPreDownload: true
+})
+
+resources.define('sharded-llm', {
+  constant: LLAMA_3_2_1B_INST_Q4_0_SHARD,
+  type: 'llamacpp-completion',
+  config: { verbosity: 0, ctx_size: 2048, n_discarded: 256 },
   skipPreDownload: true
 })
 
@@ -361,6 +370,12 @@ resources.define('parakeet-ctc', {
   config: {}
 })
 
+resources.define('parakeet-indic-conformer', {
+  constant: PARAKEET_INDIC_CONFORMER_CTC_Q4_0,
+  type: 'parakeet-transcription',
+  config: { language: 'hi' }
+})
+
 resources.define('parakeet-sortformer', {
   constant: PARAKEET_SORTFORMER_4SPK_V2_1_Q4_0,
   type: 'parakeet-transcription',
@@ -476,6 +491,10 @@ export const executor = createExecutor({
     new SkipExecutor(
       /^(diffusion-|addon-logging-diffusion$)/,
       'Electron skips diffusion tests because image generation takes too long for the stable Electron pass'
+    ),
+    new SkipExecutor(
+      /^audio-gen-/,
+      'AudioGen e2e is desktop-only because ACE-Step generation is too heavy for the stable Electron pass'
     ),
     new SkipExecutor(
       /^delegated-/,
