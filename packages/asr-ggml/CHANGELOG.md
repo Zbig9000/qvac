@@ -14,15 +14,6 @@ restarts at `0.1.0`; the two pre-merge histories are preserved verbatim as
 
 ## [Unreleased]
 
-### Fixed
-
-- Publish a dependency-clean Whisper quickstart with positional audio, model,
-  and VAD model arguments.
-- Correct public documentation for Whisper VAD naming, engine-specific status
-  codes, the `speech-cpp` umbrella dependency, and backend device value types.
-
-## [Unreleased]
-
 ### Added
 
 - Add NVIDIA `parakeet-unified-en-0.6b` RNN-T support for CPU and GPU
@@ -33,6 +24,13 @@ restarts at `0.1.0`; the two pre-merge histories are preserved verbatim as
 - Recognize the native engine's new `parakeet.model.type = "rnnt"` metadata as
   standard Parakeet ASR.
 - Require `speech-cpp` 2026-08-14 for native Unified RNN-T inference.
+
+### Fixed
+
+- Publish a dependency-clean Whisper quickstart with positional audio, model,
+  and VAD model arguments.
+- Correct public documentation for Whisper VAD naming, engine-specific status
+  codes, the `speech-cpp` umbrella dependency, and backend device value types.
 
 ## [0.3.0] - 2026-08-12
 

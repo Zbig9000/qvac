@@ -59,6 +59,13 @@ test('mobile model mappings stage unified CPU and GPU quant sweeps', () => {
   }
 })
 
+test('duplex streaming stages TDT and Unified models', () => {
+  assert.deepEqual(
+    TEST_MODELS.runParakeetDuplexStreamingTest.map((entry) => entry.name),
+    [MOBILE_MODELS.tdtQ4.name, MOBILE_MODELS.unifiedQ4.name]
+  )
+})
+
 test('desktop benchmark coverage mirrors every TDT quant and GPU policy', () => {
   const entries = [
     { engine: 'parakeet', modelType: 'tdt', quant: 'f16', useGPU: false },

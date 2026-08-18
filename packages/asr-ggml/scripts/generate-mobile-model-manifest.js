@@ -67,7 +67,7 @@ const TEST_MODELS = {
   runParakeetColdStartTimingTest: [MODELS.tdtQ4],
   runParakeetCorruptedModelTest: [],
   runParakeetDuplexStreamingEouTest: [MODELS.eouQ4],
-  runParakeetDuplexStreamingTest: [MODELS.tdtQ4],
+  runParakeetDuplexStreamingTest: [MODELS.tdtQ4, MODELS.unifiedQ4],
   runParakeetEouStreamingTest: [MODELS.eouQ4],
   runParakeetGpuSmokeTest: [MODELS.tdtQ4, MODELS.unifiedQ4],
   runParakeetLiveStreamSimulationTest: [MODELS.tdtQ4],
