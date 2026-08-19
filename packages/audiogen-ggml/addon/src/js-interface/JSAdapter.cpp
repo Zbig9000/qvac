@@ -43,8 +43,7 @@ std::optional<T> readOptionalNumber(
       std::string("Property '") + key + "' must be a number or numeric string");
 }
 
-std::string readOptionalString(
-    js::Object obj, js_env_t* env, const char* key) {
+std::string readOptionalString(js::Object obj, js_env_t* env, const char* key) {
   auto v = obj.getOptionalPropertyAs<js::String, std::string>(env, key);
   return v.value_or(std::string{});
 }
@@ -62,17 +61,25 @@ std::string readOptionalString(
 
 int readRequiredInt(js::Object obj, js_env_t* env, const char* key) {
   auto v = readOptionalNumber<int>(
-      obj, env, key, [](const std::string& s) { return std::stoi(s); },
+      obj,
+      env,
+      key,
+      [](const std::string& s) { return std::stoi(s); },
       "an integer");
-  if (!v.has_value()) throwMissing(key);
+  if (!v.has_value())
+    throwMissing(key);
   return *v;
 }
 
 float readRequiredFloat(js::Object obj, js_env_t* env, const char* key) {
   auto v = readOptionalNumber<float>(
-      obj, env, key, [](const std::string& s) { return std::stof(s); },
+      obj,
+      env,
+      key,
+      [](const std::string& s) { return std::stof(s); },
       "a number");
-  if (!v.has_value()) throwMissing(key);
+  if (!v.has_value())
+    throwMissing(key);
   return *v;
 }
 
@@ -92,10 +99,10 @@ bool readRequiredBool(js::Object obj, js_env_t* env, const char* key) {
   return js::Boolean{env, raw}.as<bool>(env);
 }
 
-}  // namespace
+} // namespace
 
-EngineType JSAdapter::readEngineType(
-    js::Object configurationParams, js_env_t* env) {
+EngineType
+JSAdapter::readEngineType(js::Object configurationParams, js_env_t* env) {
   const std::string engineType =
       readOptionalString(configurationParams, env, "engineType");
   if (engineType.empty() || engineType == "acestep") {
@@ -109,16 +116,19 @@ EngineType JSAdapter::readEngineType(
       "engineType must be 'acestep' or 'minimax' (got '" + engineType + "')");
 }
 
-acestep::AcestepConfig JSAdapter::buildAcestepConfig(
-    js::Object configurationParams, js_env_t* env) {
+acestep::AcestepConfig
+JSAdapter::buildAcestepConfig(js::Object configurationParams, js_env_t* env) {
   acestep::AcestepConfig cfg;
   cfg.modelDir = readOptionalString(configurationParams, env, "modelDir");
   cfg.textEncModelPath =
       readOptionalString(configurationParams, env, "textEncModelPath");
   cfg.lmModelPath = readOptionalString(configurationParams, env, "lmModelPath");
-  cfg.ditModelPath = readOptionalString(configurationParams, env, "ditModelPath");
-  cfg.vaeModelPath = readOptionalString(configurationParams, env, "vaeModelPath");
-  cfg.inferenceSteps = readRequiredInt(configurationParams, env, "inferenceSteps");
+  cfg.ditModelPath =
+      readOptionalString(configurationParams, env, "ditModelPath");
+  cfg.vaeModelPath =
+      readOptionalString(configurationParams, env, "vaeModelPath");
+  cfg.inferenceSteps =
+      readRequiredInt(configurationParams, env, "inferenceSteps");
   cfg.shift = readRequiredFloat(configurationParams, env, "shift");
   cfg.threads = readRequiredInt(configurationParams, env, "threads");
   cfg.useGpu = readRequiredBool(configurationParams, env, "useGPU");
@@ -130,18 +140,16 @@ acestep::AcestepConfig JSAdapter::buildAcestepConfig(
   return cfg;
 }
 
-minimax::MinimaxConfig JSAdapter::buildMinimaxConfig(
-    js::Object configurationParams, js_env_t* env) {
+minimax::MinimaxConfig
+JSAdapter::buildMinimaxConfig(js::Object configurationParams, js_env_t* env) {
   minimax::MinimaxConfig cfg;
   cfg.modelDir = readOptionalString(configurationParams, env, "modelDir");
-  cfg.lmModelPath =
-      readOptionalString(configurationParams, env, "lmModelPath");
+  cfg.lmModelPath = readOptionalString(configurationParams, env, "lmModelPath");
   cfg.synthModelPath =
       readOptionalString(configurationParams, env, "synthModelPath");
   cfg.threads = readRequiredInt(configurationParams, env, "threads");
-  cfg.backendsDir =
-      readOptionalString(configurationParams, env, "backendsDir");
+  cfg.backendsDir = readOptionalString(configurationParams, env, "backendsDir");
   return cfg;
 }
 
-}  // namespace qvac::audiogenggml
+} // namespace qvac::audiogenggml

@@ -12,4 +12,4 @@ struct MinimaxConfig {
   std::string backendsDir;
 };
 
-}
+} // namespace qvac::audiogenggml::minimax

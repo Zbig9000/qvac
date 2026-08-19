@@ -11,4 +11,4 @@ struct AudioGenProgress {
   int64_t total = 0;
 };
 
-}
+} // namespace qvac::audiogenggml

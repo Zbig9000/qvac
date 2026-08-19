@@ -52,5 +52,15 @@ test(
     } catch (error) {
       t.is(error.code, ERR_CODES.CANCELLED, 'MiniMax cancellation is terminal')
     }
+
+    const recovered = await runAudioGen(gen, {
+      caption: 'A short piano recovery note.',
+      opts: {
+        maxFrames: 1,
+        seed: 13,
+        inferenceSteps: 1
+      }
+    })
+    t.ok(recovered.data.sampleCount > 0, 'MiniMax runs after cancellation')
   }
 )

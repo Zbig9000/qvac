@@ -11,7 +11,6 @@
 
 #include "inference-addon-cpp/ModelInterfaces.hpp"
 #include "inference-addon-cpp/RuntimeStats.hpp"
-
 #include "model-interface/AudioGenProgress.hpp"
 #include "model-interface/minimax/MinimaxConfig.hpp"
 
@@ -21,7 +20,7 @@ class Engine;
 
 namespace qvac::audiogenggml::minimax {
 
-inline constexpr int64_t kDefaultMaxFrames = 300;
+inline constexpr int64_t K_DEFAULT_MAX_FRAMES = 300;
 
 class MinimaxModel
     : public qvac_lib_inference_addon_cpp::model::IModel,
@@ -33,7 +32,7 @@ public:
   struct AnyInput {
     std::string caption;
     std::string lyrics = "[Instrumental]";
-    int64_t maxFrames = kDefaultMaxFrames;
+    int64_t maxFrames = K_DEFAULT_MAX_FRAMES;
     int64_t seed = -1;
     int inferenceSteps = 0;
     float cfgScale = 0.0F;
@@ -82,4 +81,4 @@ private:
   int channels_ = 0;
 };
 
-}
+} // namespace qvac::audiogenggml::minimax

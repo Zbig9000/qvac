@@ -1,7 +1,7 @@
 #pragma once
 
-#include <js.h>
 #include <inference-addon-cpp/JsUtils.hpp>
+#include <js.h>
 
 #include "model-interface/acestep/AcestepConfig.hpp"
 #include "model-interface/minimax/MinimaxConfig.hpp"
@@ -23,4 +23,4 @@ public:
       js_env_t* env);
 };
 
-}  // namespace qvac::audiogenggml
+} // namespace qvac::audiogenggml

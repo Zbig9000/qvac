@@ -11,7 +11,6 @@
 
 #include "inference-addon-cpp/ModelInterfaces.hpp"
 #include "inference-addon-cpp/RuntimeStats.hpp"
-
 #include "model-interface/AudioGenProgress.hpp"
 #include "model-interface/acestep/AcestepConfig.hpp"
 
@@ -37,11 +36,11 @@ public:
     std::string caption;
     std::string lyrics = "[Instrumental]";
     std::string vocalLanguage;
-    long long   seed = -1;      // <0 = random (uint32 range, torch/philox parity)
-    int         bpm = 0;        // 0 => let the LM infer
-    std::string keyscale;       // optional, e.g. "C minor"
-    std::string timesignature;  // optional, e.g. "4/4"
-    float       duration = 0.0F;  // 0 => keep engine default / let LM decide
+    long long seed = -1;  // <0 = random (uint32 range, torch/philox parity)
+    int bpm = 0;          // 0 => let the LM infer
+    std::string keyscale; // optional, e.g. "C minor"
+    std::string timesignature; // optional, e.g. "4/4"
+    float duration = 0.0F;     // 0 => keep engine default / let LM decide
     float lmTemperature = 0.85F;
     float lmTopP = 0.9F;
     int lmTopK = 0;
@@ -115,10 +114,10 @@ private:
   double audioDurationMs_ = 0.0;
   int64_t totalSamples_ = 0;
   double realTimeFactor_ = 0.0;
-  int sampleRate_ = 0;  // populated from the engine result in generate()
-  int channels_ = 0;    // populated from the engine result in generate()
+  int sampleRate_ = 0; // populated from the engine result in generate()
+  int channels_ = 0;   // populated from the engine result in generate()
 
   std::string backendName_ = "CPU";
 };
 
-}  // namespace qvac::audiogenggml::acestep
+} // namespace qvac::audiogenggml::acestep

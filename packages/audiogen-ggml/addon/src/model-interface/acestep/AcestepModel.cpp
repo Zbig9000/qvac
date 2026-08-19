@@ -16,8 +16,10 @@ namespace qvac::audiogenggml::acestep {
 namespace {
 int16_t f32ToI16(float x) {
   float v = x * 32767.0F;
-  if (v > 32767.0F) v = 32767.0F;
-  if (v < -32768.0F) v = -32768.0F;
+  if (v > 32767.0F)
+    v = 32767.0F;
+  if (v < -32768.0F)
+    v = -32768.0F;
   return static_cast<int16_t>(std::lrint(v));
 }
 
@@ -43,7 +45,7 @@ int64_t backendIdFromName(const std::string& name) {
 int64_t backendDeviceFromName(const std::string& name) {
   return name == "CPU" ? BACKEND_DEVICE_CPU : BACKEND_DEVICE_GPU;
 }
-}  // namespace
+} // namespace
 
 AcestepModel::AcestepModel(AcestepConfig config) : cfg_(std::move(config)) {
   validateConfig(cfg_);
@@ -59,8 +61,9 @@ AcestepModel::~AcestepModel() noexcept {
 
 void AcestepModel::validateConfig(const AcestepConfig& cfg) {
   const bool hasDir = !cfg.modelDir.empty();
-  const bool hasExplicit = !cfg.lmModelPath.empty() && !cfg.ditModelPath.empty() &&
-                           !cfg.textEncModelPath.empty() && !cfg.vaeModelPath.empty();
+  const bool hasExplicit =
+      !cfg.lmModelPath.empty() && !cfg.ditModelPath.empty() &&
+      !cfg.textEncModelPath.empty() && !cfg.vaeModelPath.empty();
   if (!hasDir && !hasExplicit) {
     throw std::invalid_argument(
         "AcestepModel: set `modelDir` or all four explicit stage GGUF paths "
@@ -74,7 +77,8 @@ void AcestepModel::load() {
 }
 
 void AcestepModel::loadLocked() {
-  if (engine_) return;
+  if (engine_)
+    return;
 
   tts_cpp::acestep::EngineOptions opts;
   opts.models_dir = cfg_.modelDir;
@@ -86,8 +90,10 @@ void AcestepModel::loadLocked() {
   // useGpu gates offloading: when off, no layers go to the GPU regardless of
   // nGpuLayers. JS supplies both values (no C++ default).
   opts.n_gpu_layers = cfg_.useGpu ? cfg_.nGpuLayers : 0;
-  if (const char * vb = std::getenv("AUDIOGEN_VERBOSE")) {
-    opts.verbose = (vb[0] == '1' || vb[0] == 't' || vb[0] == 'T' || vb[0] == 'y' || vb[0] == 'Y');
+  if (const char* vb = std::getenv("AUDIOGEN_VERBOSE")) {
+    opts.verbose =
+        (vb[0] == '1' || vb[0] == 't' || vb[0] == 'T' || vb[0] == 'y' ||
+         vb[0] == 'Y');
   }
 
   // Compose the backends-scan directory from the host-provided prebuilds root
@@ -131,7 +137,8 @@ void AcestepModel::reload() {
 void AcestepModel::cancel() const {
   cancelRequested_.store(true);
   std::lock_guard lk(engineMu_);
-  if (engine_) engine_->cancel();
+  if (engine_)
+    engine_->cancel();
 }
 
 std::any AcestepModel::process(const std::any& input) {
@@ -147,7 +154,8 @@ AcestepModel::Output AcestepModel::generate(const AnyInput& in) {
   std::shared_ptr<tts_cpp::acestep::Engine> engine;
   {
     std::lock_guard lk(engineMu_);
-    if (!engine_) loadLocked();
+    if (!engine_)
+      loadLocked();
     engine = engine_;
   }
 
@@ -182,8 +190,10 @@ AcestepModel::Output AcestepModel::generate(const AnyInput& in) {
   params.inference_steps = cfg_.inferenceSteps;
   params.shift = cfg_.shift;
 
-  auto progress = [this](const std::string& stage, int step, int total) -> bool {
-    if (progressSink_) progressSink_(AudioGenProgress{stage, step, total});
+  auto progress =
+      [this](const std::string& stage, int step, int total) -> bool {
+    if (progressSink_)
+      progressSink_(AudioGenProgress{stage, step, total});
     return !cancelRequested_.load();
   };
 
@@ -205,7 +215,8 @@ AcestepModel::Output AcestepModel::generate(const AnyInput& in) {
   // ~-0.9 dBFS blast. kMinNormPeak ~= -60 dBFS.
   constexpr float kMinNormPeak = 1e-3F;
   float peak = 0.0F;
-  for (float s : result.pcm) peak = std::fmax(peak, std::fabs(s));
+  for (float s : result.pcm)
+    peak = std::fmax(peak, std::fabs(s));
   const float gain = peak > kMinNormPeak ? 0.9F / peak : 1.0F;
 
   Output pcm;
@@ -220,9 +231,11 @@ AcestepModel::Output AcestepModel::generate(const AnyInput& in) {
   channels_ = result.channels;
   audioDurationMs_ =
       (sampleRate_ > 0 && channels_ > 0)
-          ? (static_cast<double>(totalSamples_) / channels_ / sampleRate_) * 1000.0
+          ? (static_cast<double>(totalSamples_) / channels_ / sampleRate_) *
+                1000.0
           : 0.0;
-  realTimeFactor_ = audioDurationMs_ > 0.0 ? totalTime_ / audioDurationMs_ : 0.0;
+  realTimeFactor_ =
+      audioDurationMs_ > 0.0 ? totalTime_ / audioDurationMs_ : 0.0;
 
   jobInProgress_.store(false);
   return pcm;
@@ -242,4 +255,4 @@ qvac_lib_inference_addon_cpp::RuntimeStats AcestepModel::runtimeStats() const {
   return stats;
 }
 
-}  // namespace qvac::audiogenggml::acestep
+} // namespace qvac::audiogenggml::acestep

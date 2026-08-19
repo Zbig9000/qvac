@@ -13,19 +13,30 @@ namespace qvac::audiogenggml::minimax {
 
 namespace {
 
-constexpr float kInt16Scale = 32767.0F;
-constexpr float kInt16Minimum = -32768.0F;
-constexpr float kTargetPeak = 0.9F;
-constexpr float kMinimumNormalizationPeak = 1e-3F;
-constexpr int64_t kBackendDeviceCpu = 0;
-constexpr int64_t kBackendIdCpu = 0;
-constexpr int kStereoChannels = 2;
-constexpr double kMillisecondsPerSecond = 1000.0;
+constexpr float K_INT16_SCALE = 32767.0F;
+constexpr float K_INT16_MINIMUM = -32768.0F;
+constexpr float K_TARGET_PEAK = 0.9F;
+constexpr float K_MINIMUM_NORMALIZATION_PEAK = 1e-3F;
+constexpr int64_t K_BACKEND_DEVICE_CPU = 0;
+constexpr int64_t K_BACKEND_ID_CPU = 0;
+constexpr int K_STEREO_CHANNELS = 2;
+constexpr double K_MILLISECONDS_PER_SECOND = 1000.0;
+
+class CancellationReset {
+public:
+  explicit CancellationReset(std::atomic_bool& requested)
+      : requested_(requested) {}
+
+  ~CancellationReset() { requested_.store(false); }
+
+private:
+  std::atomic_bool& requested_;
+};
 
 int16_t f32ToI16(float sample) {
-  float value = sample * kInt16Scale;
-  value = std::fmin(value, kInt16Scale);
-  value = std::fmax(value, kInt16Minimum);
+  float value = sample * K_INT16_SCALE;
+  value = std::fmin(value, K_INT16_SCALE);
+  value = std::fmax(value, K_INT16_MINIMUM);
   return static_cast<int16_t>(std::lrint(value));
 }
 
@@ -42,7 +53,7 @@ float peakAmplitude(const std::vector<float>& pcm) {
 
 float normalizationGain(const std::vector<float>& pcm) {
   const float peak = peakAmplitude(pcm);
-  return peak > kMinimumNormalizationPeak ? kTargetPeak / peak : 1.0F;
+  return peak > K_MINIMUM_NORMALIZATION_PEAK ? K_TARGET_PEAK / peak : 1.0F;
 }
 
 MinimaxModel::Output convertPcm(const std::vector<float>& pcm) {
@@ -56,7 +67,8 @@ MinimaxModel::Output convertPcm(const std::vector<float>& pcm) {
 }
 
 std::string resolveBackendsDir(const std::string& root) {
-  if (root.empty()) return {};
+  if (root.empty())
+    return {};
   std::filesystem::path path(root);
 #ifdef BACKENDS_SUBDIR
   path = (path / std::filesystem::path(BACKENDS_SUBDIR)).lexically_normal();
@@ -64,7 +76,7 @@ std::string resolveBackendsDir(const std::string& root) {
   return path.string();
 }
 
-}
+} // namespace
 
 MinimaxModel::MinimaxModel(MinimaxConfig config) : config_(std::move(config)) {
   validateConfig(config_);
@@ -96,7 +108,8 @@ void MinimaxModel::load() {
 }
 
 void MinimaxModel::loadLocked() {
-  if (engine_) return;
+  if (engine_)
+    return;
   tts_cpp::minimax::EngineOptions options;
   options.model_dir = config_.modelDir;
   options.lm_model_path = config_.lmModelPath;
@@ -108,7 +121,7 @@ void MinimaxModel::loadLocked() {
     throw std::runtime_error("MinimaxModel: failed to create MiniMax engine");
   }
   sampleRate_ = engine_->sample_rate();
-  channels_ = kStereoChannels;
+  channels_ = K_STEREO_CHANNELS;
 }
 
 void MinimaxModel::unload() {
@@ -117,9 +130,7 @@ void MinimaxModel::unload() {
   unloadLocked();
 }
 
-void MinimaxModel::unloadLocked() {
-  engine_.reset();
-}
+void MinimaxModel::unloadLocked() { engine_.reset(); }
 
 void MinimaxModel::reload(MinimaxConfig config) {
   validateConfig(config);
@@ -133,7 +144,8 @@ void MinimaxModel::reload(MinimaxConfig config) {
 void MinimaxModel::cancel() const {
   cancelRequested_.store(true);
   std::lock_guard lock(engineMutex_);
-  if (engine_) engine_->cancel();
+  if (engine_)
+    engine_->cancel();
 }
 
 std::any MinimaxModel::process(const std::any& input) {
@@ -142,12 +154,16 @@ std::any MinimaxModel::process(const std::any& input) {
 
 MinimaxModel::Output MinimaxModel::generate(const AnyInput& input) {
   std::lock_guard operationLock(operationMutex_);
-  cancelRequested_.store(false);
+  CancellationReset cancellationReset(cancelRequested_);
+  if (cancelRequested_.load()) {
+    throw std::runtime_error("MiniMax generation cancelled");
+  }
   const auto start = std::chrono::steady_clock::now();
   std::shared_ptr<tts_cpp::minimax::Engine> engine;
   {
     std::lock_guard lock(engineMutex_);
-    if (!engine_) loadLocked();
+    if (!engine_)
+      loadLocked();
     engine = engine_;
   }
 
@@ -161,7 +177,8 @@ MinimaxModel::Output MinimaxModel::generate(const AnyInput& input) {
 
   auto progress =
       [this](const std::string& stage, int64_t step, int64_t total) -> bool {
-    if (progressSink_) progressSink_(AudioGenProgress{stage, step, total});
+    if (progressSink_)
+      progressSink_(AudioGenProgress{stage, step, total});
     return !cancelRequested_.load();
   };
   const auto result = engine->generate(params, progress);
@@ -176,11 +193,10 @@ MinimaxModel::Output MinimaxModel::generate(const AnyInput& input) {
   totalSamples_ = static_cast<int64_t>(pcm.size());
   sampleRate_ = result.sample_rate;
   channels_ = result.channels;
-  audioDurationMs_ =
-      sampleRate_ > 0 && channels_ > 0
-          ? static_cast<double>(totalSamples_) / channels_ / sampleRate_ *
-                kMillisecondsPerSecond
-          : 0.0;
+  audioDurationMs_ = sampleRate_ > 0 && channels_ > 0
+                         ? static_cast<double>(totalSamples_) / channels_ /
+                               sampleRate_ * K_MILLISECONDS_PER_SECOND
+                         : 0.0;
   realTimeFactor_ =
       audioDurationMs_ > 0.0 ? totalTimeMs_ / audioDurationMs_ : 0.0;
   return pcm;
@@ -191,9 +207,9 @@ qvac_lib_inference_addon_cpp::RuntimeStats MinimaxModel::runtimeStats() const {
   stats.emplace_back("totalTimeMs", totalTimeMs_);
   stats.emplace_back("realTimeFactor", realTimeFactor_);
   stats.emplace_back("audioDurationMs", audioDurationMs_);
-  stats.emplace_back("backendDevice", kBackendDeviceCpu);
-  stats.emplace_back("backendId", kBackendIdCpu);
+  stats.emplace_back("backendDevice", K_BACKEND_DEVICE_CPU);
+  stats.emplace_back("backendId", K_BACKEND_ID_CPU);
   return stats;
 }
 
-}
+} // namespace qvac::audiogenggml::minimax
