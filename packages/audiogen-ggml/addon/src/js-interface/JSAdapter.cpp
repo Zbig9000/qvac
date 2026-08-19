@@ -94,6 +94,21 @@ bool readRequiredBool(js::Object obj, js_env_t* env, const char* key) {
 
 }  // namespace
 
+EngineType JSAdapter::readEngineType(
+    js::Object configurationParams, js_env_t* env) {
+  const std::string engineType =
+      readOptionalString(configurationParams, env, "engineType");
+  if (engineType.empty() || engineType == "acestep") {
+    return EngineType::Acestep;
+  }
+  if (engineType == "minimax") {
+    return EngineType::Minimax;
+  }
+  throw qvac_errors::StatusError(
+      general_error::InvalidArgument,
+      "engineType must be 'acestep' or 'minimax' (got '" + engineType + "')");
+}
+
 acestep::AcestepConfig JSAdapter::buildAcestepConfig(
     js::Object configurationParams, js_env_t* env) {
   acestep::AcestepConfig cfg;
@@ -112,6 +127,20 @@ acestep::AcestepConfig JSAdapter::buildAcestepConfig(
   // (see AcestepConfig::backendsDir). Empty when the host omits it; the addon
   // then relies on ggml's built-in search path.
   cfg.backendsDir = readOptionalString(configurationParams, env, "backendsDir");
+  return cfg;
+}
+
+minimax::MinimaxConfig JSAdapter::buildMinimaxConfig(
+    js::Object configurationParams, js_env_t* env) {
+  minimax::MinimaxConfig cfg;
+  cfg.modelDir = readOptionalString(configurationParams, env, "modelDir");
+  cfg.lmModelPath =
+      readOptionalString(configurationParams, env, "lmModelPath");
+  cfg.synthModelPath =
+      readOptionalString(configurationParams, env, "synthModelPath");
+  cfg.threads = readRequiredInt(configurationParams, env, "threads");
+  cfg.backendsDir =
+      readOptionalString(configurationParams, env, "backendsDir");
   return cfg;
 }
 

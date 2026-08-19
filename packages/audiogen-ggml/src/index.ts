@@ -20,6 +20,8 @@ import {
 import QvacLogger = require('@qvac/logging')
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- bare-path is a CommonJS module.
 import path = require('bare-path')
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- bare-os is a CommonJS module.
+import os = require('bare-os')
 
 import {
   AudioGenInterface,
@@ -33,10 +35,20 @@ import { encodePcm, type EncodeOptions, type EncodedAudio, type OutputFormat } f
 import { ERR_CODES, QvacErrorAudioGen } from './error'
 
 export const ENGINE_ACESTEP = 'acestep'
+export const ENGINE_MINIMAX = 'minimax'
+export const MINIMAX_FRAMES_PER_SECOND = 25
+export const MINIMAX_DEFAULT_MAX_FRAMES = 300
+const MINIMAX_MIN_FRAMES = 1
+const MINIMAX_MAX_INFERENCE_STEPS = 1000
+const INT32_MAX = 2147483647
+const FLOAT32_MAX = 3.4028234663852886e38
+const FLOAT32_MIN_POSITIVE = 1.401298464324817e-45
+
+export type AudioGenEngine = typeof ENGINE_ACESTEP | typeof ENGINE_MINIMAX
 
 type RunExclusive = <T>(callback: () => Promise<T>) => Promise<T>
 
-/** Model file paths for the four ACE-Step stages. */
+/** Model file paths for ACE-Step or MiniMax-Music3. */
 export interface AudioGenFiles {
   /** Directory holding the four ACE-Step GGUFs (engine auto-classifies them). */
   modelDir?: string
@@ -44,6 +56,8 @@ export interface AudioGenFiles {
   textEncModel?: string
   /** Explicit LM GGUF path. */
   lmModel?: string
+  /** Explicit MiniMax synthesis GGUF path. */
+  synthModel?: string
   /** Explicit DiT GGUF path (wins over `ditVariant`). */
   ditModel?: string
   /** Selects the DiT GGUF from `modelDir` when `ditModel` is not given. */
@@ -56,6 +70,8 @@ export interface AudioGenFiles {
 export interface AudioGenRuntimeConfig {
   /** 0 = engine auto-picks per DiT architecture (turbo 8 / sft 50). */
   inferenceSteps?: number
+  /** MiniMax flow classifier-free guidance scale; 0 uses the model default. */
+  cfgScale?: number
   /** 0 = engine auto-picks per DiT architecture (turbo 3.0 / sft 1.0). */
   shift?: number
   useGPU?: boolean
@@ -73,7 +89,9 @@ export interface AudioGenRuntimeConfig {
 }
 
 export interface AudioGenOptions {
-  /** Model file paths for the four stages. */
+  /** Music engine. Inferred as MiniMax when `synthModel` is present. */
+  engine?: AudioGenEngine
+  /** Local GGUF paths for the selected engine. */
   files?: AudioGenFiles
   /** Runtime knobs (steps, shift, GPU, threads). */
   config?: AudioGenRuntimeConfig
@@ -91,8 +109,14 @@ export interface GenerateOptions {
   keyscale?: string
   /** Time signature, e.g. "4/4". */
   timesignature?: string
-  /** Target length in seconds; undefined lets the LM decide the full length. */
+  /** Target length in seconds; MiniMax converts it to 25 semantic frames per second. */
   duration?: number
+  /** MiniMax semantic-frame cap. Cannot be combined with `duration`. */
+  maxFrames?: number
+  /** MiniMax flow steps for this generation; 0 uses the model default. */
+  inferenceSteps?: number
+  /** MiniMax flow classifier-free guidance scale for this generation. */
+  cfgScale?: number
   /** LM sampling temperature (ACE-Step default: 0.85). */
   lmTemperature?: number
   /** LM nucleus-sampling probability (ACE-Step default: 0.9). */
@@ -139,7 +163,7 @@ export interface GenerateOptions {
   coverNoiseStrength?: number
 }
 
-/** A per-step progress tick from the engine (stage = "lm" | "dit" | "vae"). */
+/** A per-step progress tick from the selected engine. */
 export interface AudiogenProgress {
   stage: string
   step: number
@@ -163,7 +187,7 @@ export type AudiogenOutputChunk = AudiogenPcmChunk | AudiogenProgressChunk
 
 /**
  * Terminal run stats, resolved by `QvacResponse.await()`. These mirror exactly
- * what the native `AcestepModel::runtimeStats()` emits — `totalTimeMs`,
+ * what the native model emits — `totalTimeMs`,
  * `realTimeFactor`, `audioDurationMs` and the resolved backend. Sample rate and
  * channel count are NOT here: they ride on each PCM chunk instead (see
  * `AudiogenPcmChunk`).
@@ -227,6 +251,44 @@ function optionalFiniteNumber (
   return value === undefined ? undefined : requireFiniteNumber(value, name, integer)
 }
 
+function requireSafeInteger (value: number, name: string): number {
+  requireFiniteNumber(value, name, true)
+  if (!Number.isSafeInteger(value)) {
+    throw invalidInput(`${name} must be a safe integer, got ${value}`)
+  }
+  return value
+}
+
+function requireMinimaxInferenceSteps (value: number): number {
+  const steps = requireSafeInteger(value, 'inferenceSteps')
+  if (steps < 0 || steps > MINIMAX_MAX_INFERENCE_STEPS) {
+    throw invalidInput(
+      `inferenceSteps must be between 0 and ${MINIMAX_MAX_INFERENCE_STEPS}`
+    )
+  }
+  return steps
+}
+
+function requireNonNegativeInt32 (value: number, name: string): number {
+  const integer = requireSafeInteger(value, name)
+  if (integer < 0 || integer > INT32_MAX) {
+    throw invalidInput(`${name} must be between 0 and ${INT32_MAX}`)
+  }
+  return integer
+}
+
+function requireMinimaxCfgScale (value: number): number {
+  const scale = requireFiniteNumber(value, 'cfgScale')
+  if (
+    scale < 0 ||
+    scale > FLOAT32_MAX ||
+    (scale > 0 && scale < FLOAT32_MIN_POSITIVE)
+  ) {
+    throw invalidInput('cfgScale must be 0 or a positive float32 value')
+  }
+  return scale
+}
+
 const GENERATE_TASK_TYPES = new Set(['text2music', 'cover', 'cover-nofsq'])
 
 function optionalTaskType (value: string | undefined): string | undefined {
@@ -272,64 +334,212 @@ function errorMessage (error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-/**
- * GGML-backed music generation via the ACE-Step engine. Owns a persistent
- * native engine: the four model stages are loaded once by `load()` and reused
- * by every `run()`.
- */
+const ACESTEP_FILE_KEYS: Array<keyof AudioGenFiles> = [
+  'textEncModel',
+  'ditModel',
+  'ditVariant',
+  'vaeModel'
+]
+
+const ACESTEP_GENERATE_KEYS: Array<keyof GenerateOptions> = [
+  'vocalLanguage',
+  'bpm',
+  'keyscale',
+  'timesignature',
+  'lmTemperature',
+  'lmTopP',
+  'lmTopK',
+  'lmCfgScale',
+  'lmPhase1',
+  'dcwEnabled',
+  'dcwScaler',
+  'dcwHighScaler',
+  'audioCodes',
+  'referenceAudio',
+  'sourceAudio',
+  'taskType',
+  'audioCoverStrength',
+  'coverNoiseStrength'
+]
+
+function hasAnyFile (files: AudioGenFiles, keys: Array<keyof AudioGenFiles>): boolean {
+  return keys.some((key) => files[key] !== undefined)
+}
+
+export function detectEngineType (
+  files: AudioGenFiles = {},
+  explicitEngine?: string
+): AudioGenEngine {
+  if (
+    explicitEngine !== undefined &&
+    explicitEngine !== ENGINE_ACESTEP &&
+    explicitEngine !== ENGINE_MINIMAX
+  ) {
+    throw invalidInput(`engine must be '${ENGINE_ACESTEP}' or '${ENGINE_MINIMAX}'`)
+  }
+  if (explicitEngine !== undefined) return explicitEngine
+  if (files.synthModel !== undefined) return ENGINE_MINIMAX
+  return ENGINE_ACESTEP
+}
+
+function validateMinimaxFiles (files: AudioGenFiles): void {
+  if (hasAnyFile(files, ACESTEP_FILE_KEYS)) {
+    throw invalidInput('MiniMax does not accept ACE-Step text encoder, DiT, or VAE files')
+  }
+  const hasDirectory = typeof files.modelDir === 'string' && files.modelDir.length > 0
+  const hasPair =
+    typeof files.lmModel === 'string' &&
+    files.lmModel.length > 0 &&
+    typeof files.synthModel === 'string' &&
+    files.synthModel.length > 0
+  if (!hasDirectory && !hasPair) {
+    throw invalidInput('MiniMax requires modelDir or both lmModel and synthModel')
+  }
+}
+
+function validateAcestepOptions (
+  files: AudioGenFiles,
+  config: AudioGenRuntimeConfig
+): void {
+  if (files.synthModel !== undefined) {
+    throw invalidInput('ACE-Step does not accept synthModel')
+  }
+  if (config.cfgScale !== undefined) {
+    throw invalidInput('ACE-Step does not accept cfgScale')
+  }
+}
+
+function validateMinimaxConfig (config: AudioGenRuntimeConfig): void {
+  if (config.useGPU !== undefined && typeof config.useGPU !== 'boolean') {
+    throw invalidInput('useGPU must be a boolean')
+  }
+  if (config.useGPU === true) {
+    throw invalidInput('MiniMax-Music3 supports CPU inference only')
+  }
+  if (config.shift !== undefined || config.nGpuLayers !== undefined) {
+    throw invalidInput('MiniMax does not accept shift or nGpuLayers')
+  }
+}
+
+function assertNoAcestepGenerateOptions (options: GenerateOptions): void {
+  for (const key of ACESTEP_GENERATE_KEYS) {
+    if (options[key] !== undefined) {
+      throw invalidInput(`MiniMax does not accept ${key}`)
+    }
+  }
+}
+
+function assertNoMinimaxGenerateOptions (options: GenerateOptions): void {
+  if (
+    options.maxFrames !== undefined ||
+    options.inferenceSteps !== undefined ||
+    options.cfgScale !== undefined
+  ) {
+    throw invalidInput('ACE-Step does not accept maxFrames, inferenceSteps, or cfgScale per run')
+  }
+}
+
+function resolveMinimaxMaxFrames (options: GenerateOptions): number {
+  if (options.maxFrames !== undefined && options.duration !== undefined) {
+    throw invalidInput('MiniMax accepts either maxFrames or duration, not both')
+  }
+  if (options.maxFrames !== undefined) {
+    const frames = requireSafeInteger(options.maxFrames, 'maxFrames')
+    if (frames < MINIMAX_MIN_FRAMES) throw invalidInput('maxFrames must be at least 1')
+    return frames
+  }
+  if (options.duration !== undefined) {
+    const duration = requireFiniteNumber(options.duration, 'duration')
+    if (duration <= 0) throw invalidInput('duration must be greater than 0')
+    const frames = Math.max(
+      MINIMAX_MIN_FRAMES,
+      Math.round(duration * MINIMAX_FRAMES_PER_SECOND)
+    )
+    return requireSafeInteger(frames, 'duration-derived maxFrames')
+  }
+  return MINIMAX_DEFAULT_MAX_FRAMES
+}
+
+function isMobilePlatform (): boolean {
+  const platform = os.platform()
+  return platform === 'android' || platform === 'ios'
+}
+
 export class AudioGen {
   static readonly inferenceManagerConfig = {
     noAdditionalDownload: true
   }
 
   static readonly ENGINE_ACESTEP = ENGINE_ACESTEP
+  static readonly ENGINE_MINIMAX = ENGINE_MINIMAX
 
   addon: AudioGenInterface | null
   private readonly _job: JobHandler
   private readonly _runExclusive: RunExclusive
   private readonly _configuration: AudioGenConfigurationParams
   private readonly _logger: QvacLogger
+  private readonly _engineType: AudioGenEngine
+  private readonly _defaultInferenceSteps: number
+  private readonly _defaultCfgScale: number
   private _lifecycleRevision: number
   private _destroyed: boolean
   private _cancelPromise: Promise<void> | null
   private _cancellingResponse: QvacResponse<AudiogenOutputChunk> | null
+  private _cancelTerminalResolve: (() => void) | null
 
   constructor (options: AudioGenOptions = {}) {
     this._logger = new QvacLogger(options.logger)
     const files = options.files ?? {}
     const config = options.config ?? {}
+    this._engineType = detectEngineType(files, options.engine)
+    const backendsDir = config.backendsDir ?? path.join(__dirname, 'prebuilds')
+    const threads = requireNonNegativeInt32(config.threads ?? 0, 'threads')
 
-    // DiT selection: an explicit `ditModel` path always wins; otherwise a
-    // `ditVariant` enum picks which DiT GGUF to load from `modelDir` (the three
-    // other stages are fixed, so the variant is the only real choice).
-    const ditModelPath = resolveDitModelPath({
-      modelDir: files.modelDir,
-      ditModel: files.ditModel,
-      ditVariant: files.ditVariant
-    })
-
-    // The native side carries NO defaults: it requires every numeric/bool field
-    // and throws if one is missing. JS is the single place that decides defaults.
-    // 0 for inferenceSteps/shift/threads means "auto"; nGpuLayers 99 = all layers
-    // (only applied by the engine when useGPU is true).
-    const useGpu = config.useGPU ?? false
-    this._configuration = {
-      engineType: ENGINE_ACESTEP,
-      modelDir: files.modelDir,
-      textEncModelPath: files.textEncModel,
-      lmModelPath: files.lmModel,
-      ditModelPath,
-      vaeModelPath: files.vaeModel,
-      inferenceSteps: requireFiniteNumber(config.inferenceSteps ?? 0, 'inferenceSteps', true),
-      shift: requireFiniteNumber(config.shift ?? 0, 'shift'),
-      useGPU: useGpu,
-      nGpuLayers: requireFiniteNumber(config.nGpuLayers ?? 99, 'nGpuLayers', true),
-      threads: requireFiniteNumber(config.threads ?? 0, 'threads', true),
-      // Where the native engine dlopens the ggml backend modules staged next to
-      // the `.bare`. Default to the package's own prebuilds dir; the C++ side
-      // appends the per-target BACKENDS_SUBDIR. Required on arm64 (per-microarch
-      // MODULE CPU backends); harmless on static desktop / Apple builds.
-      backendsDir: config.backendsDir ?? path.join(__dirname, 'prebuilds')
+    if (this._engineType === ENGINE_MINIMAX) {
+      if (isMobilePlatform()) {
+        throw invalidInput('MiniMax-Music3 is available on desktop only')
+      }
+      validateMinimaxFiles(files)
+      validateMinimaxConfig(config)
+      this._defaultInferenceSteps = requireMinimaxInferenceSteps(
+        config.inferenceSteps ?? 0
+      )
+      this._defaultCfgScale = requireMinimaxCfgScale(config.cfgScale ?? 0)
+      this._configuration = {
+        engineType: ENGINE_MINIMAX,
+        modelDir: files.modelDir,
+        lmModelPath: files.lmModel,
+        synthModelPath: files.synthModel,
+        threads,
+        backendsDir
+      }
+    } else {
+      validateAcestepOptions(files, config)
+      this._defaultInferenceSteps = requireFiniteNumber(
+        config.inferenceSteps ?? 0,
+        'inferenceSteps',
+        true
+      )
+      this._defaultCfgScale = 0
+      const ditModelPath = resolveDitModelPath({
+        modelDir: files.modelDir,
+        ditModel: files.ditModel,
+        ditVariant: files.ditVariant
+      })
+      this._configuration = {
+        engineType: ENGINE_ACESTEP,
+        modelDir: files.modelDir,
+        textEncModelPath: files.textEncModel,
+        lmModelPath: files.lmModel,
+        ditModelPath,
+        vaeModelPath: files.vaeModel,
+        inferenceSteps: this._defaultInferenceSteps,
+        shift: requireFiniteNumber(config.shift ?? 0, 'shift'),
+        useGPU: config.useGPU ?? false,
+        nGpuLayers: requireFiniteNumber(config.nGpuLayers ?? 99, 'nGpuLayers', true),
+        threads,
+        backendsDir
+      }
     }
 
     this.addon = null
@@ -341,9 +551,10 @@ export class AudioGen {
     this._destroyed = false
     this._cancelPromise = null
     this._cancellingResponse = null
+    this._cancelTerminalResolve = null
   }
 
-  /** Create the native engine and load every stage GGUF. Idempotent. */
+  /** Create the native engine and load its GGUF files. Idempotent. */
   async load (): Promise<void> {
     const revision = this._lifecycleRevision
     return this._runExclusive(() => this._load(revision))
@@ -354,7 +565,7 @@ export class AudioGen {
       throw this._lifecycleError()
     }
     if (this.addon) return
-    this._logger.info('audiogen-ggml: loading ACE-Step engine')
+    this._logger.info(`audiogen-ggml: loading ${this._engineType} engine`)
     const addon = this._createAddon(
       this._configuration,
       this._addonOutputCallback.bind(this)
@@ -443,6 +654,39 @@ export class AudioGen {
     this._logger.debug(
       `audiogen-ggml: run (caption ${caption.length} chars, lyrics=${opts.lyrics ? 'yes' : 'no'})`
     )
+    if (this._engineType === ENGINE_MINIMAX) {
+      return this._createMinimaxJobData(caption, opts)
+    }
+    return this._createAcestepJobData(caption, opts)
+  }
+
+  private _createMinimaxJobData (
+    caption: string,
+    opts: GenerateOptions
+  ): AudioGenJobData {
+    assertNoAcestepGenerateOptions(opts)
+    return {
+      type: 'text',
+      input: caption,
+      lyrics: opts.lyrics ?? '[Instrumental]',
+      seed: opts.seed === undefined ? undefined : requireSafeInteger(opts.seed, 'seed'),
+      maxFrames: resolveMinimaxMaxFrames(opts),
+      inferenceSteps:
+        opts.inferenceSteps === undefined
+          ? this._defaultInferenceSteps
+          : requireMinimaxInferenceSteps(opts.inferenceSteps),
+      cfgScale:
+        opts.cfgScale === undefined
+          ? this._defaultCfgScale
+          : requireMinimaxCfgScale(opts.cfgScale)
+    }
+  }
+
+  private _createAcestepJobData (
+    caption: string,
+    opts: GenerateOptions
+  ): AudioGenJobData {
+    assertNoMinimaxGenerateOptions(opts)
     if (opts.lmPhase1 !== undefined && typeof opts.lmPhase1 !== 'boolean') {
       throw invalidInput('lmPhase1 must be a boolean')
     }
@@ -500,6 +744,7 @@ export class AudioGen {
     } finally {
       if (this._cancelPromise === cancellation) this._cancelPromise = null
       if (this._cancellingResponse === response) this._cancellingResponse = null
+      this._cancelTerminalResolve = null
     }
   }
 
@@ -507,8 +752,12 @@ export class AudioGen {
     response: QvacResponse<AudiogenOutputChunk>
   ): Promise<void> {
     this._cancellingResponse = response
+    const terminal = new Promise<void>((resolve) => {
+      this._cancelTerminalResolve = resolve
+    })
     try {
       await (this.addon?.cancel() ?? Promise.resolve())
+      await terminal
     } catch (error) {
       const failedError = this._failedCancelError(error)
       response.failed(failedError)
@@ -601,7 +850,18 @@ export class AudioGen {
     data: unknown,
     error: unknown
   ): void {
-    if (this._cancellingResponse) return
+    if (this._cancellingResponse) {
+      const cancelledData = asNativeData(data)
+      const terminalError = typeof error === 'string' && error.length > 0
+      const terminalStats =
+        cancelledData !== null &&
+        (typeof cancelledData.audioDurationMs === 'number' ||
+          typeof cancelledData.totalTimeMs === 'number')
+      if (terminalError || terminalStats) {
+        this._cancelTerminalResolve?.()
+      }
+      return
+    }
     if (typeof error === 'string' && error.length > 0) {
       this._logger.error(`audiogen-ggml: engine error: ${error}`)
       this._job.fail(

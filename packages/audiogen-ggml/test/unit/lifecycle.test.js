@@ -107,9 +107,22 @@ test('cancel settles the active response', async (t) => {
   const { gen, cancelCalls } = createHarness(() => Promise.resolve(true))
   const response = await gen.run('cancel me')
 
-  await gen.cancel()
+  const cancellation = gen.cancel()
+  emitEnd(gen)
+  await cancellation
 
   t.is(cancelCalls(), 1)
+  t.is(await errorCode(response.await()), ERR_CODES.CANCELLED)
+})
+
+test('cancel consumes the native cancellation error before settling', async (t) => {
+  const { gen } = createHarness(() => Promise.resolve(true))
+  const response = await gen.run('cancel with native error')
+
+  const cancellation = gen.cancel()
+  gen._addonOutputCallback(null, null, null, 'MiniMax generation cancelled')
+  await cancellation
+
   t.is(await errorCode(response.await()), ERR_CODES.CANCELLED)
 })
 
@@ -137,6 +150,9 @@ test('cancel holds the next admission until native cancellation finishes', async
   t.is(admissions, 1)
 
   cancellation.resolve()
+  await Promise.resolve()
+  t.is(admissions, 1, 'second run waits for the cancelled native terminal event')
+  emitEnd(gen)
   await cancelPromise
   t.is(await errorCode(first.await()), ERR_CODES.CANCELLED)
   const second = await secondPromise
@@ -174,6 +190,7 @@ test('concurrent cancellation requests share one native cancellation', async (t)
   const first = gen.cancel()
   const second = gen.cancel()
   cancellation.resolve()
+  emitEnd(gen)
   await Promise.all([first, second])
 
   t.is(nativeCancelCalls, 1)

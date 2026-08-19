@@ -4,14 +4,21 @@
 #include <inference-addon-cpp/JsUtils.hpp>
 
 #include "model-interface/acestep/AcestepConfig.hpp"
+#include "model-interface/minimax/MinimaxConfig.hpp"
 
 namespace qvac::audiogenggml {
 
-// Translates the JS `configuration` object into the C++ AcestepConfig.
-// Mirrors ttsggml::JSAdapter (flat keys, read via inference-addon-cpp JsUtils).
+enum class EngineType { Acestep, Minimax };
+
 class JSAdapter {
 public:
+  EngineType readEngineType(
+      qvac_lib_inference_addon_cpp::js::Object configurationParams,
+      js_env_t* env);
   acestep::AcestepConfig buildAcestepConfig(
+      qvac_lib_inference_addon_cpp::js::Object configurationParams,
+      js_env_t* env);
+  minimax::MinimaxConfig buildMinimaxConfig(
       qvac_lib_inference_addon_cpp::js::Object configurationParams,
       js_env_t* env);
 };

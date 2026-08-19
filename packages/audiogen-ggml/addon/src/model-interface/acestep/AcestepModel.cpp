@@ -183,7 +183,7 @@ AcestepModel::Output AcestepModel::generate(const AnyInput& in) {
   params.shift = cfg_.shift;
 
   auto progress = [this](const std::string& stage, int step, int total) -> bool {
-    if (progressSink_) progressSink_(AcestepProgress{stage, step, total});
+    if (progressSink_) progressSink_(AudioGenProgress{stage, step, total});
     return !cancelRequested_.load();
   };
 
