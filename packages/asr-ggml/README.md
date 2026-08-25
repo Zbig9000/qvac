@@ -507,6 +507,17 @@ GPU backends are selected per platform via `vcpkg.json` features; no
 - **Android** — Vulkan + OpenCL (Adreno) as dynamically-loaded `.so` backends shipped beside the prebuild
 - **macOS / iOS** — Metal, statically linked
 
+**CUDA (Linux / Windows on NVIDIA)** is the one exception: it is opt-in,
+because it needs `nvcc` on the build host, which the published prebuilds are
+not built with. Build it yourself with `npm run build:cuda` (or
+`bare-make generate -D ASR_CUDA=ON`), which adds the `cuda` feature to the
+`speech-cpp` dependency and turns on `GGML_CUDA`. Only the NVIDIA driver is
+needed at runtime. CUDA is compiled *alongside* Vulkan rather than replacing
+it; ggml registers CUDA ahead of Vulkan, so a `use_gpu` / `useGPU` request
+lands on CUDA when a supported device is present and falls back to Vulkan
+otherwise. Both engines report the winner through `getBackendInfo()` as
+`backendId: 2` (`BackendId.CUDA`).
+
 Both engines default to CPU: whisper needs `contextParams.use_gpu: true`,
 parakeet needs `parakeetConfig.useGPU: true`.
 
@@ -606,7 +617,10 @@ rationale.
   `VCPKG_ROOT=/path/to/vcpkg`
 - Optional GPU SDKs: [Vulkan SDK](https://vulkan.lunarg.com/) on
   Linux/Windows (`vulkan-tools libvulkan-dev vulkan-utility-libraries-dev
-  spirv-tools` on Ubuntu/Debian); Metal needs nothing on macOS/iOS
+  spirv-tools` on Ubuntu/Debian); Metal needs nothing on macOS/iOS; the
+  opt-in CUDA build additionally needs the
+  [CUDA Toolkit](https://developer.nvidia.com/cuda-downloads) (`nvcc`) on
+  Linux/Windows
 
 ### Build
 
@@ -616,10 +630,12 @@ cd qvac/packages/asr-ggml
 git submodule update --init --recursive
 npm install
 npm run build          # build:ts (TypeScript) + build:native (bare-make)
+npm run build:cuda     # same, with the CUDA backend compiled in (needs nvcc)
 ```
 
 `build:native` runs `bare-make generate` → `bare-make build` →
-`bare-make install`.
+`bare-make install`. `build:native:cuda` is the same chain with
+`-D ASR_CUDA=ON` on the generate step.
 
 ### Test
 

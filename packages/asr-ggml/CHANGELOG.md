@@ -14,6 +14,20 @@ restarts at `0.1.0`; the two pre-merge histories are preserved verbatim as
 
 ## [Unreleased]
 
+### Added
+
+- **CUDA GPU backend for both engines on Linux / Windows (NVIDIA).** The
+  addon already resolved and reported CUDA at runtime (`BackendId.CUDA`, `2`),
+  but no build ever compiled the backend in. `asr-ggml[cuda]` now forwards to
+  `speech-cpp[cuda]` → `ggml-speech[cuda]` (`GGML_CUDA=ON`), gated behind the
+  new `ASR_CUDA` CMake option and the `npm run build:cuda` /
+  `build:native:cuda` scripts. It is opt-in rather than default because it
+  needs `nvcc` on the build host, which the published prebuilds do not carry;
+  only the NVIDIA driver is needed at runtime. CUDA is compiled alongside
+  Vulkan, and ggml registers CUDA first, so a `use_gpu` / `useGPU` request
+  prefers CUDA and falls back to Vulkan when no supported device is present.
+  Apple and Android are excluded (`supports: !(osx | ios | android)`).
+
 ### Fixed
 
 - **Parakeet duplex streaming no longer drops the tail of the transcript when

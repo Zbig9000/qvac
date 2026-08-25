@@ -3,8 +3,18 @@ cmake_minimum_required(VERSION 3.25)
 option(BUILD_TESTING "Build tests" OFF)
 option(ENABLE_COVERAGE "Enable coverage" OFF)
 
+# Vulkan / Metal / OpenCL are wired per-platform by the unconditional
+# speech-cpp dependencies in vcpkg.json. CUDA stays opt-in because it needs
+# nvcc on the build host, which the default build and the prebuild runners do
+# not carry (diffusion-cpp's SD_CUDA precedent).
+option(ASR_CUDA "Enable the CUDA GPU backend (requires nvcc on the build host)" OFF)
+
 if(BUILD_TESTING)
   list(APPEND VCPKG_MANIFEST_FEATURES "tests")
+endif()
+
+if(ASR_CUDA)
+  list(APPEND VCPKG_MANIFEST_FEATURES "cuda")
 endif()
 
 find_package(cmake-bare REQUIRED PATHS node_modules/cmake-bare)
