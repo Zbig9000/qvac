@@ -28,6 +28,31 @@ restarts at `0.1.0`; the two pre-merge histories are preserved verbatim as
   prefers CUDA and falls back to Vulkan when no supported device is present.
   Apple and Android are excluded (`supports: !(osx | ios | android)`).
 
+  Enabling it also required two build fixes, both of which made the CUDA path
+  unbuildable before now:
+
+  - `vcpkg-overlays/toolchains/linux-clang.cmake` pins
+    `CMAKE_CUDA_HOST_COMPILER` to `clang++`. `nvcc` otherwise defaults to
+    `g++`, which rejects the `-stdlib=libc++` the Linux triplets put in
+    `VCPKG_CXX_FLAGS` / `VCPKG_LINKER_FLAGS`, so `enable_language(CUDA)` failed
+    its ABI check for every consumer of these triplets.
+  - The addon links `CUDA::cudart_static` and `CUDA::cublas{,Lt}_static`
+    itself. `ggml-config.cmake` gates them behind `if (GGML_STATIC)`, but
+    `GGML_STATIC` also means `add_link_options(-static)` in ggml's own build
+    and so cannot be enabled for a shared bare module, leaving
+    `ggml::ggml-cuda` with no CUDA runtime in its interface. Without this the
+    module linked `libcuda.so.1` and then aborted at load with
+    `undefined symbol: __cudaRegisterFatBinary`.
+
+### Changed
+
+- **The GPU integration tests accept CUDA as a desktop backend.**
+  `gpu.test.js` and `parakeet-gpu-smoke.test.js` asserted
+  `backendId === 3` (Vulkan) on Linux / Windows, which was written when Vulkan
+  was the only GPU backend wired there. Both now accept CUDA (`2`) or Vulkan
+  (`3`), because a CUDA-enabled build compiles both in and ggml registers CUDA
+  first.
+
 ### Fixed
 
 - **Parakeet duplex streaming no longer drops the tail of the transcript when

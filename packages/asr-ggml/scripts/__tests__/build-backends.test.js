@@ -14,6 +14,11 @@ const CUDA_CMAKE_OPTION = 'ASR_CUDA'
 const CUDA_MANIFEST_FEATURE = 'cuda'
 const SPEECH_PORT = 'speech-cpp'
 const DESKTOP_PLATFORM = '!(osx | ios | android)'
+const CUDA_RUNTIME_LIBRARIES = ['cudart_static', 'cublas_static', 'cublasLt_static']
+const GPU_TEST_FILES = [
+  'test/integration/gpu.test.js',
+  'test/integration/parakeet-gpu-smoke.test.js'
+]
 
 function speechDependencies(dependencies) {
   return dependencies.filter((dependency) => dependency.name === SPEECH_PORT)
@@ -68,4 +73,18 @@ test('the cuda feature is confined to the platforms that have NVIDIA GPUs', () =
 
 test('the cuda feature requires a speech-cpp that declares it', () => {
   assert.ok(versionFloorOf(cudaSpeechDependency()) >= versionFloorOf(desktopSpeechDependency()))
+})
+
+test('the CUDA build links the CUDA runtime ggml-config leaves out', () => {
+  assert.match(cmakeSource, new RegExp(`if\\(${CUDA_CMAKE_OPTION}\\)[\\s\\S]*?CUDAToolkit`))
+  CUDA_RUNTIME_LIBRARIES.forEach((library) =>
+    assert.match(cmakeSource, new RegExp(`CUDA::${library}\\b`), library)
+  )
+})
+
+test('the GPU integration tests accept CUDA as a desktop backend', () => {
+  GPU_TEST_FILES.forEach((file) => {
+    const source = fs.readFileSync(path.join(packageRoot, file), 'utf8')
+    assert.match(source, /id === 2 \|\| id === 3/, file)
+  })
 })

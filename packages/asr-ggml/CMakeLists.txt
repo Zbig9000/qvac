@@ -177,6 +177,24 @@ target_link_libraries(
     ggml::ggml
 )
 
+# ggml-config.cmake gates CUDA::cudart_static and CUDA::cublas{,Lt}_static
+# behind `if (GGML_STATIC)`, but GGML_STATIC also means `add_link_options(-static)`
+# in ggml's own build, so a shared bare module must leave it OFF. The result is a
+# ggml::ggml-cuda whose interface carries only CUDA::cuda_driver: the module links
+# libcuda.so.1 and then dies at load with `undefined symbol:
+# __cudaRegisterFatBinary`. ggml conflates link mode with CUDA runtime flavour, so
+# the consumer has to name the runtime itself.
+if(ASR_CUDA)
+  find_package(CUDAToolkit REQUIRED)
+  target_link_libraries(
+    ${asr-ggml}
+    PRIVATE
+      CUDA::cudart_static
+      CUDA::cublas_static
+      CUDA::cublasLt_static
+  )
+endif()
+
 target_compile_definitions(${asr-ggml} PUBLIC JS_LOGGER)
 # Same value the JS side appends to the host-provided `backendsDir`
 # default (`path.join(__dirname, 'prebuilds', <subdir>)`). The consumers

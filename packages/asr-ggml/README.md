@@ -518,6 +518,20 @@ lands on CUDA when a supported device is present and falls back to Vulkan
 otherwise. Both engines report the winner through `getBackendInfo()` as
 `backendId: 2` (`BackendId.CUDA`).
 
+Two things the CUDA build has to work around, both handled in
+`CMakeLists.txt` / the shared clang toolchain:
+
+- `nvcc` defaults its host compiler to `g++`, which rejects the
+  `-stdlib=libc++` the Linux triplets set, so enabling the CUDA language used
+  to fail its ABI check. `vcpkg-overlays/toolchains/linux-clang.cmake` pins
+  `CMAKE_CUDA_HOST_COMPILER` to `clang++` to match.
+- `ggml-config.cmake` hides `CUDA::cudart_static` and
+  `CUDA::cublas{,Lt}_static` behind `if (GGML_STATIC)`, but `GGML_STATIC` also
+  means `add_link_options(-static)` in ggml's own build and so must stay off
+  for a shared bare module. The addon therefore links the CUDA runtime
+  explicitly; without it the module loads and dies on
+  `undefined symbol: __cudaRegisterFatBinary`.
+
 Both engines default to CPU: whisper needs `contextParams.use_gpu: true`,
 parakeet needs `parakeetConfig.useGPU: true`.
 
