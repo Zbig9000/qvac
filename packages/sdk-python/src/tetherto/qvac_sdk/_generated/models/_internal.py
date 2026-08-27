@@ -7178,53 +7178,137 @@ class LoadModelSrcRequestWhispercppTranscription(GeneratedBaseModel):
 class LoadModelSrcRequestBciWhispercppTranscriptionModelConfigWhisperConfig(
     GeneratedBaseModel
 ):
-    language: str | None = None
+    language: Annotated[
+        str | None,
+        Field(description="Transcription language (ISO 639-1). Default `en`."),
+    ] = None
     n_threads: Annotated[
-        int | None, Field(ge=-9007199254740991, le=9007199254740991)
+        int | None,
+        Field(
+            description="Number of CPU threads. `0` = auto.",
+            ge=-9007199254740991,
+            le=9007199254740991,
+        ),
     ] = None
-    temperature: float | None = None
-    suppress_nst: bool | None = None
-    suppress_blank: bool | None = None
+    temperature: Annotated[
+        float | None, Field(description="Sampling temperature. Default 0.0.")
+    ] = None
+    suppress_nst: Annotated[
+        bool | None, Field(description="Suppress non-speech tokens (NST).")
+    ] = None
+    suppress_blank: Annotated[
+        bool | None,
+        Field(
+            description="Suppress the blank / leading-space token at the start of sampling."
+        ),
+    ] = None
     duration_ms: Annotated[
-        int | None, Field(ge=-9007199254740991, le=9007199254740991)
+        int | None,
+        Field(
+            description="Maximum duration of audio to transcribe, in milliseconds.",
+            ge=-9007199254740991,
+            le=9007199254740991,
+        ),
     ] = None
-    translate: bool | None = None
-    no_timestamps: bool | None = None
-    single_segment: bool | None = None
-    print_special: bool | None = None
-    print_progress: bool | None = None
-    print_realtime: bool | None = None
-    print_timestamps: bool | None = None
-    detect_language: bool | None = None
+    translate: Annotated[
+        bool | None, Field(description="Translate the transcribed audio into English.")
+    ] = None
+    no_timestamps: Annotated[
+        bool | None, Field(description="Omit timestamps from the transcription output.")
+    ] = None
+    single_segment: Annotated[
+        bool | None,
+        Field(
+            description="Force the whole audio into one output segment (for streaming or short clips)."
+        ),
+    ] = None
+    print_special: Annotated[
+        bool | None, Field(description="Print special tokens in the output.")
+    ] = None
+    print_progress: Annotated[
+        bool | None, Field(description="Print progress updates during transcription.")
+    ] = None
+    print_realtime: Annotated[
+        bool | None,
+        Field(
+            description="whisper.cpp prints results to stderr as it decodes; diagnostic only (prefer the segment callback)."
+        ),
+    ] = None
+    print_timestamps: Annotated[
+        bool | None,
+        Field(
+            description="Prefix each `print_realtime` line with `[t0 --> t1]`; no effect on returned data."
+        ),
+    ] = None
+    detect_language: Annotated[
+        bool | None,
+        Field(
+            description="Not supported natively (rejected by the addon); use `language: 'auto'` to auto-detect the spoken language."
+        ),
+    ] = None
     greedy_best_of: Annotated[
-        int | None, Field(ge=-9007199254740991, le=9007199254740991)
+        int | None,
+        Field(
+            description="Greedy decoding: number of candidate completions; `-1` = default.",
+            ge=-9007199254740991,
+            le=9007199254740991,
+        ),
     ] = None
     beam_search_beam_size: Annotated[
-        int | None, Field(ge=-9007199254740991, le=9007199254740991)
+        int | None,
+        Field(
+            description="Beam size for beam-search decoding; `-1` = default.",
+            ge=-9007199254740991,
+            le=9007199254740991,
+        ),
     ] = None
 
 
 class LoadModelSrcRequestBciWhispercppTranscriptionModelConfigBciConfig(
     GeneratedBaseModel
 ):
-    day_idx: Annotated[int | None, Field(ge=-9007199254740991, le=9007199254740991)] = (
-        None
-    )
+    day_idx: Annotated[
+        int | None,
+        Field(
+            description="Session day index selecting day-specific projection matrices; `-1` enables mel passthrough (parity testing only).",
+            ge=-9007199254740991,
+            le=9007199254740991,
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestBciWhispercppTranscriptionModelConfigContextParams(
     GeneratedBaseModel
 ):
-    model: str | None = None
-    use_gpu: bool | None = None
-    flash_attn: bool | None = None
-    gpu_device: float | None = None
+    model: Annotated[
+        str | None,
+        Field(
+            description="Optional whisper model path override (usually set via the loaded model files)."
+        ),
+    ] = None
+    use_gpu: Annotated[
+        bool | None,
+        Field(
+            description="Enable GPU acceleration. Enabled by default; set false to force CPU."
+        ),
+    ] = None
+    flash_attn: Annotated[bool | None, Field(description="Enable flash attention.")] = (
+        None
+    )
+    gpu_device: Annotated[
+        float | None, Field(description="GPU device index to use.")
+    ] = None
 
 
 class LoadModelSrcRequestBciWhispercppTranscriptionModelConfigMiscConfig(
     GeneratedBaseModel
 ):
-    caption_enabled: bool | None = None
+    caption_enabled: Annotated[
+        bool | None,
+        Field(
+            description="Format output segments with caption markers. Default false."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestBciWhispercppTranscriptionModelConfigEmbedderModelSrcAddon(
@@ -7306,12 +7390,21 @@ class LoadModelSrcRequestBciWhispercppTranscriptionModelConfig(GeneratedBaseMode
             title="LoadModelSrcRequestBciWhispercppTranscriptionModelConfigMiscConfig",
         ),
     ] = None
-    backends_dir: Annotated[str | None, Field(alias="backendsDir")] = None
+    backends_dir: Annotated[
+        str | None,
+        Field(
+            alias="backendsDir",
+            description="Android only: override the default ggml backend prebuilds directory. Defaults to `<addon>/prebuilds`.",
+        ),
+    ] = None
     embedder_model_src: Annotated[
         str
         | LoadModelSrcRequestBciWhispercppTranscriptionModelConfigEmbedderModelSrc
         | None,
-        Field(alias="embedderModelSrc"),
+        Field(
+            alias="embedderModelSrc",
+            description="BCI embedder model source (neural-signal embedder weights).",
+        ),
     ] = None
 
 
