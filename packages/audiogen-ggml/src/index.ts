@@ -43,6 +43,7 @@ import { ERR_CODES, QvacErrorAudioGen } from './error'
 
 export const ENGINE_ACESTEP = 'acestep'
 export const ENGINE_MINIMAX = 'minimax'
+const SUPPORTED_ENGINES: readonly string[] = [ENGINE_ACESTEP, ENGINE_MINIMAX]
 export const MINIMAX_FRAMES_PER_SECOND = 25
 export const MINIMAX_DEFAULT_MAX_FRAMES = 300
 const MINIMAX_MIN_FRAMES = 1
@@ -594,9 +595,17 @@ function hasAnyFile(files: AudioGenFiles, keys: Array<keyof AudioGenFiles>): boo
   return keys.some((key) => files[key] !== undefined)
 }
 
+function quoteEngine(engine: string): string {
+  return `'${engine}'`
+}
+
+function supportedEnginesMessage(): string {
+  return SUPPORTED_ENGINES.map(quoteEngine).join(' or ')
+}
+
 function validateEngineType(engine: string | undefined): void {
-  if (engine !== undefined && engine !== ENGINE_ACESTEP && engine !== ENGINE_MINIMAX) {
-    throw invalidInput(`engine must be '${ENGINE_ACESTEP}' or '${ENGINE_MINIMAX}'`)
+  if (engine !== undefined && !SUPPORTED_ENGINES.includes(engine)) {
+    throw invalidInput(`engine must be ${supportedEnginesMessage()}`)
   }
 }
 
