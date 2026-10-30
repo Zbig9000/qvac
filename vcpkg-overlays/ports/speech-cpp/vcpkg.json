@@ -1,7 +1,7 @@
 {
   "name": "speech-cpp",
   "version-date": "2026-10-29",
-  "port-version": 1,
+  "port-version": 2,
   "description": "Umbrella port over the QVAC speech stack with one shared ggml dependency (the qvac-fabric port, the same ggml the LLM stack ships) and selectable whisper, parakeet, TTS, and audiogen engines.",
   "homepage": "https://github.com/tetherto/qvac-fabric-speech.cpp",
   "license": "MIT",
